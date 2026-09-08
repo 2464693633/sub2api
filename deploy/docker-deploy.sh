@@ -20,8 +20,11 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# GitHub raw content base URL
-GITHUB_RAW_URL="https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy"
+# GitHub source for deployment files. Override these variables to deploy a
+# different fork or branch without editing this script.
+GITHUB_REPO="${GITHUB_REPO:-2464693633/sub2api}"
+GITHUB_REF="${GITHUB_REF:-main}"
+GITHUB_RAW_URL="${GITHUB_RAW_URL:-https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_REF}/deploy}"
 
 # Print colored message
 print_info() {

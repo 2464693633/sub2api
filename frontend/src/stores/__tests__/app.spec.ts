@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useAppStore } from '@/stores/app'
 import { getPublicSettings } from '@/api/auth'
+import { checkUpdates } from '@/api/admin/system'
 import type { PublicSettings } from '@/types'
 
 function createDeferred<T>() {
@@ -79,6 +80,7 @@ describe('useAppStore', () => {
     vi.useFakeTimers()
     localStorage.clear()
     vi.mocked(getPublicSettings).mockReset()
+    vi.mocked(checkUpdates).mockReset()
     // 清除 window.__APP_CONFIG__
     delete (window as any).__APP_CONFIG__
   })
@@ -319,6 +321,31 @@ describe('useAppStore', () => {
       expect(store.sidebarCollapsed).toBe(false)
       expect(store.loading).toBe(false)
       expect(store.toasts).toHaveLength(0)
+    })
+  })
+
+  describe('版本信息加载', () => {
+    it('保存更新仓库并在缓存响应中返回', async () => {
+      vi.mocked(checkUpdates).mockResolvedValue({
+        current_version: '1.2.3',
+        latest_version: '1.2.4',
+        has_update: true,
+        repository: '2464693633/sub2api',
+        cached: false,
+        build_type: 'release'
+      })
+      const store = useAppStore()
+
+      await expect(store.fetchVersion()).resolves.toMatchObject({
+        repository: '2464693633/sub2api'
+      })
+      expect(store.updateRepository).toBe('2464693633/sub2api')
+
+      await expect(store.fetchVersion()).resolves.toMatchObject({
+        repository: '2464693633/sub2api',
+        cached: true
+      })
+      expect(checkUpdates).toHaveBeenCalledTimes(1)
     })
   })
 

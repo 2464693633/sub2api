@@ -31,13 +31,17 @@ type updateServiceGitHubClientStub struct {
 	release        *GitHubRelease
 	recentReleases []*GitHubRelease
 	recentErr      error
+	latestRepo     string
+	recentRepo     string
 }
 
-func (s *updateServiceGitHubClientStub) FetchLatestRelease(context.Context, string) (*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.latestRepo = repo
 	return s.release, nil
 }
 
-func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, string, int) ([]*GitHubRelease, error) {
+func (s *updateServiceGitHubClientStub) FetchRecentReleases(_ context.Context, repo string, _ int) ([]*GitHubRelease, error) {
+	s.recentRepo = repo
 	return s.recentReleases, s.recentErr
 }
 
@@ -60,6 +64,7 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 		},
 		"0.1.132",
 		"release",
+		defaultUpdateRepository,
 	)
 
 	err := svc.PerformUpdate(context.Background())
@@ -75,6 +80,7 @@ func newRollbackTestService(current string, releases []*GitHubRelease) *UpdateSe
 		&updateServiceGitHubClientStub{recentReleases: releases},
 		current,
 		"release",
+		defaultUpdateRepository,
 	)
 }
 
@@ -137,6 +143,7 @@ func TestUpdateServiceListRollbackVersionsPropagatesFetchError(t *testing.T) {
 		&updateServiceGitHubClientStub{recentErr: errors.New("github unavailable")},
 		"0.1.147",
 		"release",
+		defaultUpdateRepository,
 	)
 
 	_, err := svc.ListRollbackVersions(context.Background())
@@ -184,4 +191,150 @@ func TestUpdateServiceRollbackToVersionAcceptsVPrefix(t *testing.T) {
 	require.Error(t, err)
 	require.NotErrorIs(t, err, ErrRollbackVersionNotAllowed)
 	require.Contains(t, err.Error(), "no compatible release found")
+}
+
+func TestUpdateServiceUsesConfiguredRepository(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "")
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.1.0"}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.0.0", "release", "owner/custom-sub2api")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "owner/custom-sub2api", client.latestRepo)
+	require.Equal(t, "owner/custom-sub2api", info.Repository)
+	require.True(t, info.HasUpdate)
+}
+
+func TestUpdateServiceRuntimeRepositoryOverridesBuildDefault(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", " runtime-owner/runtime-repo ")
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.0.0"}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.0.0", "release", "build-owner/build-repo")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "runtime-owner/runtime-repo", client.latestRepo)
+	require.Equal(t, "runtime-owner/runtime-repo", info.Repository)
+}
+
+func TestUpdateServiceInvalidRuntimeRepositoryFallsBackToBuildDefault(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "https://github.com/attacker/repo")
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.0.0"}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.0.0", "release", "build-owner/build-repo")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "build-owner/build-repo", client.latestRepo)
+	require.Equal(t, "build-owner/build-repo", info.Repository)
+}
+
+func TestUpdateServiceInvalidRepositoriesFallBackToForkDefault(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "../runtime-repo")
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.0.0"}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.0.0", "release", "owner/repo/extra")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, defaultUpdateRepository, client.latestRepo)
+	require.Equal(t, defaultUpdateRepository, info.Repository)
+}
+
+func TestNormalizeUpdateRepository(t *testing.T) {
+	tests := []struct {
+		input string
+		valid bool
+	}{
+		{input: " Acme/Sub2API ", valid: true},
+		{input: "owner/repo.name_1-rc", valid: true},
+		{input: "https://github.com/owner/repo", valid: false},
+		{input: "owner/repo/extra", valid: false},
+		{input: "../repo", valid: false},
+		{input: "owner/..", valid: false},
+		{input: "owner/repo;whoami", valid: false},
+		{input: "owner\\repo", valid: false},
+		{input: "", valid: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			_, valid := normalizeUpdateRepository(tt.input)
+			require.Equal(t, tt.valid, valid)
+		})
+	}
+}
+
+func TestUpdateServiceUsesForkFallbackRepository(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "")
+	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.0.0"}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.0.0", "release", "")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, defaultUpdateRepository, client.latestRepo)
+	require.Equal(t, defaultUpdateRepository, info.Repository)
+}
+
+func TestUpdateServiceCacheIsScopedToRepository(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "")
+	cache := &updateServiceCacheStub{}
+	firstClient := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v1.1.0"}}
+	first := NewUpdateService(cache, firstClient, "1.0.0", "release", "owner/first")
+	_, err := first.CheckUpdate(context.Background(), true)
+	require.NoError(t, err)
+
+	secondClient := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v2.0.0"}}
+	second := NewUpdateService(cache, secondClient, "1.0.0", "release", "owner/second")
+	info, err := second.CheckUpdate(context.Background(), false)
+
+	require.NoError(t, err)
+	require.Equal(t, "owner/second", secondClient.latestRepo)
+	require.Equal(t, "owner/second", info.Repository)
+	require.Equal(t, "2.0.0", info.LatestVersion)
+}
+
+func TestCompareVersionsSemVer(t *testing.T) {
+	tests := []struct {
+		name     string
+		current  string
+		latest   string
+		expected int
+	}{
+		{name: "patch", current: "1.2.3", latest: "1.2.4", expected: -1},
+		{name: "optional v prefix", current: "v1.2.3", latest: "1.2.3", expected: 0},
+		{name: "numeric fork suffix", current: "1.2.3-custom.9", latest: "1.2.3-custom.10", expected: -1},
+		{name: "stable follows fork prerelease", current: "1.2.3-custom.10", latest: "1.2.3", expected: -1},
+		{name: "build metadata ignored", current: "1.2.3+fork.1", latest: "1.2.3+fork.2", expected: 0},
+		{name: "valid latest follows invalid development version", current: "development", latest: "1.0.0", expected: -1},
+		{name: "invalid latest rejected", current: "1.0.0", latest: "not-a-version", expected: 1},
+		{name: "two invalid versions cannot be ordered", current: "development", latest: "nightly", expected: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, compareVersions(tt.current, tt.latest))
+		})
+	}
+}
+
+func TestUpdateServiceRollbackVersionsSkipInvalidTags(t *testing.T) {
+	t.Setenv("UPDATE_GITHUB_REPO", "")
+	client := &updateServiceGitHubClientStub{recentReleases: []*GitHubRelease{
+		{TagName: "release-old"},
+		{TagName: "v1.1.9-custom.2"},
+		{TagName: "v1.1.9-custom.1"},
+	}}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "1.2.0-custom.1", "release", "owner/repo")
+
+	versions, err := svc.ListRollbackVersions(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, "owner/repo", client.recentRepo)
+	require.Equal(t, []RollbackVersion{
+		{Version: "1.1.9-custom.2"},
+		{Version: "1.1.9-custom.1"},
+	}, versions)
 }

@@ -12,7 +12,7 @@
 
 services:
   sub2api:
-    image: weishaw/sub2api:latest
+    image: "${SUB2API_IMAGE:-ghcr.io/2464693633/sub2api}:${SUB2API_IMAGE_TAG:-latest}"
     container_name: sub2api
     restart: unless-stopped
     security_opt:
@@ -41,6 +41,7 @@ services:
       - SERVER_MODE=${SERVER_MODE:-release}
       - ENABLE_SERVER_TIMING=${ENABLE_SERVER_TIMING:-false}
       - RUN_MODE=${RUN_MODE:-standard}
+      - UPDATE_GITHUB_REPO=${UPDATE_GITHUB_REPO:-2464693633/sub2api}
       - UPDATE_GITHUB_TOKEN=${UPDATE_GITHUB_TOKEN:-}
 
       # =======================================================================

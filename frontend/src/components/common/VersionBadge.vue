@@ -234,8 +234,8 @@
               <!-- Priority 3: Update available for source build - show git pull hint -->
               <div v-else-if="hasUpdate && !isReleaseBuild" class="space-y-2">
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  v-if="releaseUrl"
+                  :href="releaseUrl"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="group flex items-center gap-3 rounded-lg border border-amber-200 bg-amber-50 p-3 transition-colors hover:bg-amber-100 dark:border-amber-800/50 dark:bg-amber-900/20 dark:hover:bg-amber-900/30"
@@ -344,8 +344,8 @@
 
                 <!-- View release link -->
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  v-if="releaseUrl"
+                  :href="releaseUrl"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="flex items-center justify-center gap-1 text-xs text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-dark-200"
@@ -358,8 +358,8 @@
               <!-- Priority 5: Up to date - GitHub link + version rollback -->
               <div v-else class="space-y-2">
                 <a
-                  v-if="releaseInfo?.html_url && releaseInfo.html_url !== '#'"
-                  :href="releaseInfo.html_url"
+                  v-if="releaseUrl"
+                  :href="releaseUrl"
                   target="_blank"
                   rel="noopener noreferrer"
                   class="flex items-center justify-center gap-2 py-2 text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-dark-200"
@@ -650,10 +650,11 @@ import {
 } from '@/api/admin/system'
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
-
-const GITHUB_REPO = 'Wei-Shaw/sub2api'
-// Docker Hub image published by CI (tags carry no "v" prefix, e.g. weishaw/sub2api:0.1.146)
-const DOCKER_IMAGE = 'weishaw/sub2api'
+import {
+  getGhcrImage,
+  getGitHubReleaseUrl,
+  getInstallScriptUrl
+} from '@/utils/updateRepository'
 
 const { t } = useI18n()
 
@@ -676,6 +677,16 @@ const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
 const buildType = computed(() => appStore.buildType)
+const repository = computed(() => appStore.updateRepository)
+const releaseUrl = computed(() => {
+  const apiReleaseUrl = releaseInfo.value?.html_url?.trim()
+  if (apiReleaseUrl && apiReleaseUrl !== '#') return apiReleaseUrl
+
+  return getGitHubReleaseUrl(
+    repository.value,
+    latestVersion.value || currentVersion.value
+  )
+})
 
 // Update process states (local to this component)
 const updating = ref(false)
@@ -710,14 +721,18 @@ const manualTabs = computed(() => [
 const scriptRollbackCommand = computed(() => {
   if (!selectedRollbackVersion.value) return ''
   const tag = `v${selectedRollbackVersion.value}`
-  return `curl -sSL https://raw.githubusercontent.com/${GITHUB_REPO}/${tag}/deploy/install.sh | sudo bash -s -- rollback ${tag}`
+  const scriptUrl = getInstallScriptUrl(repository.value, tag)
+  if (!scriptUrl) return ''
+  return `curl -sSL ${scriptUrl} | sudo bash -s -- rollback ${tag}`
 })
 
 const dockerRollbackCommand = computed(() => {
   if (!selectedRollbackVersion.value) return ''
+  const image = getGhcrImage(repository.value)
+  if (!image) return ''
   return [
     `# ${t('version.dockerEditCompose')}`,
-    `image: ${DOCKER_IMAGE}:${selectedRollbackVersion.value}`,
+    `image: ${image}:${selectedRollbackVersion.value}`,
     '',
     `# ${t('version.dockerRecreate')}`,
     'docker compose up -d'

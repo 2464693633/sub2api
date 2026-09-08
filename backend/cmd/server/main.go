@@ -35,6 +35,8 @@ var (
 	Commit    = "unknown"
 	Date      = "unknown"
 	BuildType = "source" // "source" for manual builds, "release" for CI builds (set by ldflags)
+	// UpdateRepository is the default release source and can be overridden at runtime by UPDATE_GITHUB_REPO.
+	UpdateRepository = "2464693633/sub2api"
 )
 
 func init() {
@@ -144,8 +146,9 @@ func runMainServer() {
 	}
 
 	buildInfo := handler.BuildInfo{
-		Version:   Version,
-		BuildType: BuildType,
+		Version:          Version,
+		BuildType:        BuildType,
+		UpdateRepository: UpdateRepository,
 	}
 
 	app, err := initializeApplication(buildInfo)

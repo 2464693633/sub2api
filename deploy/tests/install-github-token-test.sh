@@ -22,6 +22,7 @@ EOF
 
 run_api_curl() {
     CURL_ARGS_LOG="$1" HOME="$TEMP_DIR/home" PATH="$TEMP_DIR:$PATH" UPDATE_GITHUB_TOKEN="${2:-}" \
+        GITHUB_REPO="Wei-Shaw/sub2api" \
         GITHUB_TOKEN="github-fallback" GH_TOKEN="gh-fallback" \
         bash -c 'source <(head -n -1 "$1"); github_api_curl -s "$2"' bash \
         "$ROOT_DIR/deploy/install.sh" "https://api.github.com/repos/Wei-Shaw/sub2api/releases/latest"

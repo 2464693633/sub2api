@@ -2,6 +2,8 @@ FROM golang:1.27.0-alpine
 
 WORKDIR /app
 
+ARG UPDATE_GITHUB_REPO=2464693633/sub2api
+
 # 安装必要的工具
 RUN apk add --no-cache git
 
@@ -16,7 +18,7 @@ COPY . .
 
 # 构建应用
 RUN VERSION_VALUE="$(./scripts/resolve-version.sh)" && \
-    go build -ldflags="-s -w -X main.Version=${VERSION_VALUE}" -o main ./cmd/server/
+    go build -ldflags="-s -w -X main.Version=${VERSION_VALUE} -X main.BuildType=release -X main.UpdateRepository=${UPDATE_GITHUB_REPO}" -o main ./cmd/server/
 
 # 暴露端口
 EXPOSE 8080
