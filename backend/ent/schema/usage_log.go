@@ -89,6 +89,49 @@ func (UsageLog) Fields() []ent.Field {
 		field.Int("cache_creation_1h_tokens").
 			Default(0),
 
+		// 计费 Token 与分组倍率快照。NULL 表示迁移前的历史记录，读取时回退到
+		// 对应的真实 Token，并按 1.0 倍率处理。
+		field.Int("billable_input_tokens").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "bigint"}),
+		field.Int("billable_output_tokens").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "bigint"}),
+		field.Int("billable_cache_creation_tokens").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "bigint"}),
+		field.Int("billable_cache_read_tokens").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "bigint"}),
+		field.Float("input_token_multiplier").
+			Optional().
+			Nillable().
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		field.Float("output_token_multiplier").
+			Optional().
+			Nillable().
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		field.Float("cache_creation_token_multiplier").
+			Optional().
+			Nillable().
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		field.Float("cache_read_token_multiplier").
+			Optional().
+			Nillable().
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+
 		// 成本字段
 		field.Float("input_cost").
 			Default(0).

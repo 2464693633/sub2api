@@ -192,6 +192,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		CacheReadTokens:     result.Usage.CacheReadInputTokens,
 		ImageOutputTokens:   result.Usage.ImageOutputTokens,
 	}
+	billableTokens, tokenMultipliers := ResolveBillableUsageTokens(tokens, apiKey.Group)
 
 	// Get rate multiplier
 	multiplier := 1.0
@@ -235,7 +236,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
 	longContextBillingGate := openAILongContextBillingGate(billingAccount)
-	cost, err = s.calculateOpenAIRecordUsageCost(
+	cost, err = s.calculateOpenAIRecordUsageCostWithBillable(
 		ctx,
 		result,
 		apiKey,
@@ -245,6 +246,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		videoMultiplier,
 		baseMultiplier,
 		tokens,
+		billableTokens,
 		serviceTier,
 		longContextBillingGate,
 		pricingAt,
@@ -278,9 +280,9 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	); responseModel != "" && !strings.EqualFold(responseModel, baselineBillingModel) {
 		if identified, responseChannelPriced := s.hasIdentifiedOpenAIResponsePricing(ctx, responseModel, apiKey); identified {
 			responseModels := s.filterCNProviderBillingModelCandidates(ctx, account, apiKey, usageBillingModelCandidates(responseModel))
-			responseCost, responseErr := s.calculateOpenAIRecordUsageCost(
+			responseCost, responseErr := s.calculateOpenAIRecordUsageCostWithBillable(
 				ctx, result, apiKey, responseModels, multiplier, imageMultiplier,
-				videoMultiplier, baseMultiplier, tokens, serviceTier, longContextBillingGate, pricingAt,
+				videoMultiplier, baseMultiplier, tokens, billableTokens, serviceTier, longContextBillingGate, pricingAt,
 			)
 			// 基线定价源以 baselineBillingModel 为准：它正是 calculateOpenAIRecordUsageCost
 			// 内部做渠道定价判断时使用的模型，且"首候选有渠道价"必然意味着首候选就是实际
@@ -299,7 +301,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// service_tier for upstream accounting, but evaluate ActualCost once more at
 	// the Standard tier using the same channel, peak, and long-context policy.
 	if groupBillsOpenAIFastAtStandard(apiKey, billingAccount, serviceTier) {
-		standardCost, standardErr := s.calculateOpenAIRecordUsageCost(
+		standardCost, standardErr := s.calculateOpenAIRecordUsageCostWithBillable(
 			ctx,
 			result,
 			apiKey,
@@ -309,6 +311,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			videoMultiplier,
 			baseMultiplier,
 			tokens,
+			billableTokens,
 			"",
 			longContextBillingGate,
 			pricingAt,
@@ -396,6 +399,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		ImageSizeBreakdown:       result.ImageSizeBreakdown,
 		NativeCompactionV2:       input.NativeCompactionV2,
 	}
+	applyBillableTokenSnapshot(usageLog, billableTokens, tokenMultipliers)
 	isVideoUsage := isGrokVideoUsageResult(result, billingModels)
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
@@ -544,6 +548,39 @@ func openAILongContextBillingGate(account *Account) *bool {
 	}
 	enabled := account.IsOpenAILongContextBillingEnabled()
 	return &enabled
+}
+
+func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCostWithBillable(
+	ctx context.Context,
+	result *OpenAIForwardResult,
+	apiKey *APIKey,
+	billingModels []string,
+	multiplier float64,
+	imageMultiplier float64,
+	videoMultiplier float64,
+	webSearchMultiplier float64,
+	rawTokens UsageTokens,
+	billableTokens UsageTokens,
+	serviceTier string,
+	longContextBillingGate *bool,
+	pricingAt time.Time,
+) (*CostBreakdown, error) {
+	rawCost, err := s.calculateOpenAIRecordUsageCost(
+		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier,
+		webSearchMultiplier, rawTokens, serviceTier, longContextBillingGate, pricingAt,
+	)
+	if err != nil || rawTokens == billableTokens || rawCost == nil ||
+		(rawCost.BillingMode != "" && rawCost.BillingMode != string(BillingModeToken)) {
+		return rawCost, err
+	}
+	billableCost, billableErr := s.calculateOpenAIRecordUsageCost(
+		ctx, result, apiKey, billingModels, multiplier, imageMultiplier, videoMultiplier,
+		webSearchMultiplier, billableTokens, serviceTier, longContextBillingGate, pricingAt,
+	)
+	if billableErr != nil {
+		return nil, billableErr
+	}
+	return useBillableActualCost(rawCost, billableCost), nil
 }
 
 func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(

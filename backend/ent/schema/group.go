@@ -47,6 +47,33 @@ func (Group) Fields() []ent.Field {
 		field.Float("rate_multiplier").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(1.0),
+		field.Float("input_token_multiplier").
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("输入 Token 计费倍率；仅影响计费 Token，0 表示该类 Token 免费"),
+		field.Float("output_token_multiplier").
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("输出 Token 计费倍率；仅影响计费 Token，0 表示该类 Token 免费"),
+		field.Float("cache_creation_token_multiplier").
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("缓存创建 Token 计费倍率；同时作用于 5m 和 1h 缓存创建 Token"),
+		field.Float("cache_read_token_multiplier").
+			Min(0).
+			Max(100).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(1.0).
+			Comment("缓存读取 Token 计费倍率；0 表示该类 Token 免费"),
+		field.Bool("return_billable_usage").
+			Default(false).
+			Comment("是否向下游 API 响应返回计费 Token；关闭时返回上游真实 Token"),
 		// 高峰时段倍率（added by migration 158）
 		field.Bool("peak_rate_enabled").
 			Default(false).

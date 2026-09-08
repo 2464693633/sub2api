@@ -14,6 +14,35 @@ import (
 
 const rawUsageLogModelColumn = "model"
 
+var usageLogTokenColumns = [...]string{
+	"input_tokens",
+	"output_tokens",
+	"cache_creation_tokens",
+	"cache_read_tokens",
+}
+
+// usageLogTokenExpr returns the customer-visible token expression when billable
+// is true. NULL billable columns belong to historical rows and fall back to the
+// original upstream token count.
+func usageLogTokenExpr(alias, column string, billable bool) string {
+	prefix := ""
+	if alias != "" {
+		prefix = alias + "."
+	}
+	if !billable {
+		return prefix + column
+	}
+	return fmt.Sprintf("COALESCE(%sbillable_%s, %s%s)", prefix, column, prefix, column)
+}
+
+func usageLogTotalTokensExpr(alias string, billable bool) string {
+	parts := make([]string, 0, len(usageLogTokenColumns))
+	for _, column := range usageLogTokenColumns {
+		parts = append(parts, usageLogTokenExpr(alias, column, billable))
+	}
+	return strings.Join(parts, " + ")
+}
+
 // rawUsageLogModelColumn preserves the exact stored usage_logs.model semantics for direct filters.
 // Historical rows may contain upstream/billing model values, while newer rows store requested_model.
 // Requested/upstream/mapping analytics must use resolveModelDimensionExpression instead.

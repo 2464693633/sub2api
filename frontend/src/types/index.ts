@@ -559,6 +559,11 @@ export interface Group {
   description: string | null
   platform: GroupPlatform
   rate_multiplier: number
+  input_token_multiplier: number
+  output_token_multiplier: number
+  cache_creation_token_multiplier: number
+  cache_read_token_multiplier: number
+  return_billable_usage: boolean
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
   max_reasoning_effort?: string // Anthropic/OpenAI reasoning ceiling; empty means unlimited
   max_reasoning_effort_over_limit?: string // downgrade (default) or deny when over the ceiling
@@ -784,6 +789,11 @@ export interface CreateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  input_token_multiplier?: number
+  output_token_multiplier?: number
+  cache_creation_token_multiplier?: number
+  cache_read_token_multiplier?: number
+  return_billable_usage?: boolean
   is_exclusive?: boolean
   subscription_type?: SubscriptionType
   daily_limit_usd?: number | null
@@ -849,6 +859,11 @@ export interface UpdateGroupRequest {
   description?: string | null
   platform?: GroupPlatform
   rate_multiplier?: number
+  input_token_multiplier?: number
+  output_token_multiplier?: number
+  cache_creation_token_multiplier?: number
+  cache_read_token_multiplier?: number
+  return_billable_usage?: boolean
   is_exclusive?: boolean
   status?: 'active' | 'inactive'
   subscription_type?: SubscriptionType
@@ -1747,6 +1762,16 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  raw_input_tokens?: number
+  raw_output_tokens?: number
+  raw_cache_creation_tokens?: number
+  raw_cache_read_tokens?: number
+  raw_image_input_tokens?: number
+  raw_image_output_tokens?: number
+  input_token_multiplier?: number
+  output_token_multiplier?: number
+  cache_creation_token_multiplier?: number
+  cache_read_token_multiplier?: number
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null

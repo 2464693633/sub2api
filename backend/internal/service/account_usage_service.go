@@ -80,6 +80,17 @@ type UsageLogRepository interface {
 	GetDailyStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) ([]map[string]any, error)
 }
 
+type rawModelUsageStatsProvider interface {
+	GetRawModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) ([]usagestats.ModelStat, error)
+}
+
+func getRawAccountModelStats(ctx context.Context, repo UsageLogRepository, startTime, endTime time.Time, accountID int64) ([]usagestats.ModelStat, error) {
+	if rawRepo, ok := repo.(rawModelUsageStatsProvider); ok {
+		return rawRepo.GetRawModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil)
+	}
+	return repo.GetModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil)
+}
+
 type accountWindowStatsBatchReader interface {
 	GetAccountWindowStatsBatch(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*usagestats.AccountStats, error)
 }
@@ -986,7 +997,7 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 	}
 
 	dayStart := geminiDailyWindowStart(now)
-	stats, err := s.usageLogRepo.GetModelStatsWithFilters(ctx, dayStart, now, 0, 0, account.ID, 0, nil, nil, nil)
+	stats, err := getRawAccountModelStats(ctx, s.usageLogRepo, dayStart, now, account.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get gemini usage stats failed: %w", err)
 	}
@@ -1008,7 +1019,7 @@ func (s *AccountUsageService) getGeminiUsage(ctx context.Context, account *Accou
 	// Minute window (RPM) - fixed-window approximation: current minute [truncate(now), truncate(now)+1m)
 	minuteStart := now.Truncate(time.Minute)
 	minuteResetAt := minuteStart.Add(time.Minute)
-	minuteStats, err := s.usageLogRepo.GetModelStatsWithFilters(ctx, minuteStart, now, 0, 0, account.ID, 0, nil, nil, nil)
+	minuteStats, err := getRawAccountModelStats(ctx, s.usageLogRepo, minuteStart, now, account.ID)
 	if err != nil {
 		return nil, fmt.Errorf("get gemini minute usage stats failed: %w", err)
 	}

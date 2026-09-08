@@ -91,13 +91,18 @@ type APIKey struct {
 }
 
 type Group struct {
-	ID             int64   `json:"id"`
-	Name           string  `json:"name"`
-	Description    string  `json:"description"`
-	Platform       string  `json:"platform"`
-	RateMultiplier float64 `json:"rate_multiplier"`
-	IsExclusive    bool    `json:"is_exclusive"`
-	Status         string  `json:"status"`
+	ID                           int64   `json:"id"`
+	Name                         string  `json:"name"`
+	Description                  string  `json:"description"`
+	Platform                     string  `json:"platform"`
+	RateMultiplier               float64 `json:"rate_multiplier"`
+	InputTokenMultiplier         float64 `json:"input_token_multiplier"`
+	OutputTokenMultiplier        float64 `json:"output_token_multiplier"`
+	CacheCreationTokenMultiplier float64 `json:"cache_creation_token_multiplier"`
+	CacheReadTokenMultiplier     float64 `json:"cache_read_token_multiplier"`
+	ReturnBillableUsage          bool    `json:"return_billable_usage"`
+	IsExclusive                  bool    `json:"is_exclusive"`
+	Status                       string  `json:"status"`
 
 	SubscriptionType          string   `json:"subscription_type"`
 	DailyLimitUSD             *float64 `json:"daily_limit_usd"`
@@ -670,6 +675,19 @@ type UsageLog struct {
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
 	UsageLog
+
+	// Raw token counts and multiplier snapshots are admin-only billing audit fields.
+	RawInputTokens         int `json:"raw_input_tokens"`
+	RawOutputTokens        int `json:"raw_output_tokens"`
+	RawCacheCreationTokens int `json:"raw_cache_creation_tokens"`
+	RawCacheReadTokens     int `json:"raw_cache_read_tokens"`
+	RawImageInputTokens    int `json:"raw_image_input_tokens"`
+	RawImageOutputTokens   int `json:"raw_image_output_tokens"`
+
+	InputTokenMultiplier         *float64 `json:"input_token_multiplier,omitempty"`
+	OutputTokenMultiplier        *float64 `json:"output_token_multiplier,omitempty"`
+	CacheCreationTokenMultiplier *float64 `json:"cache_creation_token_multiplier,omitempty"`
+	CacheReadTokenMultiplier     *float64 `json:"cache_read_token_multiplier,omitempty"`
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.
 	// Omitted when no mapping was applied (requested model was used as-is).

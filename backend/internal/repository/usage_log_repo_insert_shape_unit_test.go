@@ -143,3 +143,31 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 
 	require.Contains(t, usageLogSelectColumns, "upstream_request_id")
 }
+
+func TestPrepareUsageLogInsert_BillableTokenSnapshotArgWiring(t *testing.T) {
+	billableInput, billableOutput := 20, 3
+	billableCacheCreation, billableCacheRead := 8, 0
+	inputMultiplier, outputMultiplier := 2.0, 0.5
+	cacheCreationMultiplier, cacheReadMultiplier := 4.0, 0.0
+	prepared := prepareUsageLogInsert(&service.UsageLog{
+		UserID: 1, APIKeyID: 2, AccountID: 3, RequestID: "billable:wiring", Model: "claude-sonnet-4",
+		BillableInputTokens: &billableInput, BillableOutputTokens: &billableOutput,
+		BillableCacheCreationTokens: &billableCacheCreation, BillableCacheReadTokens: &billableCacheRead,
+		InputTokenMultiplier: &inputMultiplier, OutputTokenMultiplier: &outputMultiplier,
+		CacheCreationTokenMultiplier: &cacheCreationMultiplier, CacheReadTokenMultiplier: &cacheReadMultiplier,
+		CreatedAt: time.Now().UTC(),
+	})
+
+	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
+	require.Equal(t, []any{
+		&billableInput, &billableOutput, &billableCacheCreation, &billableCacheRead,
+		&inputMultiplier, &outputMultiplier, &cacheCreationMultiplier, &cacheReadMultiplier,
+	}, prepared.args[17:25])
+	require.Equal(t, []string{"bigint", "bigint", "bigint", "bigint", "numeric", "numeric", "numeric", "numeric"}, usageLogInsertArgTypes[17:25])
+	for _, column := range []string{
+		"billable_input_tokens", "billable_output_tokens", "billable_cache_creation_tokens", "billable_cache_read_tokens",
+		"input_token_multiplier", "output_token_multiplier", "cache_creation_token_multiplier", "cache_read_token_multiplier",
+	} {
+		require.Contains(t, usageLogSelectColumns, column)
+	}
+}

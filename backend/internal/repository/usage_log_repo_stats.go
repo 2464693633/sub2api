@@ -21,11 +21,11 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as total_input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as total_output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens)), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
@@ -60,11 +60,11 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as total_input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as total_output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens)), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
@@ -149,11 +149,11 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as total_cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as total_cache_read_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as total_input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as total_output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens)), 0) as total_cache_creation_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_read_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
@@ -192,9 +192,9 @@ func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID
 			-- 使用应用时区分组，避免数据库会话时区导致日边界偏移。
 			TO_CHAR(created_at AT TIME ZONE $4, 'YYYY-MM-DD') as date,
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as total_input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as total_output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(COALESCE(duration_ms, 0)), 0) as avg_duration_ms
@@ -624,9 +624,9 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
-			COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-			COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-			COALESCE(SUM(cache_creation_tokens + cache_read_tokens), 0) as total_cache_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as total_input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as total_output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_cache_tokens,
 			COALESCE(SUM(total_cost), 0) as total_cost,
 			COALESCE(SUM(actual_cost), 0) as total_actual_cost,
 			COALESCE(AVG(duration_ms), 0) as avg_duration_ms
@@ -700,10 +700,10 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			SELECT
 				COALESCE(NULLIF(TRIM(inbound_endpoint), ''), 'unknown') AS inbound_endpoint,
 				COALESCE(NULLIF(TRIM(upstream_endpoint), ''), 'unknown') AS upstream_endpoint,
-				input_tokens,
-				output_tokens,
-				cache_creation_tokens,
-				cache_read_tokens,
+				COALESCE(billable_input_tokens, input_tokens) AS input_tokens,
+				COALESCE(billable_output_tokens, output_tokens) AS output_tokens,
+				COALESCE(billable_cache_creation_tokens, cache_creation_tokens) AS cache_creation_tokens,
+				COALESCE(billable_cache_read_tokens, cache_read_tokens) AS cache_read_tokens,
 				total_cost,
 				actual_cost,
 				COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1) AS account_cost,
@@ -837,7 +837,7 @@ type AccountUsageStatsResponse = usagestats.AccountUsageStatsResponse
 // EndpointStat represents endpoint usage statistics row.
 type EndpointStat = usagestats.EndpointStat
 
-func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string) (results []EndpointStat, err error) {
+func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string, billableTokens bool) (results []EndpointStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
 		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
@@ -847,12 +847,12 @@ func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Con
 		SELECT
 			COALESCE(NULLIF(TRIM(%s), ''), 'unknown') AS endpoint,
 			COUNT(*) AS requests,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) AS total_tokens,
+			COALESCE(SUM(%s), 0) AS total_tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
 			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`, endpointColumn, actualCostExpr)
+	`, endpointColumn, usageLogTotalTokensExpr("", billableTokens), actualCostExpr)
 
 	args := []any{startTime, endTime}
 	if userID > 0 {
@@ -907,12 +907,12 @@ func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Con
 
 // GetEndpointStatsWithFilters returns inbound endpoint statistics with optional filters.
 func (r *usageLogRepository) GetEndpointStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]EndpointStat, error) {
-	return r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, "", requestType, stream, billingType, "")
+	return r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, "", requestType, stream, billingType, "", true)
 }
 
 // GetUpstreamEndpointStatsWithFilters returns upstream endpoint statistics with optional filters.
 func (r *usageLogRepository) GetUpstreamEndpointStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8) ([]EndpointStat, error) {
-	return r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, "", requestType, stream, billingType, "")
+	return r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, userID, apiKeyID, accountID, groupID, model, "", requestType, stream, billingType, "", true)
 }
 
 // GetAccountUsageStats returns comprehensive usage statistics for an account over a time range
@@ -1073,16 +1073,16 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 		}
 	}
 
-	models, err := r.GetModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil)
+	models, err := r.GetRawModelStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, nil, nil, nil)
 	if err != nil {
 		models = []ModelStat{}
 	}
-	endpoints, endpointErr := r.GetEndpointStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil)
+	endpoints, endpointErr := r.getEndpointStatsByColumnWithFilters(ctx, "inbound_endpoint", startTime, endTime, 0, 0, accountID, 0, "", "", nil, nil, nil, "", false)
 	if endpointErr != nil {
 		logger.LegacyPrintf("repository.usage_log", "GetEndpointStatsWithFilters failed in GetAccountUsageStats: %v", endpointErr)
 		endpoints = []EndpointStat{}
 	}
-	upstreamEndpoints, upstreamEndpointErr := r.GetUpstreamEndpointStatsWithFilters(ctx, startTime, endTime, 0, 0, accountID, 0, "", nil, nil, nil)
+	upstreamEndpoints, upstreamEndpointErr := r.getEndpointStatsByColumnWithFilters(ctx, "upstream_endpoint", startTime, endTime, 0, 0, accountID, 0, "", "", nil, nil, nil, "", false)
 	if upstreamEndpointErr != nil {
 		logger.LegacyPrintf("repository.usage_log", "GetUpstreamEndpointStatsWithFilters failed in GetAccountUsageStats: %v", upstreamEndpointErr)
 		upstreamEndpoints = []EndpointStat{}

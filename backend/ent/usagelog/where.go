@@ -160,6 +160,46 @@ func CacheCreation1hTokens(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldCacheCreation1hTokens, v))
 }
 
+// BillableInputTokens applies equality check predicate on the "billable_input_tokens" field. It's identical to BillableInputTokensEQ.
+func BillableInputTokens(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableInputTokens, v))
+}
+
+// BillableOutputTokens applies equality check predicate on the "billable_output_tokens" field. It's identical to BillableOutputTokensEQ.
+func BillableOutputTokens(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableOutputTokens, v))
+}
+
+// BillableCacheCreationTokens applies equality check predicate on the "billable_cache_creation_tokens" field. It's identical to BillableCacheCreationTokensEQ.
+func BillableCacheCreationTokens(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheReadTokens applies equality check predicate on the "billable_cache_read_tokens" field. It's identical to BillableCacheReadTokensEQ.
+func BillableCacheReadTokens(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableCacheReadTokens, v))
+}
+
+// InputTokenMultiplier applies equality check predicate on the "input_token_multiplier" field. It's identical to InputTokenMultiplierEQ.
+func InputTokenMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldInputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplier applies equality check predicate on the "output_token_multiplier" field. It's identical to OutputTokenMultiplierEQ.
+func OutputTokenMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOutputTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplier applies equality check predicate on the "cache_creation_token_multiplier" field. It's identical to CacheCreationTokenMultiplierEQ.
+func CacheCreationTokenMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplier applies equality check predicate on the "cache_read_token_multiplier" field. It's identical to CacheReadTokenMultiplierEQ.
+func CacheReadTokenMultiplier(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheReadTokenMultiplier, v))
+}
+
 // InputCost applies equality check predicate on the "input_cost" field. It's identical to InputCostEQ.
 func InputCost(v float64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldInputCost, v))
@@ -1293,6 +1333,406 @@ func CacheCreation1hTokensLT(v int) predicate.UsageLog {
 // CacheCreation1hTokensLTE applies the LTE predicate on the "cache_creation_1h_tokens" field.
 func CacheCreation1hTokensLTE(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldLTE(FieldCacheCreation1hTokens, v))
+}
+
+// BillableInputTokensEQ applies the EQ predicate on the "billable_input_tokens" field.
+func BillableInputTokensEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensNEQ applies the NEQ predicate on the "billable_input_tokens" field.
+func BillableInputTokensNEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensIn applies the In predicate on the "billable_input_tokens" field.
+func BillableInputTokensIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldBillableInputTokens, vs...))
+}
+
+// BillableInputTokensNotIn applies the NotIn predicate on the "billable_input_tokens" field.
+func BillableInputTokensNotIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldBillableInputTokens, vs...))
+}
+
+// BillableInputTokensGT applies the GT predicate on the "billable_input_tokens" field.
+func BillableInputTokensGT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensGTE applies the GTE predicate on the "billable_input_tokens" field.
+func BillableInputTokensGTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensLT applies the LT predicate on the "billable_input_tokens" field.
+func BillableInputTokensLT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensLTE applies the LTE predicate on the "billable_input_tokens" field.
+func BillableInputTokensLTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldBillableInputTokens, v))
+}
+
+// BillableInputTokensIsNil applies the IsNil predicate on the "billable_input_tokens" field.
+func BillableInputTokensIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldBillableInputTokens))
+}
+
+// BillableInputTokensNotNil applies the NotNil predicate on the "billable_input_tokens" field.
+func BillableInputTokensNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldBillableInputTokens))
+}
+
+// BillableOutputTokensEQ applies the EQ predicate on the "billable_output_tokens" field.
+func BillableOutputTokensEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensNEQ applies the NEQ predicate on the "billable_output_tokens" field.
+func BillableOutputTokensNEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensIn applies the In predicate on the "billable_output_tokens" field.
+func BillableOutputTokensIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldBillableOutputTokens, vs...))
+}
+
+// BillableOutputTokensNotIn applies the NotIn predicate on the "billable_output_tokens" field.
+func BillableOutputTokensNotIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldBillableOutputTokens, vs...))
+}
+
+// BillableOutputTokensGT applies the GT predicate on the "billable_output_tokens" field.
+func BillableOutputTokensGT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensGTE applies the GTE predicate on the "billable_output_tokens" field.
+func BillableOutputTokensGTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensLT applies the LT predicate on the "billable_output_tokens" field.
+func BillableOutputTokensLT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensLTE applies the LTE predicate on the "billable_output_tokens" field.
+func BillableOutputTokensLTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldBillableOutputTokens, v))
+}
+
+// BillableOutputTokensIsNil applies the IsNil predicate on the "billable_output_tokens" field.
+func BillableOutputTokensIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldBillableOutputTokens))
+}
+
+// BillableOutputTokensNotNil applies the NotNil predicate on the "billable_output_tokens" field.
+func BillableOutputTokensNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldBillableOutputTokens))
+}
+
+// BillableCacheCreationTokensEQ applies the EQ predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensNEQ applies the NEQ predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensNEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensIn applies the In predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldBillableCacheCreationTokens, vs...))
+}
+
+// BillableCacheCreationTokensNotIn applies the NotIn predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensNotIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldBillableCacheCreationTokens, vs...))
+}
+
+// BillableCacheCreationTokensGT applies the GT predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensGT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensGTE applies the GTE predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensGTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensLT applies the LT predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensLT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensLTE applies the LTE predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensLTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldBillableCacheCreationTokens, v))
+}
+
+// BillableCacheCreationTokensIsNil applies the IsNil predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldBillableCacheCreationTokens))
+}
+
+// BillableCacheCreationTokensNotNil applies the NotNil predicate on the "billable_cache_creation_tokens" field.
+func BillableCacheCreationTokensNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldBillableCacheCreationTokens))
+}
+
+// BillableCacheReadTokensEQ applies the EQ predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensNEQ applies the NEQ predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensNEQ(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensIn applies the In predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldBillableCacheReadTokens, vs...))
+}
+
+// BillableCacheReadTokensNotIn applies the NotIn predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensNotIn(vs ...int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldBillableCacheReadTokens, vs...))
+}
+
+// BillableCacheReadTokensGT applies the GT predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensGT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensGTE applies the GTE predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensGTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensLT applies the LT predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensLT(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensLTE applies the LTE predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensLTE(v int) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldBillableCacheReadTokens, v))
+}
+
+// BillableCacheReadTokensIsNil applies the IsNil predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldBillableCacheReadTokens))
+}
+
+// BillableCacheReadTokensNotNil applies the NotNil predicate on the "billable_cache_read_tokens" field.
+func BillableCacheReadTokensNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldBillableCacheReadTokens))
+}
+
+// InputTokenMultiplierEQ applies the EQ predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierNEQ applies the NEQ predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierIn applies the In predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldInputTokenMultiplier, vs...))
+}
+
+// InputTokenMultiplierNotIn applies the NotIn predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldInputTokenMultiplier, vs...))
+}
+
+// InputTokenMultiplierGT applies the GT predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierGTE applies the GTE predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierLT applies the LT predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierLTE applies the LTE predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldInputTokenMultiplier, v))
+}
+
+// InputTokenMultiplierIsNil applies the IsNil predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldInputTokenMultiplier))
+}
+
+// InputTokenMultiplierNotNil applies the NotNil predicate on the "input_token_multiplier" field.
+func InputTokenMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldInputTokenMultiplier))
+}
+
+// OutputTokenMultiplierEQ applies the EQ predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierNEQ applies the NEQ predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierIn applies the In predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldOutputTokenMultiplier, vs...))
+}
+
+// OutputTokenMultiplierNotIn applies the NotIn predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldOutputTokenMultiplier, vs...))
+}
+
+// OutputTokenMultiplierGT applies the GT predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierGTE applies the GTE predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierLT applies the LT predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierLTE applies the LTE predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldOutputTokenMultiplier, v))
+}
+
+// OutputTokenMultiplierIsNil applies the IsNil predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldOutputTokenMultiplier))
+}
+
+// OutputTokenMultiplierNotNil applies the NotNil predicate on the "output_token_multiplier" field.
+func OutputTokenMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldOutputTokenMultiplier))
+}
+
+// CacheCreationTokenMultiplierEQ applies the EQ predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierNEQ applies the NEQ predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierIn applies the In predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldCacheCreationTokenMultiplier, vs...))
+}
+
+// CacheCreationTokenMultiplierNotIn applies the NotIn predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldCacheCreationTokenMultiplier, vs...))
+}
+
+// CacheCreationTokenMultiplierGT applies the GT predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierGTE applies the GTE predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierLT applies the LT predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierLTE applies the LTE predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldCacheCreationTokenMultiplier, v))
+}
+
+// CacheCreationTokenMultiplierIsNil applies the IsNil predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldCacheCreationTokenMultiplier))
+}
+
+// CacheCreationTokenMultiplierNotNil applies the NotNil predicate on the "cache_creation_token_multiplier" field.
+func CacheCreationTokenMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldCacheCreationTokenMultiplier))
+}
+
+// CacheReadTokenMultiplierEQ applies the EQ predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierNEQ applies the NEQ predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierNEQ(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierIn applies the In predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldCacheReadTokenMultiplier, vs...))
+}
+
+// CacheReadTokenMultiplierNotIn applies the NotIn predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierNotIn(vs ...float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldCacheReadTokenMultiplier, vs...))
+}
+
+// CacheReadTokenMultiplierGT applies the GT predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierGT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierGTE applies the GTE predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierGTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierLT applies the LT predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierLT(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierLTE applies the LTE predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierLTE(v float64) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldCacheReadTokenMultiplier, v))
+}
+
+// CacheReadTokenMultiplierIsNil applies the IsNil predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldCacheReadTokenMultiplier))
+}
+
+// CacheReadTokenMultiplierNotNil applies the NotNil predicate on the "cache_read_token_multiplier" field.
+func CacheReadTokenMultiplierNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldCacheReadTokenMultiplier))
 }
 
 // InputCostEQ applies the EQ predicate on the "input_cost" field.

@@ -281,6 +281,118 @@ func (_c *UsageLogCreate) SetNillableCacheCreation1hTokens(v *int) *UsageLogCrea
 	return _c
 }
 
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (_c *UsageLogCreate) SetBillableInputTokens(v int) *UsageLogCreate {
+	_c.mutation.SetBillableInputTokens(v)
+	return _c
+}
+
+// SetNillableBillableInputTokens sets the "billable_input_tokens" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillableInputTokens(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillableInputTokens(*v)
+	}
+	return _c
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (_c *UsageLogCreate) SetBillableOutputTokens(v int) *UsageLogCreate {
+	_c.mutation.SetBillableOutputTokens(v)
+	return _c
+}
+
+// SetNillableBillableOutputTokens sets the "billable_output_tokens" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillableOutputTokens(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillableOutputTokens(*v)
+	}
+	return _c
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (_c *UsageLogCreate) SetBillableCacheCreationTokens(v int) *UsageLogCreate {
+	_c.mutation.SetBillableCacheCreationTokens(v)
+	return _c
+}
+
+// SetNillableBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillableCacheCreationTokens(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillableCacheCreationTokens(*v)
+	}
+	return _c
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (_c *UsageLogCreate) SetBillableCacheReadTokens(v int) *UsageLogCreate {
+	_c.mutation.SetBillableCacheReadTokens(v)
+	return _c
+}
+
+// SetNillableBillableCacheReadTokens sets the "billable_cache_read_tokens" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableBillableCacheReadTokens(v *int) *UsageLogCreate {
+	if v != nil {
+		_c.SetBillableCacheReadTokens(*v)
+	}
+	return _c
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (_c *UsageLogCreate) SetInputTokenMultiplier(v float64) *UsageLogCreate {
+	_c.mutation.SetInputTokenMultiplier(v)
+	return _c
+}
+
+// SetNillableInputTokenMultiplier sets the "input_token_multiplier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableInputTokenMultiplier(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetInputTokenMultiplier(*v)
+	}
+	return _c
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (_c *UsageLogCreate) SetOutputTokenMultiplier(v float64) *UsageLogCreate {
+	_c.mutation.SetOutputTokenMultiplier(v)
+	return _c
+}
+
+// SetNillableOutputTokenMultiplier sets the "output_token_multiplier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableOutputTokenMultiplier(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetOutputTokenMultiplier(*v)
+	}
+	return _c
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (_c *UsageLogCreate) SetCacheCreationTokenMultiplier(v float64) *UsageLogCreate {
+	_c.mutation.SetCacheCreationTokenMultiplier(v)
+	return _c
+}
+
+// SetNillableCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableCacheCreationTokenMultiplier(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetCacheCreationTokenMultiplier(*v)
+	}
+	return _c
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (_c *UsageLogCreate) SetCacheReadTokenMultiplier(v float64) *UsageLogCreate {
+	_c.mutation.SetCacheReadTokenMultiplier(v)
+	return _c
+}
+
+// SetNillableCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableCacheReadTokenMultiplier(v *float64) *UsageLogCreate {
+	if v != nil {
+		_c.SetCacheReadTokenMultiplier(*v)
+	}
+	return _c
+}
+
 // SetInputCost sets the "input_cost" field.
 func (_c *UsageLogCreate) SetInputCost(v float64) *UsageLogCreate {
 	_c.mutation.SetInputCost(v)
@@ -854,6 +966,26 @@ func (_c *UsageLogCreate) check() error {
 	if _, ok := _c.mutation.CacheCreation1hTokens(); !ok {
 		return &ValidationError{Name: "cache_creation_1h_tokens", err: errors.New(`ent: missing required field "UsageLog.cache_creation_1h_tokens"`)}
 	}
+	if v, ok := _c.mutation.InputTokenMultiplier(); ok {
+		if err := usagelog.InputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "input_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.input_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.OutputTokenMultiplier(); ok {
+		if err := usagelog.OutputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "output_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.output_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.CacheCreationTokenMultiplier(); ok {
+		if err := usagelog.CacheCreationTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_creation_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_creation_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _c.mutation.CacheReadTokenMultiplier(); ok {
+		if err := usagelog.CacheReadTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_read_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_read_token_multiplier": %w`, err)}
+		}
+	}
 	if _, ok := _c.mutation.InputCost(); !ok {
 		return &ValidationError{Name: "input_cost", err: errors.New(`ent: missing required field "UsageLog.input_cost"`)}
 	}
@@ -1030,6 +1162,38 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.CacheCreation1hTokens(); ok {
 		_spec.SetField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
 		_node.CacheCreation1hTokens = value
+	}
+	if value, ok := _c.mutation.BillableInputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableInputTokens, field.TypeInt, value)
+		_node.BillableInputTokens = &value
+	}
+	if value, ok := _c.mutation.BillableOutputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableOutputTokens, field.TypeInt, value)
+		_node.BillableOutputTokens = &value
+	}
+	if value, ok := _c.mutation.BillableCacheCreationTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt, value)
+		_node.BillableCacheCreationTokens = &value
+	}
+	if value, ok := _c.mutation.BillableCacheReadTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheReadTokens, field.TypeInt, value)
+		_node.BillableCacheReadTokens = &value
+	}
+	if value, ok := _c.mutation.InputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64, value)
+		_node.InputTokenMultiplier = &value
+	}
+	if value, ok := _c.mutation.OutputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+		_node.OutputTokenMultiplier = &value
+	}
+	if value, ok := _c.mutation.CacheCreationTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+		_node.CacheCreationTokenMultiplier = &value
+	}
+	if value, ok := _c.mutation.CacheReadTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+		_node.CacheReadTokenMultiplier = &value
 	}
 	if value, ok := _c.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
@@ -1623,6 +1787,198 @@ func (u *UsageLogUpsert) UpdateCacheCreation1hTokens() *UsageLogUpsert {
 // AddCacheCreation1hTokens adds v to the "cache_creation_1h_tokens" field.
 func (u *UsageLogUpsert) AddCacheCreation1hTokens(v int) *UsageLogUpsert {
 	u.Add(usagelog.FieldCacheCreation1hTokens, v)
+	return u
+}
+
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (u *UsageLogUpsert) SetBillableInputTokens(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillableInputTokens, v)
+	return u
+}
+
+// UpdateBillableInputTokens sets the "billable_input_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillableInputTokens() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillableInputTokens)
+	return u
+}
+
+// AddBillableInputTokens adds v to the "billable_input_tokens" field.
+func (u *UsageLogUpsert) AddBillableInputTokens(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldBillableInputTokens, v)
+	return u
+}
+
+// ClearBillableInputTokens clears the value of the "billable_input_tokens" field.
+func (u *UsageLogUpsert) ClearBillableInputTokens() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillableInputTokens)
+	return u
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (u *UsageLogUpsert) SetBillableOutputTokens(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillableOutputTokens, v)
+	return u
+}
+
+// UpdateBillableOutputTokens sets the "billable_output_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillableOutputTokens() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillableOutputTokens)
+	return u
+}
+
+// AddBillableOutputTokens adds v to the "billable_output_tokens" field.
+func (u *UsageLogUpsert) AddBillableOutputTokens(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldBillableOutputTokens, v)
+	return u
+}
+
+// ClearBillableOutputTokens clears the value of the "billable_output_tokens" field.
+func (u *UsageLogUpsert) ClearBillableOutputTokens() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillableOutputTokens)
+	return u
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsert) SetBillableCacheCreationTokens(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillableCacheCreationTokens, v)
+	return u
+}
+
+// UpdateBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillableCacheCreationTokens() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillableCacheCreationTokens)
+	return u
+}
+
+// AddBillableCacheCreationTokens adds v to the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsert) AddBillableCacheCreationTokens(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldBillableCacheCreationTokens, v)
+	return u
+}
+
+// ClearBillableCacheCreationTokens clears the value of the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsert) ClearBillableCacheCreationTokens() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillableCacheCreationTokens)
+	return u
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsert) SetBillableCacheReadTokens(v int) *UsageLogUpsert {
+	u.Set(usagelog.FieldBillableCacheReadTokens, v)
+	return u
+}
+
+// UpdateBillableCacheReadTokens sets the "billable_cache_read_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateBillableCacheReadTokens() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldBillableCacheReadTokens)
+	return u
+}
+
+// AddBillableCacheReadTokens adds v to the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsert) AddBillableCacheReadTokens(v int) *UsageLogUpsert {
+	u.Add(usagelog.FieldBillableCacheReadTokens, v)
+	return u
+}
+
+// ClearBillableCacheReadTokens clears the value of the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsert) ClearBillableCacheReadTokens() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldBillableCacheReadTokens)
+	return u
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (u *UsageLogUpsert) SetInputTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldInputTokenMultiplier, v)
+	return u
+}
+
+// UpdateInputTokenMultiplier sets the "input_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateInputTokenMultiplier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldInputTokenMultiplier)
+	return u
+}
+
+// AddInputTokenMultiplier adds v to the "input_token_multiplier" field.
+func (u *UsageLogUpsert) AddInputTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldInputTokenMultiplier, v)
+	return u
+}
+
+// ClearInputTokenMultiplier clears the value of the "input_token_multiplier" field.
+func (u *UsageLogUpsert) ClearInputTokenMultiplier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldInputTokenMultiplier)
+	return u
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (u *UsageLogUpsert) SetOutputTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldOutputTokenMultiplier, v)
+	return u
+}
+
+// UpdateOutputTokenMultiplier sets the "output_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateOutputTokenMultiplier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldOutputTokenMultiplier)
+	return u
+}
+
+// AddOutputTokenMultiplier adds v to the "output_token_multiplier" field.
+func (u *UsageLogUpsert) AddOutputTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldOutputTokenMultiplier, v)
+	return u
+}
+
+// ClearOutputTokenMultiplier clears the value of the "output_token_multiplier" field.
+func (u *UsageLogUpsert) ClearOutputTokenMultiplier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldOutputTokenMultiplier)
+	return u
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsert) SetCacheCreationTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldCacheCreationTokenMultiplier, v)
+	return u
+}
+
+// UpdateCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateCacheCreationTokenMultiplier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldCacheCreationTokenMultiplier)
+	return u
+}
+
+// AddCacheCreationTokenMultiplier adds v to the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsert) AddCacheCreationTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldCacheCreationTokenMultiplier, v)
+	return u
+}
+
+// ClearCacheCreationTokenMultiplier clears the value of the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsert) ClearCacheCreationTokenMultiplier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldCacheCreationTokenMultiplier)
+	return u
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsert) SetCacheReadTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Set(usagelog.FieldCacheReadTokenMultiplier, v)
+	return u
+}
+
+// UpdateCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateCacheReadTokenMultiplier() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldCacheReadTokenMultiplier)
+	return u
+}
+
+// AddCacheReadTokenMultiplier adds v to the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsert) AddCacheReadTokenMultiplier(v float64) *UsageLogUpsert {
+	u.Add(usagelog.FieldCacheReadTokenMultiplier, v)
+	return u
+}
+
+// ClearCacheReadTokenMultiplier clears the value of the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsert) ClearCacheReadTokenMultiplier() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldCacheReadTokenMultiplier)
 	return u
 }
 
@@ -2537,6 +2893,230 @@ func (u *UsageLogUpsertOne) AddCacheCreation1hTokens(v int) *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) UpdateCacheCreation1hTokens() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateCacheCreation1hTokens()
+	})
+}
+
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (u *UsageLogUpsertOne) SetBillableInputTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableInputTokens(v)
+	})
+}
+
+// AddBillableInputTokens adds v to the "billable_input_tokens" field.
+func (u *UsageLogUpsertOne) AddBillableInputTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableInputTokens(v)
+	})
+}
+
+// UpdateBillableInputTokens sets the "billable_input_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillableInputTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableInputTokens()
+	})
+}
+
+// ClearBillableInputTokens clears the value of the "billable_input_tokens" field.
+func (u *UsageLogUpsertOne) ClearBillableInputTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableInputTokens()
+	})
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (u *UsageLogUpsertOne) SetBillableOutputTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableOutputTokens(v)
+	})
+}
+
+// AddBillableOutputTokens adds v to the "billable_output_tokens" field.
+func (u *UsageLogUpsertOne) AddBillableOutputTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableOutputTokens(v)
+	})
+}
+
+// UpdateBillableOutputTokens sets the "billable_output_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillableOutputTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableOutputTokens()
+	})
+}
+
+// ClearBillableOutputTokens clears the value of the "billable_output_tokens" field.
+func (u *UsageLogUpsertOne) ClearBillableOutputTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableOutputTokens()
+	})
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertOne) SetBillableCacheCreationTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableCacheCreationTokens(v)
+	})
+}
+
+// AddBillableCacheCreationTokens adds v to the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertOne) AddBillableCacheCreationTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableCacheCreationTokens(v)
+	})
+}
+
+// UpdateBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillableCacheCreationTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableCacheCreationTokens()
+	})
+}
+
+// ClearBillableCacheCreationTokens clears the value of the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertOne) ClearBillableCacheCreationTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableCacheCreationTokens()
+	})
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertOne) SetBillableCacheReadTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableCacheReadTokens(v)
+	})
+}
+
+// AddBillableCacheReadTokens adds v to the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertOne) AddBillableCacheReadTokens(v int) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableCacheReadTokens(v)
+	})
+}
+
+// UpdateBillableCacheReadTokens sets the "billable_cache_read_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateBillableCacheReadTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableCacheReadTokens()
+	})
+}
+
+// ClearBillableCacheReadTokens clears the value of the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertOne) ClearBillableCacheReadTokens() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableCacheReadTokens()
+	})
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (u *UsageLogUpsertOne) SetInputTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetInputTokenMultiplier(v)
+	})
+}
+
+// AddInputTokenMultiplier adds v to the "input_token_multiplier" field.
+func (u *UsageLogUpsertOne) AddInputTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddInputTokenMultiplier(v)
+	})
+}
+
+// UpdateInputTokenMultiplier sets the "input_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateInputTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateInputTokenMultiplier()
+	})
+}
+
+// ClearInputTokenMultiplier clears the value of the "input_token_multiplier" field.
+func (u *UsageLogUpsertOne) ClearInputTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearInputTokenMultiplier()
+	})
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (u *UsageLogUpsertOne) SetOutputTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOutputTokenMultiplier(v)
+	})
+}
+
+// AddOutputTokenMultiplier adds v to the "output_token_multiplier" field.
+func (u *UsageLogUpsertOne) AddOutputTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddOutputTokenMultiplier(v)
+	})
+}
+
+// UpdateOutputTokenMultiplier sets the "output_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateOutputTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOutputTokenMultiplier()
+	})
+}
+
+// ClearOutputTokenMultiplier clears the value of the "output_token_multiplier" field.
+func (u *UsageLogUpsertOne) ClearOutputTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOutputTokenMultiplier()
+	})
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertOne) SetCacheCreationTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheCreationTokenMultiplier(v)
+	})
+}
+
+// AddCacheCreationTokenMultiplier adds v to the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertOne) AddCacheCreationTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddCacheCreationTokenMultiplier(v)
+	})
+}
+
+// UpdateCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateCacheCreationTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheCreationTokenMultiplier()
+	})
+}
+
+// ClearCacheCreationTokenMultiplier clears the value of the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertOne) ClearCacheCreationTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearCacheCreationTokenMultiplier()
+	})
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertOne) SetCacheReadTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheReadTokenMultiplier(v)
+	})
+}
+
+// AddCacheReadTokenMultiplier adds v to the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertOne) AddCacheReadTokenMultiplier(v float64) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddCacheReadTokenMultiplier(v)
+	})
+}
+
+// UpdateCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateCacheReadTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheReadTokenMultiplier()
+	})
+}
+
+// ClearCacheReadTokenMultiplier clears the value of the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertOne) ClearCacheReadTokenMultiplier() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearCacheReadTokenMultiplier()
 	})
 }
 
@@ -3693,6 +4273,230 @@ func (u *UsageLogUpsertBulk) AddCacheCreation1hTokens(v int) *UsageLogUpsertBulk
 func (u *UsageLogUpsertBulk) UpdateCacheCreation1hTokens() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.UpdateCacheCreation1hTokens()
+	})
+}
+
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (u *UsageLogUpsertBulk) SetBillableInputTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableInputTokens(v)
+	})
+}
+
+// AddBillableInputTokens adds v to the "billable_input_tokens" field.
+func (u *UsageLogUpsertBulk) AddBillableInputTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableInputTokens(v)
+	})
+}
+
+// UpdateBillableInputTokens sets the "billable_input_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillableInputTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableInputTokens()
+	})
+}
+
+// ClearBillableInputTokens clears the value of the "billable_input_tokens" field.
+func (u *UsageLogUpsertBulk) ClearBillableInputTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableInputTokens()
+	})
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (u *UsageLogUpsertBulk) SetBillableOutputTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableOutputTokens(v)
+	})
+}
+
+// AddBillableOutputTokens adds v to the "billable_output_tokens" field.
+func (u *UsageLogUpsertBulk) AddBillableOutputTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableOutputTokens(v)
+	})
+}
+
+// UpdateBillableOutputTokens sets the "billable_output_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillableOutputTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableOutputTokens()
+	})
+}
+
+// ClearBillableOutputTokens clears the value of the "billable_output_tokens" field.
+func (u *UsageLogUpsertBulk) ClearBillableOutputTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableOutputTokens()
+	})
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertBulk) SetBillableCacheCreationTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableCacheCreationTokens(v)
+	})
+}
+
+// AddBillableCacheCreationTokens adds v to the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertBulk) AddBillableCacheCreationTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableCacheCreationTokens(v)
+	})
+}
+
+// UpdateBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillableCacheCreationTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableCacheCreationTokens()
+	})
+}
+
+// ClearBillableCacheCreationTokens clears the value of the "billable_cache_creation_tokens" field.
+func (u *UsageLogUpsertBulk) ClearBillableCacheCreationTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableCacheCreationTokens()
+	})
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertBulk) SetBillableCacheReadTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetBillableCacheReadTokens(v)
+	})
+}
+
+// AddBillableCacheReadTokens adds v to the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertBulk) AddBillableCacheReadTokens(v int) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddBillableCacheReadTokens(v)
+	})
+}
+
+// UpdateBillableCacheReadTokens sets the "billable_cache_read_tokens" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateBillableCacheReadTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateBillableCacheReadTokens()
+	})
+}
+
+// ClearBillableCacheReadTokens clears the value of the "billable_cache_read_tokens" field.
+func (u *UsageLogUpsertBulk) ClearBillableCacheReadTokens() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearBillableCacheReadTokens()
+	})
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (u *UsageLogUpsertBulk) SetInputTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetInputTokenMultiplier(v)
+	})
+}
+
+// AddInputTokenMultiplier adds v to the "input_token_multiplier" field.
+func (u *UsageLogUpsertBulk) AddInputTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddInputTokenMultiplier(v)
+	})
+}
+
+// UpdateInputTokenMultiplier sets the "input_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateInputTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateInputTokenMultiplier()
+	})
+}
+
+// ClearInputTokenMultiplier clears the value of the "input_token_multiplier" field.
+func (u *UsageLogUpsertBulk) ClearInputTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearInputTokenMultiplier()
+	})
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (u *UsageLogUpsertBulk) SetOutputTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetOutputTokenMultiplier(v)
+	})
+}
+
+// AddOutputTokenMultiplier adds v to the "output_token_multiplier" field.
+func (u *UsageLogUpsertBulk) AddOutputTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddOutputTokenMultiplier(v)
+	})
+}
+
+// UpdateOutputTokenMultiplier sets the "output_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateOutputTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateOutputTokenMultiplier()
+	})
+}
+
+// ClearOutputTokenMultiplier clears the value of the "output_token_multiplier" field.
+func (u *UsageLogUpsertBulk) ClearOutputTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearOutputTokenMultiplier()
+	})
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertBulk) SetCacheCreationTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheCreationTokenMultiplier(v)
+	})
+}
+
+// AddCacheCreationTokenMultiplier adds v to the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertBulk) AddCacheCreationTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddCacheCreationTokenMultiplier(v)
+	})
+}
+
+// UpdateCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateCacheCreationTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheCreationTokenMultiplier()
+	})
+}
+
+// ClearCacheCreationTokenMultiplier clears the value of the "cache_creation_token_multiplier" field.
+func (u *UsageLogUpsertBulk) ClearCacheCreationTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearCacheCreationTokenMultiplier()
+	})
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertBulk) SetCacheReadTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetCacheReadTokenMultiplier(v)
+	})
+}
+
+// AddCacheReadTokenMultiplier adds v to the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertBulk) AddCacheReadTokenMultiplier(v float64) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.AddCacheReadTokenMultiplier(v)
+	})
+}
+
+// UpdateCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateCacheReadTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateCacheReadTokenMultiplier()
+	})
+}
+
+// ClearCacheReadTokenMultiplier clears the value of the "cache_read_token_multiplier" field.
+func (u *UsageLogUpsertBulk) ClearCacheReadTokenMultiplier() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearCacheReadTokenMultiplier()
 	})
 }
 

@@ -15,12 +15,26 @@ type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfi
 type GroupCodexModelsManifestConfig = domain.GroupCodexModelsManifestConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
+const (
+	DefaultGroupTokenMultiplier = 1.0
+	MaxGroupTokenMultiplier     = 100.0
+)
+
 type Group struct {
 	ID             int64
 	Name           string
 	Description    string
 	Platform       string
 	RateMultiplier float64
+	// Token usage multipliers adjust the four independently priced usage buckets.
+	// TokenMultipliersConfigured distinguishes an intentional zero multiplier
+	// from the zero value of Group in older callers and tests.
+	InputTokenMultiplier         float64
+	OutputTokenMultiplier        float64
+	CacheCreationTokenMultiplier float64
+	CacheReadTokenMultiplier     float64
+	ReturnBillableUsage          bool
+	TokenMultipliersConfigured   bool `json:"-"`
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
 	PeakRateEnabled    bool
@@ -139,6 +153,27 @@ type Group struct {
 	AccountCount            int64
 	ActiveAccountCount      int64
 	RateLimitedAccountCount int64
+}
+
+// EnsureTokenMultiplierDefaults upgrades Groups constructed by legacy callers
+// that predate the per-bucket multipliers. Configured groups may intentionally
+// contain zeroes and must be left unchanged.
+func (g *Group) EnsureTokenMultiplierDefaults() {
+	if g == nil || g.TokenMultipliersConfigured {
+		return
+	}
+	g.InputTokenMultiplier = DefaultGroupTokenMultiplier
+	g.OutputTokenMultiplier = DefaultGroupTokenMultiplier
+	g.CacheCreationTokenMultiplier = DefaultGroupTokenMultiplier
+	g.CacheReadTokenMultiplier = DefaultGroupTokenMultiplier
+	g.TokenMultipliersConfigured = true
+}
+
+func ValidateGroupTokenMultiplier(field string, value float64) error {
+	if math.IsNaN(value) || math.IsInf(value, 0) || value < 0 || value > MaxGroupTokenMultiplier {
+		return fmt.Errorf("%s must be between 0 and 100", field)
+	}
+	return nil
 }
 
 // IsGroupBindableInSimpleMode is the shared policy for groups that may be

@@ -738,6 +738,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		applyCacheTTLOverride(&result.Usage, overrideTarget)
 		cacheTTLOverridden = (result.Usage.CacheCreation5mTokens + result.Usage.CacheCreation1hTokens) > 0
 	}
+	rawTokens := usageTokensFromClaudeUsage(result.Usage)
+	billableTokens, tokenMultipliers := ResolveBillableUsageTokens(rawTokens, apiKey.Group)
 
 	// 获取费率倍数（优先级：用户专属 > 分组默认 > 系统默认）
 	multiplier := 1.0
@@ -783,7 +785,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	cost := s.calculateRecordUsageCostWithBillable(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, rawTokens, billableTokens)
 	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
 	// + responseModelBillingAdoptable。任一条件不满足都静默回落基线，即开启本模式前的
@@ -795,7 +797,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
-			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt)
+			responseCost := s.calculateRecordUsageCostWithBillable(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt, rawTokens, billableTokens)
 			baselineChannelPriced := s.resolveChannelPricing(ctx, billingModel, apiKey) != nil
 			if responseModelBillingAdoptable(cost, responseCost, baselineChannelPriced, responseChannelPriced) {
 				// billingModel 到此为止只是定价查表的入参，后续流程只消费 cost，
@@ -817,6 +819,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
 		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost)
+	applyBillableTokenSnapshot(usageLog, billableTokens, tokenMultipliers)
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
@@ -874,6 +877,50 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.gateway")
 
 	return nil
+}
+
+func usageTokensFromClaudeUsage(usage ClaudeUsage) UsageTokens {
+	return UsageTokens{
+		InputTokens:           usage.InputTokens,
+		OutputTokens:          usage.OutputTokens,
+		CacheCreationTokens:   usage.CacheCreationInputTokens,
+		CacheReadTokens:       usage.CacheReadInputTokens,
+		CacheCreation5mTokens: usage.CacheCreation5mTokens,
+		CacheCreation1hTokens: usage.CacheCreation1hTokens,
+		ImageOutputTokens:     usage.ImageOutputTokens,
+	}
+}
+
+// calculateRecordUsageCostWithBillable keeps raw TotalCost/component costs for
+// upstream accounting and replaces only ActualCost with the customer charge.
+func (s *GatewayService) calculateRecordUsageCostWithBillable(
+	ctx context.Context,
+	result *ForwardResult,
+	apiKey *APIKey,
+	billingModel string,
+	multiplier float64,
+	imageMultiplier float64,
+	pricingAt time.Time,
+	rawTokens UsageTokens,
+	billableTokens UsageTokens,
+) *CostBreakdown {
+	rawCost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	if rawTokens == billableTokens || rawCost == nil || optionalStringValue(resolveBillingMode(result, rawCost)) != string(BillingModeToken) {
+		return rawCost
+	}
+
+	billableResult := *result
+	billableResult.Usage = ClaudeUsage{
+		InputTokens:              billableTokens.InputTokens,
+		OutputTokens:             billableTokens.OutputTokens,
+		CacheCreationInputTokens: billableTokens.CacheCreationTokens,
+		CacheReadInputTokens:     billableTokens.CacheReadTokens,
+		CacheCreation5mTokens:    billableTokens.CacheCreation5mTokens,
+		CacheCreation1hTokens:    billableTokens.CacheCreation1hTokens,
+		ImageOutputTokens:        billableTokens.ImageOutputTokens,
+	}
+	billableCost := s.calculateRecordUsageCost(ctx, &billableResult, apiKey, billingModel, multiplier, imageMultiplier, pricingAt)
+	return useBillableActualCost(rawCost, billableCost)
 }
 
 // calculateRecordUsageCost 根据请求类型计算费用。

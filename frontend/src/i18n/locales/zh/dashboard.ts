@@ -303,6 +303,7 @@ export default {
     description: '查看和分析您的 API 使用历史',
     costDetails: '费用明细',
     tokenDetails: 'Token 明细',
+    tokenBillingCalculation: '原始上游 Token × 当次倍率 = 客户计费 Token',
     cacheTtlOverriddenHint: '缓存 TTL Override 已启用',
     cacheTtlOverriddenLabel: 'TTL 替换',
     cacheTtlOverridden5m: '按 5m 计费',

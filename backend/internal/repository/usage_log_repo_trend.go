@@ -36,7 +36,7 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
 			GROUP BY api_key_id
-			ORDER BY SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) DESC
+			ORDER BY SUM(%s) DESC
 			LIMIT $3
 		)
 		SELECT
@@ -44,14 +44,14 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 			u.api_key_id,
 			COALESCE(k.name, '') as key_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
+			COALESCE(SUM(%s), 0) as tokens
 		FROM usage_logs u
 		LEFT JOIN api_keys k ON u.api_key_id = k.id
 		WHERE u.api_key_id IN (SELECT api_key_id FROM top_keys)
 		  AND u.created_at >= $4 AND u.created_at < $5
 		GROUP BY date, u.api_key_id, k.name
 		ORDER BY date ASC, tokens DESC
-	`, dateFormat)
+	`, usageLogTotalTokensExpr("", true), dateFormat, usageLogTotalTokensExpr("u", true))
 
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, startTime, endTime)
 	if err != nil {
@@ -91,7 +91,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 			FROM usage_logs
 			WHERE created_at >= $1 AND created_at < $2
 			GROUP BY user_id
-			ORDER BY SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) DESC
+			ORDER BY SUM(%s) DESC
 			LIMIT $3
 		)
 		SELECT
@@ -100,7 +100,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 			COALESCE(us.email, '') as email,
 			COALESCE(us.username, '') as username,
 			COUNT(*) as requests,
-			COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens,
+			COALESCE(SUM(%s), 0) as tokens,
 			COALESCE(SUM(u.total_cost), 0) as cost,
 			COALESCE(SUM(u.actual_cost), 0) as actual_cost
 		FROM usage_logs u
@@ -109,7 +109,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 		  AND u.created_at >= $4 AND u.created_at < $5
 		GROUP BY date, u.user_id, us.email, us.username
 		ORDER BY date ASC, tokens DESC
-	`, dateFormat)
+	`, usageLogTotalTokensExpr("", true), dateFormat, usageLogTotalTokensExpr("u", true))
 
 	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, limit, startTime, endTime)
 	if err != nil {
@@ -153,7 +153,7 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 				COALESCE(us.username, '') as username,
 				COALESCE(SUM(u.actual_cost), 0) as actual_cost,
 				COUNT(*) as requests,
-				COALESCE(SUM(u.input_tokens + u.output_tokens + u.cache_creation_tokens + u.cache_read_tokens), 0) as tokens
+				COALESCE(SUM(COALESCE(u.billable_input_tokens, u.input_tokens) + COALESCE(u.billable_output_tokens, u.output_tokens) + COALESCE(u.billable_cache_creation_tokens, u.cache_creation_tokens) + COALESCE(u.billable_cache_read_tokens, u.cache_read_tokens)), 0) as tokens
 			FROM usage_logs u
 			LEFT JOIN users us ON u.user_id = us.id
 			WHERE u.created_at >= $1 AND u.created_at < $2
@@ -230,11 +230,11 @@ func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, user
 		SELECT
 			TO_CHAR(created_at, '%s') as date,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens)), 0) as cache_creation_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as cache_read_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens) + COALESCE(billable_output_tokens, output_tokens) + COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
 			COALESCE(SUM(actual_cost), 0) as actual_cost
 		FROM usage_logs
@@ -265,7 +265,7 @@ func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, user
 
 // GetUserModelStats 获取指定用户的模型统计
 func (r *usageLogRepository) GetUserModelStats(ctx context.Context, userID int64, startTime, endTime time.Time) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, 0, 0, 0, "", nil, nil, nil, usagestats.ModelSourceRequested, "", nil, nil)
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, 0, 0, 0, "", nil, nil, nil, usagestats.ModelSourceRequested, "", nil, nil, true)
 }
 
 // GetUsageTrendWithFilters returns usage trend data with optional filters
@@ -291,11 +291,11 @@ func (r *usageLogRepository) getUsageTrendWithFilters(ctx context.Context, start
 		SELECT
 			TO_CHAR(created_at, '%s') as date,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens)), 0) as input_tokens,
+			COALESCE(SUM(COALESCE(billable_output_tokens, output_tokens)), 0) as output_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_creation_tokens, cache_creation_tokens)), 0) as cache_creation_tokens,
+			COALESCE(SUM(COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as cache_read_tokens,
+			COALESCE(SUM(COALESCE(billable_input_tokens, input_tokens) + COALESCE(billable_output_tokens, output_tokens) + COALESCE(billable_cache_creation_tokens, cache_creation_tokens) + COALESCE(billable_cache_read_tokens, cache_read_tokens)), 0) as total_tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
 			COALESCE(SUM(actual_cost), 0) as actual_cost
 		FROM usage_logs
@@ -431,20 +431,26 @@ func (r *usageLogRepository) getUsageTrendFromAggregates(ctx context.Context, st
 
 // GetModelStatsWithFilters returns model statistics with optional filters
 func (r *usageLogRepository) GetModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, "", requestType, stream, billingType, usagestats.ModelSourceRequested, "", nil, nil)
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, "", requestType, stream, billingType, usagestats.ModelSourceRequested, "", nil, nil, true)
+}
+
+// GetRawModelStatsWithFilters keeps account quota and upstream-account usage
+// calculations on the original token counts.
+func (r *usageLogRepository) GetRawModelStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8) (results []ModelStat, err error) {
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, "", requestType, stream, billingType, usagestats.ModelSourceRequested, "", nil, nil, false)
 }
 
 // GetModelStatsWithFiltersBySource returns model statistics with optional filters and model source dimension.
 // source: requested | upstream | mapping.
 func (r *usageLogRepository) GetModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, requestType *int16, stream *bool, billingType *int8, source string) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, "", requestType, stream, billingType, source, "", nil, nil)
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, "", requestType, stream, billingType, source, "", nil, nil, true)
 }
 
 func (r *usageLogRepository) GetModelStatsWithUsageFiltersBySource(ctx context.Context, startTime, endTime time.Time, filters UsageLogFilters, source string) (results []ModelStat, err error) {
-	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, source, filters.BillingMode, filters.UpstreamModelMismatch, filters.NativeCompactionV2)
+	return r.getModelStatsWithFiltersBySource(ctx, startTime, endTime, filters.UserID, filters.APIKeyID, filters.AccountID, filters.GroupID, filters.Model, filters.RequestType, filters.Stream, filters.BillingType, source, filters.BillingMode, filters.UpstreamModelMismatch, filters.NativeCompactionV2, true)
 }
 
-func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool) (results []ModelStat, err error) {
+func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool, billableTokens bool) (results []ModelStat, err error) {
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
@@ -457,17 +463,26 @@ func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Contex
 		SELECT
 			%s as model,
 			COUNT(*) as requests,
-			COALESCE(SUM(input_tokens), 0) as input_tokens,
-			COALESCE(SUM(output_tokens), 0) as output_tokens,
-			COALESCE(SUM(cache_creation_tokens), 0) as cache_creation_tokens,
-			COALESCE(SUM(cache_read_tokens), 0) as cache_read_tokens,
-			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(%s), 0) as input_tokens,
+			COALESCE(SUM(%s), 0) as output_tokens,
+			COALESCE(SUM(%s), 0) as cache_creation_tokens,
+			COALESCE(SUM(%s), 0) as cache_read_tokens,
+			COALESCE(SUM(%s), 0) as total_tokens,
 			COALESCE(SUM(total_cost), 0) as cost,
 			%s,
 			%s
 		FROM usage_logs
 		WHERE created_at >= $1 AND created_at < $2
-	`, modelExpr, actualCostExpr, accountCostExpr)
+	`,
+		modelExpr,
+		usageLogTokenExpr("", "input_tokens", billableTokens),
+		usageLogTokenExpr("", "output_tokens", billableTokens),
+		usageLogTokenExpr("", "cache_creation_tokens", billableTokens),
+		usageLogTokenExpr("", "cache_read_tokens", billableTokens),
+		usageLogTotalTokensExpr("", billableTokens),
+		actualCostExpr,
+		accountCostExpr,
+	)
 
 	args := []any{startTime, endTime}
 	if userID > 0 {
@@ -537,7 +552,7 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 			COALESCE(ul.group_id, 0) as group_id,
 			COALESCE(g.name, '') as group_name,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(COALESCE(ul.billable_input_tokens, ul.input_tokens) + COALESCE(ul.billable_output_tokens, ul.output_tokens) + COALESCE(ul.billable_cache_creation_tokens, ul.cache_creation_tokens) + COALESCE(ul.billable_cache_read_tokens, ul.cache_read_tokens)), 0) as total_tokens,
 			COALESCE(SUM(ul.total_cost), 0) as cost,
 			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
 			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost
@@ -620,10 +635,10 @@ func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTim
 			COALESCE(ul.user_id, 0) as user_id,
 			COALESCE(u.email, '') as email,
 			COUNT(*) as requests,
-			COALESCE(SUM(ul.input_tokens), 0) as input_tokens,
-			COALESCE(SUM(ul.output_tokens), 0) as output_tokens,
-			COALESCE(SUM(ul.cache_creation_tokens + ul.cache_read_tokens), 0) as cache_tokens,
-			COALESCE(SUM(ul.input_tokens + ul.output_tokens + ul.cache_creation_tokens + ul.cache_read_tokens), 0) as total_tokens,
+			COALESCE(SUM(COALESCE(ul.billable_input_tokens, ul.input_tokens)), 0) as input_tokens,
+			COALESCE(SUM(COALESCE(ul.billable_output_tokens, ul.output_tokens)), 0) as output_tokens,
+			COALESCE(SUM(COALESCE(ul.billable_cache_creation_tokens, ul.cache_creation_tokens) + COALESCE(ul.billable_cache_read_tokens, ul.cache_read_tokens)), 0) as cache_tokens,
+			COALESCE(SUM(COALESCE(ul.billable_input_tokens, ul.input_tokens) + COALESCE(ul.billable_output_tokens, ul.output_tokens) + COALESCE(ul.billable_cache_creation_tokens, ul.cache_creation_tokens) + COALESCE(ul.billable_cache_read_tokens, ul.cache_read_tokens)), 0) as total_tokens,
 			COALESCE(SUM(ul.total_cost), 0) as cost,
 			COALESCE(SUM(ul.actual_cost), 0) as actual_cost,
 			COALESCE(SUM(COALESCE(ul.account_stats_cost, ul.total_cost) * COALESCE(ul.account_rate_multiplier, 1)), 0) as account_cost

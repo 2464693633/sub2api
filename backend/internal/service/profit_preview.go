@@ -103,7 +103,8 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 		}
 
 		peak := group.PeakMultiplierAt(evalAt)
-		defaultD := group.RateMultiplier * peak
+		tokenRevenueMultiplier := group.ConservativeTokenRevenueMultiplier()
+		defaultD := group.RateMultiplier * peak * tokenRevenueMultiplier
 		minRate := group.RateMultiplier
 		for _, override := range in.UserOverrides {
 			if math.IsNaN(override) || math.IsInf(override, 0) || override < 0 {
@@ -113,7 +114,7 @@ func PreviewProfitAdmission(inputs []ProfitPreviewGroupInput, evalAt time.Time) 
 				minRate = override
 			}
 		}
-		minD := minRate * peak
+		minD := minRate * peak * tokenRevenueMultiplier
 		deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
 		thresholdDefault := clampProfitControlThreshold(defaultD * (1 - deduction))
 		thresholdMinD := clampProfitControlThreshold(minD * (1 - deduction))

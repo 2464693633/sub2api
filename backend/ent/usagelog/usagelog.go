@@ -56,6 +56,22 @@ const (
 	FieldCacheCreation5mTokens = "cache_creation_5m_tokens"
 	// FieldCacheCreation1hTokens holds the string denoting the cache_creation_1h_tokens field in the database.
 	FieldCacheCreation1hTokens = "cache_creation_1h_tokens"
+	// FieldBillableInputTokens holds the string denoting the billable_input_tokens field in the database.
+	FieldBillableInputTokens = "billable_input_tokens"
+	// FieldBillableOutputTokens holds the string denoting the billable_output_tokens field in the database.
+	FieldBillableOutputTokens = "billable_output_tokens"
+	// FieldBillableCacheCreationTokens holds the string denoting the billable_cache_creation_tokens field in the database.
+	FieldBillableCacheCreationTokens = "billable_cache_creation_tokens"
+	// FieldBillableCacheReadTokens holds the string denoting the billable_cache_read_tokens field in the database.
+	FieldBillableCacheReadTokens = "billable_cache_read_tokens"
+	// FieldInputTokenMultiplier holds the string denoting the input_token_multiplier field in the database.
+	FieldInputTokenMultiplier = "input_token_multiplier"
+	// FieldOutputTokenMultiplier holds the string denoting the output_token_multiplier field in the database.
+	FieldOutputTokenMultiplier = "output_token_multiplier"
+	// FieldCacheCreationTokenMultiplier holds the string denoting the cache_creation_token_multiplier field in the database.
+	FieldCacheCreationTokenMultiplier = "cache_creation_token_multiplier"
+	// FieldCacheReadTokenMultiplier holds the string denoting the cache_read_token_multiplier field in the database.
+	FieldCacheReadTokenMultiplier = "cache_read_token_multiplier"
 	// FieldInputCost holds the string denoting the input_cost field in the database.
 	FieldInputCost = "input_cost"
 	// FieldOutputCost holds the string denoting the output_cost field in the database.
@@ -181,6 +197,14 @@ var Columns = []string{
 	FieldCacheReadTokens,
 	FieldCacheCreation5mTokens,
 	FieldCacheCreation1hTokens,
+	FieldBillableInputTokens,
+	FieldBillableOutputTokens,
+	FieldBillableCacheCreationTokens,
+	FieldBillableCacheReadTokens,
+	FieldInputTokenMultiplier,
+	FieldOutputTokenMultiplier,
+	FieldCacheCreationTokenMultiplier,
+	FieldCacheReadTokenMultiplier,
 	FieldInputCost,
 	FieldOutputCost,
 	FieldCacheCreationCost,
@@ -248,6 +272,14 @@ var (
 	DefaultCacheCreation5mTokens int
 	// DefaultCacheCreation1hTokens holds the default value on creation for the "cache_creation_1h_tokens" field.
 	DefaultCacheCreation1hTokens int
+	// InputTokenMultiplierValidator is a validator for the "input_token_multiplier" field. It is called by the builders before save.
+	InputTokenMultiplierValidator func(float64) error
+	// OutputTokenMultiplierValidator is a validator for the "output_token_multiplier" field. It is called by the builders before save.
+	OutputTokenMultiplierValidator func(float64) error
+	// CacheCreationTokenMultiplierValidator is a validator for the "cache_creation_token_multiplier" field. It is called by the builders before save.
+	CacheCreationTokenMultiplierValidator func(float64) error
+	// CacheReadTokenMultiplierValidator is a validator for the "cache_read_token_multiplier" field. It is called by the builders before save.
+	CacheReadTokenMultiplierValidator func(float64) error
 	// DefaultInputCost holds the default value on creation for the "input_cost" field.
 	DefaultInputCost float64
 	// DefaultOutputCost holds the default value on creation for the "output_cost" field.
@@ -403,6 +435,46 @@ func ByCacheCreation5mTokens(opts ...sql.OrderTermOption) OrderOption {
 // ByCacheCreation1hTokens orders the results by the cache_creation_1h_tokens field.
 func ByCacheCreation1hTokens(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCacheCreation1hTokens, opts...).ToFunc()
+}
+
+// ByBillableInputTokens orders the results by the billable_input_tokens field.
+func ByBillableInputTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBillableInputTokens, opts...).ToFunc()
+}
+
+// ByBillableOutputTokens orders the results by the billable_output_tokens field.
+func ByBillableOutputTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBillableOutputTokens, opts...).ToFunc()
+}
+
+// ByBillableCacheCreationTokens orders the results by the billable_cache_creation_tokens field.
+func ByBillableCacheCreationTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBillableCacheCreationTokens, opts...).ToFunc()
+}
+
+// ByBillableCacheReadTokens orders the results by the billable_cache_read_tokens field.
+func ByBillableCacheReadTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBillableCacheReadTokens, opts...).ToFunc()
+}
+
+// ByInputTokenMultiplier orders the results by the input_token_multiplier field.
+func ByInputTokenMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInputTokenMultiplier, opts...).ToFunc()
+}
+
+// ByOutputTokenMultiplier orders the results by the output_token_multiplier field.
+func ByOutputTokenMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOutputTokenMultiplier, opts...).ToFunc()
+}
+
+// ByCacheCreationTokenMultiplier orders the results by the cache_creation_token_multiplier field.
+func ByCacheCreationTokenMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCacheCreationTokenMultiplier, opts...).ToFunc()
+}
+
+// ByCacheReadTokenMultiplier orders the results by the cache_read_token_multiplier field.
+func ByCacheReadTokenMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCacheReadTokenMultiplier, opts...).ToFunc()
 }
 
 // ByInputCost orders the results by the input_cost field.

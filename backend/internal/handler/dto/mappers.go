@@ -178,12 +178,18 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 }
 
 func groupFromServiceBase(g *service.Group) Group {
+	tokenMultipliers := g.EffectiveTokenMultipliers()
 	return Group{
 		ID:                              g.ID,
 		Name:                            g.Name,
 		Description:                     g.Description,
 		Platform:                        g.Platform,
 		RateMultiplier:                  g.RateMultiplier,
+		InputTokenMultiplier:            tokenMultipliers.Input,
+		OutputTokenMultiplier:           tokenMultipliers.Output,
+		CacheCreationTokenMultiplier:    tokenMultipliers.CacheCreation,
+		CacheReadTokenMultiplier:        tokenMultipliers.CacheRead,
+		ReturnBillableUsage:             g.ReturnBillableUsage,
 		IsExclusive:                     g.IsExclusive,
 		Status:                          g.Status,
 		SubscriptionType:                g.SubscriptionType,
@@ -678,6 +684,17 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、account、upstream_model）。
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
+	billable := l.BillableTokens()
+	billableDetails := service.ApplyTokenMultipliers(service.UsageTokens{
+		InputTokens:           l.InputTokens,
+		OutputTokens:          l.OutputTokens,
+		CacheCreationTokens:   l.CacheCreationTokens,
+		CacheReadTokens:       l.CacheReadTokens,
+		CacheCreation5mTokens: l.CacheCreation5mTokens,
+		CacheCreation1hTokens: l.CacheCreation1hTokens,
+		ImageInputTokens:      l.ImageInputTokens,
+		ImageOutputTokens:     l.ImageOutputTokens,
+	}, l.EffectiveTokenMultipliers())
 	requestedModel := l.RequestedModel
 	if requestedModel == "" {
 		requestedModel = l.Model
@@ -694,12 +711,12 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		InboundEndpoint:           l.InboundEndpoint,
 		GroupID:                   l.GroupID,
 		SubscriptionID:            l.SubscriptionID,
-		InputTokens:               l.InputTokens,
-		OutputTokens:              l.OutputTokens,
-		CacheCreationTokens:       l.CacheCreationTokens,
-		CacheReadTokens:           l.CacheReadTokens,
-		CacheCreation5mTokens:     l.CacheCreation5mTokens,
-		CacheCreation1hTokens:     l.CacheCreation1hTokens,
+		InputTokens:               billable.InputTokens,
+		OutputTokens:              billable.OutputTokens,
+		CacheCreationTokens:       billable.CacheCreationTokens,
+		CacheReadTokens:           billable.CacheReadTokens,
+		CacheCreation5mTokens:     billableDetails.CacheCreation5mTokens,
+		CacheCreation1hTokens:     billableDetails.CacheCreation1hTokens,
 		InputCost:                 l.InputCost,
 		OutputCost:                l.OutputCost,
 		CacheCreationCost:         l.CacheCreationCost,
@@ -719,9 +736,9 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		ImageSize:                 l.ImageSize,
 		ImageInputSize:            l.ImageInputSize,
 		ImageOutputSize:           l.ImageOutputSize,
-		ImageInputTokens:          l.ImageInputTokens,
+		ImageInputTokens:          billableDetails.ImageInputTokens,
 		ImageInputCost:            l.ImageInputCost,
-		ImageOutputTokens:         l.ImageOutputTokens,
+		ImageOutputTokens:         billableDetails.ImageOutputTokens,
 		ImageOutputCost:           l.ImageOutputCost,
 		ImageSizeSource:           l.ImageSizeSource,
 		ImageSizeBreakdown:        l.ImageSizeBreakdown,
@@ -758,19 +775,29 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
 	return &AdminUsageLog{
-		UsageLog:                usageLog,
-		UpstreamModel:           l.UpstreamModel,
-		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
-		UpstreamResponseModel:   l.UpstreamResponseModel,
-		UpstreamModelMismatch:   l.UpstreamModelMismatch,
-		ChannelID:               l.ChannelID,
-		ModelMappingChain:       l.ModelMappingChain,
-		UpstreamRequestID:       l.UpstreamRequestID,
-		BillingTier:             l.BillingTier,
-		AccountRateMultiplier:   l.AccountRateMultiplier,
-		AccountStatsCost:        l.AccountStatsCost,
-		IPAddress:               l.IPAddress,
-		Account:                 AccountSummaryFromService(l.Account),
+		UsageLog:                     usageLog,
+		RawInputTokens:               l.InputTokens,
+		RawOutputTokens:              l.OutputTokens,
+		RawCacheCreationTokens:       l.CacheCreationTokens,
+		RawCacheReadTokens:           l.CacheReadTokens,
+		RawImageInputTokens:          l.ImageInputTokens,
+		RawImageOutputTokens:         l.ImageOutputTokens,
+		InputTokenMultiplier:         l.InputTokenMultiplier,
+		OutputTokenMultiplier:        l.OutputTokenMultiplier,
+		CacheCreationTokenMultiplier: l.CacheCreationTokenMultiplier,
+		CacheReadTokenMultiplier:     l.CacheReadTokenMultiplier,
+		UpstreamModel:                l.UpstreamModel,
+		UpstreamReasoningEffort:      adminUpstreamReasoningEffort(l),
+		UpstreamResponseModel:        l.UpstreamResponseModel,
+		UpstreamModelMismatch:        l.UpstreamModelMismatch,
+		ChannelID:                    l.ChannelID,
+		ModelMappingChain:            l.ModelMappingChain,
+		UpstreamRequestID:            l.UpstreamRequestID,
+		BillingTier:                  l.BillingTier,
+		AccountRateMultiplier:        l.AccountRateMultiplier,
+		AccountStatsCost:             l.AccountStatsCost,
+		IPAddress:                    l.IPAddress,
+		Account:                      AccountSummaryFromService(l.Account),
 	}
 }
 

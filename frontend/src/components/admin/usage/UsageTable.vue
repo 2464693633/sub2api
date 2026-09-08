@@ -194,6 +194,7 @@
             </div>
             <!-- Token Detail Tooltip -->
             <div
+              data-testid="token-tooltip-trigger"
               class="group relative"
               @mouseenter="showTokenTooltip($event, row)"
               @mouseleave="hideTokenTooltip"
@@ -216,6 +217,8 @@
               >x2</span>
               <!-- Cost Detail Tooltip -->
               <div
+                v-if="showAccountBilling"
+                data-testid="cost-tooltip-trigger"
                 class="group relative"
                 @mouseenter="showTooltip($event, row)"
                 @mouseleave="hideTooltip"
@@ -383,6 +386,24 @@
               <span class="font-medium text-white">{{ tokenTooltipData.cache_read_tokens.toLocaleString() }}</span>
             </div>
           </div>
+          <div
+            v-if="tokenTooltipData && tokenAdjustments(tokenTooltipData).length > 0"
+            data-testid="token-billing-adjustments"
+            class="space-y-1 border-t border-gray-700 pt-1.5"
+          >
+            <div class="text-[11px] font-medium text-gray-300">{{ t('usage.tokenBillingCalculation') }}</div>
+            <div
+              v-for="adjustment in tokenAdjustments(tokenTooltipData)"
+              :key="adjustment.key"
+              :data-testid="`token-adjustment-${adjustment.key}`"
+              class="flex items-center justify-between gap-4"
+            >
+              <span class="text-gray-400">{{ adjustment.label }}</span>
+              <span class="font-medium text-cyan-300">
+                {{ adjustment.raw.toLocaleString() }} × {{ formatMultiplier(adjustment.multiplier) }} = {{ adjustment.billable.toLocaleString() }}
+              </span>
+            </div>
+          </div>
           <div class="flex items-center justify-between gap-6 border-t border-gray-700 pt-1.5">
             <span class="text-gray-400">{{ t('usage.totalTokens') }}</span>
             <span class="font-semibold text-blue-400">{{ ((tokenTooltipData?.input_tokens || 0) + (tokenTooltipData?.output_tokens || 0) + (tokenTooltipData?.cache_creation_tokens || 0) + (tokenTooltipData?.cache_read_tokens || 0)).toLocaleString() }}</span>
@@ -426,21 +447,21 @@
             </div>
             <!-- Token billing: show unit prices per 1M tokens -->
             <template v-if="tooltipData && !isImageUsage(tooltipData) && (!tooltipData.billing_mode || tooltipData.billing_mode === BILLING_MODE_TOKEN)">
-              <div v-if="tooltipData && textInputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
+              <div v-if="tooltipData && pricingTextInputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.inputTokenPrice') }}</span>
-                <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, textInputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-sky-300">{{ formatTokenPricePerMillion(tooltipData.input_cost, pricingTextInputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
-              <div v-if="tooltipData && hasImageInputTokens(tooltipData)" class="flex items-center justify-between gap-4">
+              <div v-if="tooltipData && pricingImageInputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageInputTokenPrice') }}</span>
-                <span class="font-medium text-fuchsia-300">{{ formatTokenPricePerMillion(tooltipData.image_input_cost ?? 0, tooltipData.image_input_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-fuchsia-300">{{ formatTokenPricePerMillion(tooltipData.image_input_cost ?? 0, pricingImageInputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
-              <div v-if="tooltipData && tooltipData.output_cost > 0 && textOutputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
+              <div v-if="tooltipData && tooltipData.output_cost > 0 && pricingTextOutputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.outputTokenPrice') }}</span>
-                <span class="font-medium text-violet-300">{{ formatTokenPricePerMillion(tooltipData.output_cost, textOutputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-violet-300">{{ formatTokenPricePerMillion(tooltipData.output_cost, pricingTextOutputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
-              <div v-if="tooltipData && hasImageOutputTokens(tooltipData)" class="flex items-center justify-between gap-4">
+              <div v-if="tooltipData && pricingImageOutputTokens(tooltipData) > 0" class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageOutputTokenPrice') }}</span>
-                <span class="font-medium text-pink-300">{{ formatTokenPricePerMillion(tooltipData.image_output_cost ?? 0, tooltipData.image_output_tokens) }} {{ t('usage.perMillionTokens') }}</span>
+                <span class="font-medium text-pink-300">{{ formatTokenPricePerMillion(tooltipData.image_output_cost ?? 0, pricingImageOutputTokens(tooltipData)) }} {{ t('usage.perMillionTokens') }}</span>
               </div>
             </template>
             <template v-else-if="tooltipData && isImageUsage(tooltipData)">
@@ -577,6 +598,18 @@ function accountBilled(row: { total_cost?: number | null; account_stats_cost?: n
   return Number.isNaN(result) ? 0 : result
 }
 
+const pricingImageInputTokens = (row: AdminUsageLog): number =>
+  Math.max(0, row.raw_image_input_tokens ?? row.image_input_tokens ?? 0)
+
+const pricingImageOutputTokens = (row: AdminUsageLog): number =>
+  Math.max(0, row.raw_image_output_tokens ?? row.image_output_tokens ?? 0)
+
+const pricingTextInputTokens = (row: AdminUsageLog): number =>
+  Math.max(0, (row.raw_input_tokens ?? row.input_tokens ?? 0) - pricingImageInputTokens(row))
+
+const pricingTextOutputTokens = (row: AdminUsageLog): number =>
+  Math.max(0, (row.raw_output_tokens ?? row.output_tokens ?? 0) - pricingImageOutputTokens(row))
+
 
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
@@ -697,6 +730,42 @@ const tooltipData = ref<AdminUsageLog | null>(null)
 const tokenTooltipVisible = ref(false)
 const tokenTooltipPosition = ref({ x: 0, y: 0 })
 const tokenTooltipData = ref<AdminUsageLog | null>(null)
+
+interface TokenAdjustment {
+  key: string
+  label: string
+  raw: number
+  billable: number
+  multiplier: number
+}
+
+const tokenAdjustments = (row: AdminUsageLog): TokenAdjustment[] => {
+  const adjustments: TokenAdjustment[] = []
+  const add = (
+    key: string,
+    label: string,
+    raw: number | undefined,
+    billable: number,
+    multiplier: number | undefined,
+  ) => {
+    if (raw == null || raw === billable) return
+    adjustments.push({ key, label, raw, billable, multiplier: multiplier ?? 1 })
+  }
+
+  add('input', t('admin.usage.inputTokens'), row.raw_input_tokens, row.input_tokens, row.input_token_multiplier)
+  add('image-input', t('usage.imageInputTokens'), row.raw_image_input_tokens, row.image_input_tokens, row.input_token_multiplier)
+  add('output', t('admin.usage.outputTokens'), row.raw_output_tokens, row.output_tokens, row.output_token_multiplier)
+  add('image-output', t('usage.imageOutputTokens'), row.raw_image_output_tokens, row.image_output_tokens, row.output_token_multiplier)
+  add(
+    'cache-creation',
+    t('admin.usage.cacheCreationTokens'),
+    row.raw_cache_creation_tokens,
+    row.cache_creation_tokens,
+    row.cache_creation_token_multiplier,
+  )
+  add('cache-read', t('admin.usage.cacheReadTokens'), row.raw_cache_read_tokens, row.cache_read_tokens, row.cache_read_token_multiplier)
+  return adjustments
+}
 
 const getRequestTypeLabel = (row: AdminUsageLog): string => {
   const requestType = resolveUsageRequestType(row)

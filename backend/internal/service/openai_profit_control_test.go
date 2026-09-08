@@ -87,6 +87,21 @@ func TestResolveOpenAIProfitControlGate(t *testing.T) {
 		require.Equal(t, groupID, gate.groupID)
 	})
 
+	t.Run("threshold includes conservative token multiplier", func(t *testing.T) {
+		group := profitControlTestGroup(groupID, 0.25, 0)
+		group.RateMultiplier = 2
+		group.TokenMultipliersConfigured = true
+		group.InputTokenMultiplier = 3
+		group.OutputTokenMultiplier = 0.5
+		group.CacheCreationTokenMultiplier = 4
+		group.CacheReadTokenMultiplier = 2
+
+		gate := svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID)
+
+		require.NotNil(t, gate)
+		require.InDelta(t, 0.75, gate.threshold, 1e-12)
+	})
+
 	t.Run("threshold applies peak factor exactly like billing", func(t *testing.T) {
 		group := profitControlTestGroup(groupID, 0.5, 0)
 		group.SubscriptionType = SubscriptionTypeSubscription

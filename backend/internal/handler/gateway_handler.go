@@ -472,6 +472,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if fs.SwitchCount > 0 {
 				requestCtx = service.WithAccountSwitchCount(requestCtx, fs.SwitchCount, h.metadataBridgeEnabled())
 			}
+			if fs.ForceCacheBilling {
+				requestCtx = service.WithForceCacheBilling(requestCtx)
+				middleware2.SetBillableUsageResponseForceCache(c)
+			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
 			if account.Platform == service.PlatformAntigravity {
@@ -888,6 +892,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			if fs.ForceCacheBilling {
 				requestCtx = service.WithForceCacheBilling(requestCtx)
+				middleware2.SetBillableUsageResponseForceCache(c)
 			}
 			// 记录 Forward 前已写入字节数，Forward 后若增加则说明 SSE 内容已发，禁止 failover
 			writerSizeBeforeForward := c.Writer.Size()
@@ -1015,6 +1020,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
 						c.Request = c.Request.WithContext(ctx)
 						currentAPIKey = fallbackAPIKey
+						middleware2.SetBillableUsageResponseGroup(c, fallbackGroup)
 						currentSubscription = nil
 						fallbackUsed = true
 						retryWithFallback = true

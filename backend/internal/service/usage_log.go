@@ -151,6 +151,19 @@ type UsageLog struct {
 	OutputTokens        int
 	CacheCreationTokens int
 	CacheReadTokens     int
+	// Billable*Tokens are the rounded token counts charged to the customer.
+	// Nil identifies historical rows and falls back to the corresponding raw count.
+	BillableInputTokens         *int
+	BillableOutputTokens        *int
+	BillableCacheCreationTokens *int
+	BillableCacheReadTokens     *int
+
+	// Token multiplier snapshots preserve the exact group policy used for this request.
+	// Nil identifies historical rows and is interpreted as 1.0.
+	InputTokenMultiplier         *float64
+	OutputTokenMultiplier        *float64
+	CacheCreationTokenMultiplier *float64
+	CacheReadTokenMultiplier     *float64
 
 	CacheCreation5mTokens int `gorm:"column:cache_creation_5m_tokens"`
 	CacheCreation1hTokens int `gorm:"column:cache_creation_1h_tokens"`
@@ -218,7 +231,64 @@ type UsageLog struct {
 }
 
 func (u *UsageLog) TotalTokens() int {
+	if u == nil {
+		return 0
+	}
 	return u.InputTokens + u.OutputTokens + u.CacheCreationTokens + u.CacheReadTokens
+}
+
+// BillableTokens returns the customer-facing counts, falling back to raw counts
+// for rows created before billable token snapshots were introduced.
+func (u *UsageLog) BillableTokens() UsageTokens {
+	if u == nil {
+		return UsageTokens{}
+	}
+	return UsageTokens{
+		InputTokens:         effectiveBillableTokenCount(u.BillableInputTokens, u.InputTokens),
+		OutputTokens:        effectiveBillableTokenCount(u.BillableOutputTokens, u.OutputTokens),
+		CacheCreationTokens: effectiveBillableTokenCount(u.BillableCacheCreationTokens, u.CacheCreationTokens),
+		CacheReadTokens:     effectiveBillableTokenCount(u.BillableCacheReadTokens, u.CacheReadTokens),
+	}
+}
+
+func (u *UsageLog) BillableTotalTokens() int {
+	tokens := u.BillableTokens()
+	return tokens.InputTokens + tokens.OutputTokens + tokens.CacheCreationTokens + tokens.CacheReadTokens
+}
+
+// EffectiveTokenMultipliers returns the request snapshot. Historical rows
+// without snapshots use 1x, matching their billable-token fallback to raw.
+func (u *UsageLog) EffectiveTokenMultipliers() TokenMultipliers {
+	defaults := DefaultTokenMultipliers()
+	if u == nil {
+		return defaults
+	}
+	return TokenMultipliers{
+		Input:         effectiveTokenMultiplier(u.InputTokenMultiplier, defaults.Input),
+		Output:        effectiveTokenMultiplier(u.OutputTokenMultiplier, defaults.Output),
+		CacheCreation: effectiveTokenMultiplier(u.CacheCreationTokenMultiplier, defaults.CacheCreation),
+		CacheRead:     effectiveTokenMultiplier(u.CacheReadTokenMultiplier, defaults.CacheRead),
+	}
+}
+
+func effectiveTokenMultiplier(snapshot *float64, fallback float64) float64 {
+	if snapshot == nil {
+		return fallback
+	}
+	return normalizeTokenMultiplier(*snapshot)
+}
+
+func effectiveBillableTokenCount(snapshot *int, raw int) int {
+	if snapshot != nil {
+		if *snapshot < 0 {
+			return 0
+		}
+		return *snapshot
+	}
+	if raw < 0 {
+		return 0
+	}
+	return raw
 }
 
 func (u *UsageLog) EffectiveRequestType() RequestType {

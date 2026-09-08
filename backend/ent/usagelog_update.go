@@ -435,6 +435,222 @@ func (_u *UsageLogUpdate) AddCacheCreation1hTokens(v int) *UsageLogUpdate {
 	return _u
 }
 
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (_u *UsageLogUpdate) SetBillableInputTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetBillableInputTokens()
+	_u.mutation.SetBillableInputTokens(v)
+	return _u
+}
+
+// SetNillableBillableInputTokens sets the "billable_input_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableBillableInputTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetBillableInputTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableInputTokens adds value to the "billable_input_tokens" field.
+func (_u *UsageLogUpdate) AddBillableInputTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddBillableInputTokens(v)
+	return _u
+}
+
+// ClearBillableInputTokens clears the value of the "billable_input_tokens" field.
+func (_u *UsageLogUpdate) ClearBillableInputTokens() *UsageLogUpdate {
+	_u.mutation.ClearBillableInputTokens()
+	return _u
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (_u *UsageLogUpdate) SetBillableOutputTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetBillableOutputTokens()
+	_u.mutation.SetBillableOutputTokens(v)
+	return _u
+}
+
+// SetNillableBillableOutputTokens sets the "billable_output_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableBillableOutputTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetBillableOutputTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableOutputTokens adds value to the "billable_output_tokens" field.
+func (_u *UsageLogUpdate) AddBillableOutputTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddBillableOutputTokens(v)
+	return _u
+}
+
+// ClearBillableOutputTokens clears the value of the "billable_output_tokens" field.
+func (_u *UsageLogUpdate) ClearBillableOutputTokens() *UsageLogUpdate {
+	_u.mutation.ClearBillableOutputTokens()
+	return _u
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdate) SetBillableCacheCreationTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetBillableCacheCreationTokens()
+	_u.mutation.SetBillableCacheCreationTokens(v)
+	return _u
+}
+
+// SetNillableBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableBillableCacheCreationTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetBillableCacheCreationTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableCacheCreationTokens adds value to the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdate) AddBillableCacheCreationTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddBillableCacheCreationTokens(v)
+	return _u
+}
+
+// ClearBillableCacheCreationTokens clears the value of the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdate) ClearBillableCacheCreationTokens() *UsageLogUpdate {
+	_u.mutation.ClearBillableCacheCreationTokens()
+	return _u
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdate) SetBillableCacheReadTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetBillableCacheReadTokens()
+	_u.mutation.SetBillableCacheReadTokens(v)
+	return _u
+}
+
+// SetNillableBillableCacheReadTokens sets the "billable_cache_read_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableBillableCacheReadTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetBillableCacheReadTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableCacheReadTokens adds value to the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdate) AddBillableCacheReadTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddBillableCacheReadTokens(v)
+	return _u
+}
+
+// ClearBillableCacheReadTokens clears the value of the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdate) ClearBillableCacheReadTokens() *UsageLogUpdate {
+	_u.mutation.ClearBillableCacheReadTokens()
+	return _u
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (_u *UsageLogUpdate) SetInputTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetInputTokenMultiplier()
+	_u.mutation.SetInputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableInputTokenMultiplier sets the "input_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableInputTokenMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetInputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddInputTokenMultiplier adds value to the "input_token_multiplier" field.
+func (_u *UsageLogUpdate) AddInputTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddInputTokenMultiplier(v)
+	return _u
+}
+
+// ClearInputTokenMultiplier clears the value of the "input_token_multiplier" field.
+func (_u *UsageLogUpdate) ClearInputTokenMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearInputTokenMultiplier()
+	return _u
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (_u *UsageLogUpdate) SetOutputTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetOutputTokenMultiplier()
+	_u.mutation.SetOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableOutputTokenMultiplier sets the "output_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableOutputTokenMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetOutputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddOutputTokenMultiplier adds value to the "output_token_multiplier" field.
+func (_u *UsageLogUpdate) AddOutputTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddOutputTokenMultiplier(v)
+	return _u
+}
+
+// ClearOutputTokenMultiplier clears the value of the "output_token_multiplier" field.
+func (_u *UsageLogUpdate) ClearOutputTokenMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearOutputTokenMultiplier()
+	return _u
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdate) SetCacheCreationTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetCacheCreationTokenMultiplier()
+	_u.mutation.SetCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableCacheCreationTokenMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetCacheCreationTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheCreationTokenMultiplier adds value to the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdate) AddCacheCreationTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// ClearCacheCreationTokenMultiplier clears the value of the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdate) ClearCacheCreationTokenMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearCacheCreationTokenMultiplier()
+	return _u
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdate) SetCacheReadTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.ResetCacheReadTokenMultiplier()
+	_u.mutation.SetCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableCacheReadTokenMultiplier(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetCacheReadTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheReadTokenMultiplier adds value to the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdate) AddCacheReadTokenMultiplier(v float64) *UsageLogUpdate {
+	_u.mutation.AddCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// ClearCacheReadTokenMultiplier clears the value of the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdate) ClearCacheReadTokenMultiplier() *UsageLogUpdate {
+	_u.mutation.ClearCacheReadTokenMultiplier()
+	return _u
+}
+
 // SetInputCost sets the "input_cost" field.
 func (_u *UsageLogUpdate) SetInputCost(v float64) *UsageLogUpdate {
 	_u.mutation.ResetInputCost()
@@ -1076,6 +1292,26 @@ func (_u *UsageLogUpdate) check() error {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InputTokenMultiplier(); ok {
+		if err := usagelog.InputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "input_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.input_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		if err := usagelog.OutputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "output_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.output_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		if err := usagelog.CacheCreationTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_creation_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_creation_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		if err := usagelog.CacheReadTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_read_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_read_token_multiplier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.UserAgent(); ok {
 		if err := usagelog.UserAgentValidator(v); err != nil {
 			return &ValidationError{Name: "user_agent", err: fmt.Errorf(`ent: validator failed for field "UsageLog.user_agent": %w`, err)}
@@ -1227,6 +1463,78 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.BillableInputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableInputTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableInputTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableInputTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableInputTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableOutputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableOutputTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableOutputTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableOutputTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableOutputTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableCacheCreationTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableCacheCreationTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableCacheCreationTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableCacheReadTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheReadTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableCacheReadTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableCacheReadTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableCacheReadTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableCacheReadTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.InputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedInputTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.InputTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedOutputTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.OutputTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheCreationTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.CacheCreationTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheReadTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.CacheReadTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
@@ -1949,6 +2257,222 @@ func (_u *UsageLogUpdateOne) AddCacheCreation1hTokens(v int) *UsageLogUpdateOne 
 	return _u
 }
 
+// SetBillableInputTokens sets the "billable_input_tokens" field.
+func (_u *UsageLogUpdateOne) SetBillableInputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetBillableInputTokens()
+	_u.mutation.SetBillableInputTokens(v)
+	return _u
+}
+
+// SetNillableBillableInputTokens sets the "billable_input_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableBillableInputTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetBillableInputTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableInputTokens adds value to the "billable_input_tokens" field.
+func (_u *UsageLogUpdateOne) AddBillableInputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddBillableInputTokens(v)
+	return _u
+}
+
+// ClearBillableInputTokens clears the value of the "billable_input_tokens" field.
+func (_u *UsageLogUpdateOne) ClearBillableInputTokens() *UsageLogUpdateOne {
+	_u.mutation.ClearBillableInputTokens()
+	return _u
+}
+
+// SetBillableOutputTokens sets the "billable_output_tokens" field.
+func (_u *UsageLogUpdateOne) SetBillableOutputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetBillableOutputTokens()
+	_u.mutation.SetBillableOutputTokens(v)
+	return _u
+}
+
+// SetNillableBillableOutputTokens sets the "billable_output_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableBillableOutputTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetBillableOutputTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableOutputTokens adds value to the "billable_output_tokens" field.
+func (_u *UsageLogUpdateOne) AddBillableOutputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddBillableOutputTokens(v)
+	return _u
+}
+
+// ClearBillableOutputTokens clears the value of the "billable_output_tokens" field.
+func (_u *UsageLogUpdateOne) ClearBillableOutputTokens() *UsageLogUpdateOne {
+	_u.mutation.ClearBillableOutputTokens()
+	return _u
+}
+
+// SetBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdateOne) SetBillableCacheCreationTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetBillableCacheCreationTokens()
+	_u.mutation.SetBillableCacheCreationTokens(v)
+	return _u
+}
+
+// SetNillableBillableCacheCreationTokens sets the "billable_cache_creation_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableBillableCacheCreationTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetBillableCacheCreationTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableCacheCreationTokens adds value to the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdateOne) AddBillableCacheCreationTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddBillableCacheCreationTokens(v)
+	return _u
+}
+
+// ClearBillableCacheCreationTokens clears the value of the "billable_cache_creation_tokens" field.
+func (_u *UsageLogUpdateOne) ClearBillableCacheCreationTokens() *UsageLogUpdateOne {
+	_u.mutation.ClearBillableCacheCreationTokens()
+	return _u
+}
+
+// SetBillableCacheReadTokens sets the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdateOne) SetBillableCacheReadTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetBillableCacheReadTokens()
+	_u.mutation.SetBillableCacheReadTokens(v)
+	return _u
+}
+
+// SetNillableBillableCacheReadTokens sets the "billable_cache_read_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableBillableCacheReadTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetBillableCacheReadTokens(*v)
+	}
+	return _u
+}
+
+// AddBillableCacheReadTokens adds value to the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdateOne) AddBillableCacheReadTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddBillableCacheReadTokens(v)
+	return _u
+}
+
+// ClearBillableCacheReadTokens clears the value of the "billable_cache_read_tokens" field.
+func (_u *UsageLogUpdateOne) ClearBillableCacheReadTokens() *UsageLogUpdateOne {
+	_u.mutation.ClearBillableCacheReadTokens()
+	return _u
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (_u *UsageLogUpdateOne) SetInputTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetInputTokenMultiplier()
+	_u.mutation.SetInputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableInputTokenMultiplier sets the "input_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableInputTokenMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetInputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddInputTokenMultiplier adds value to the "input_token_multiplier" field.
+func (_u *UsageLogUpdateOne) AddInputTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddInputTokenMultiplier(v)
+	return _u
+}
+
+// ClearInputTokenMultiplier clears the value of the "input_token_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearInputTokenMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearInputTokenMultiplier()
+	return _u
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (_u *UsageLogUpdateOne) SetOutputTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetOutputTokenMultiplier()
+	_u.mutation.SetOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableOutputTokenMultiplier sets the "output_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableOutputTokenMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetOutputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddOutputTokenMultiplier adds value to the "output_token_multiplier" field.
+func (_u *UsageLogUpdateOne) AddOutputTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddOutputTokenMultiplier(v)
+	return _u
+}
+
+// ClearOutputTokenMultiplier clears the value of the "output_token_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearOutputTokenMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearOutputTokenMultiplier()
+	return _u
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdateOne) SetCacheCreationTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetCacheCreationTokenMultiplier()
+	_u.mutation.SetCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableCacheCreationTokenMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetCacheCreationTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheCreationTokenMultiplier adds value to the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdateOne) AddCacheCreationTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// ClearCacheCreationTokenMultiplier clears the value of the "cache_creation_token_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearCacheCreationTokenMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearCacheCreationTokenMultiplier()
+	return _u
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdateOne) SetCacheReadTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetCacheReadTokenMultiplier()
+	_u.mutation.SetCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableCacheReadTokenMultiplier(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetCacheReadTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheReadTokenMultiplier adds value to the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdateOne) AddCacheReadTokenMultiplier(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// ClearCacheReadTokenMultiplier clears the value of the "cache_read_token_multiplier" field.
+func (_u *UsageLogUpdateOne) ClearCacheReadTokenMultiplier() *UsageLogUpdateOne {
+	_u.mutation.ClearCacheReadTokenMultiplier()
+	return _u
+}
+
 // SetInputCost sets the "input_cost" field.
 func (_u *UsageLogUpdateOne) SetInputCost(v float64) *UsageLogUpdateOne {
 	_u.mutation.ResetInputCost()
@@ -2603,6 +3127,26 @@ func (_u *UsageLogUpdateOne) check() error {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InputTokenMultiplier(); ok {
+		if err := usagelog.InputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "input_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.input_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		if err := usagelog.OutputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "output_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.output_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		if err := usagelog.CacheCreationTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_creation_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_creation_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		if err := usagelog.CacheReadTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_read_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.cache_read_token_multiplier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.UserAgent(); ok {
 		if err := usagelog.UserAgentValidator(v); err != nil {
 			return &ValidationError{Name: "user_agent", err: fmt.Errorf(`ent: validator failed for field "UsageLog.user_agent": %w`, err)}
@@ -2771,6 +3315,78 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.BillableInputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableInputTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableInputTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableInputTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableInputTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableOutputTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableOutputTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableOutputTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableOutputTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableOutputTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableCacheCreationTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableCacheCreationTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableCacheCreationTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableCacheCreationTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.BillableCacheReadTokens(); ok {
+		_spec.SetField(usagelog.FieldBillableCacheReadTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedBillableCacheReadTokens(); ok {
+		_spec.AddField(usagelog.FieldBillableCacheReadTokens, field.TypeInt, value)
+	}
+	if _u.mutation.BillableCacheReadTokensCleared() {
+		_spec.ClearField(usagelog.FieldBillableCacheReadTokens, field.TypeInt)
+	}
+	if value, ok := _u.mutation.InputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedInputTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.InputTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldInputTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedOutputTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.OutputTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldOutputTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheCreationTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.CacheCreationTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldCacheCreationTokenMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		_spec.SetField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheReadTokenMultiplier(); ok {
+		_spec.AddField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if _u.mutation.CacheReadTokenMultiplierCleared() {
+		_spec.ClearField(usagelog.FieldCacheReadTokenMultiplier, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)

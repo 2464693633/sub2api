@@ -329,6 +329,96 @@ func TestUsageLogFromService_PreservesHistoricalMissingImageSize(t *testing.T) {
 	require.NotContains(t, string(body), `"image_size":"2K"`)
 }
 
+func TestUsageLogFromService_UsesBillableTokenSnapshots(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		InputTokens:                  10,
+		OutputTokens:                 6,
+		CacheCreationTokens:          5,
+		CacheReadTokens:              4,
+		CacheCreation5mTokens:        2,
+		CacheCreation1hTokens:        3,
+		ImageInputTokens:             4,
+		ImageOutputTokens:            1,
+		BillableInputTokens:          intPtr(20),
+		BillableOutputTokens:         intPtr(3),
+		BillableCacheCreationTokens:  intPtr(13),
+		BillableCacheReadTokens:      intPtr(0),
+		InputTokenMultiplier:         f64Ptr(2),
+		OutputTokenMultiplier:        f64Ptr(0.5),
+		CacheCreationTokenMultiplier: f64Ptr(2.5),
+		CacheReadTokenMultiplier:     f64Ptr(0),
+	}
+
+	userDTO := UsageLogFromService(log)
+	require.Equal(t, 20, userDTO.InputTokens)
+	require.Equal(t, 3, userDTO.OutputTokens)
+	require.Equal(t, 13, userDTO.CacheCreationTokens)
+	require.Zero(t, userDTO.CacheReadTokens)
+	require.Equal(t, 5, userDTO.CacheCreation5mTokens)
+	require.Equal(t, 8, userDTO.CacheCreation1hTokens)
+	require.Equal(t, 8, userDTO.ImageInputTokens)
+	require.Equal(t, 1, userDTO.ImageOutputTokens)
+
+	userJSON, err := json.Marshal(userDTO)
+	require.NoError(t, err)
+	require.NotContains(t, string(userJSON), "raw_input_tokens")
+	require.NotContains(t, string(userJSON), "input_token_multiplier")
+
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.Equal(t, userDTO.InputTokens, adminDTO.InputTokens)
+	require.Equal(t, 10, adminDTO.RawInputTokens)
+	require.Equal(t, 6, adminDTO.RawOutputTokens)
+	require.Equal(t, 5, adminDTO.RawCacheCreationTokens)
+	require.Equal(t, 4, adminDTO.RawCacheReadTokens)
+	require.Equal(t, 4, adminDTO.RawImageInputTokens)
+	require.Equal(t, 1, adminDTO.RawImageOutputTokens)
+	require.Equal(t, 2.0, *adminDTO.InputTokenMultiplier)
+	require.Equal(t, 0.0, *adminDTO.CacheReadTokenMultiplier)
+
+	adminJSON, err := json.Marshal(adminDTO)
+	require.NoError(t, err)
+	require.Contains(t, string(adminJSON), `"raw_input_tokens":10`)
+	require.Contains(t, string(adminJSON), `"input_token_multiplier":2`)
+	require.Contains(t, string(adminJSON), `"cache_read_token_multiplier":0`)
+}
+
+func TestUsageLogFromService_HistoricalTokensFallBackToRaw(t *testing.T) {
+	t.Parallel()
+
+	log := &service.UsageLog{
+		InputTokens:           11,
+		OutputTokens:          12,
+		CacheCreationTokens:   13,
+		CacheReadTokens:       14,
+		CacheCreation5mTokens: 5,
+		CacheCreation1hTokens: 8,
+		ImageInputTokens:      3,
+		ImageOutputTokens:     4,
+	}
+
+	userDTO := UsageLogFromService(log)
+	require.Equal(t, 11, userDTO.InputTokens)
+	require.Equal(t, 12, userDTO.OutputTokens)
+	require.Equal(t, 13, userDTO.CacheCreationTokens)
+	require.Equal(t, 14, userDTO.CacheReadTokens)
+	require.Equal(t, 5, userDTO.CacheCreation5mTokens)
+	require.Equal(t, 8, userDTO.CacheCreation1hTokens)
+	require.Equal(t, 3, userDTO.ImageInputTokens)
+	require.Equal(t, 4, userDTO.ImageOutputTokens)
+
+	adminDTO := UsageLogFromServiceAdmin(log)
+	require.Nil(t, adminDTO.InputTokenMultiplier)
+	require.Nil(t, adminDTO.OutputTokenMultiplier)
+	require.Nil(t, adminDTO.CacheCreationTokenMultiplier)
+	require.Nil(t, adminDTO.CacheReadTokenMultiplier)
+}
+
 func f64Ptr(value float64) *float64 {
+	return &value
+}
+
+func intPtr(value int) *int {
 	return &value
 }

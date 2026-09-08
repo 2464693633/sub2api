@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: group model_allowlist field (renamed from models_list_config, enforcing semantics)
+const apiKeyAuthSnapshotVersion = 25 // v25: per-bucket token multipliers and billable response usage policy
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -378,6 +378,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
 	}
 	if apiKey.Group != nil {
+		apiKey.Group.EnsureTokenMultiplierDefaults()
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
 			ID:                              apiKey.Group.ID,
 			Name:                            apiKey.Group.Name,
@@ -386,6 +387,11 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			Status:                          apiKey.Group.Status,
 			SubscriptionType:                apiKey.Group.SubscriptionType,
 			RateMultiplier:                  apiKey.Group.RateMultiplier,
+			InputTokenMultiplier:            apiKey.Group.InputTokenMultiplier,
+			OutputTokenMultiplier:           apiKey.Group.OutputTokenMultiplier,
+			CacheCreationTokenMultiplier:    apiKey.Group.CacheCreationTokenMultiplier,
+			CacheReadTokenMultiplier:        apiKey.Group.CacheReadTokenMultiplier,
+			ReturnBillableUsage:             apiKey.Group.ReturnBillableUsage,
 			DailyLimitUSD:                   apiKey.Group.DailyLimitUSD,
 			WeeklyLimitUSD:                  apiKey.Group.WeeklyLimitUSD,
 			MonthlyLimitUSD:                 apiKey.Group.MonthlyLimitUSD,
@@ -488,6 +494,12 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			Hydrated:                        true,
 			SubscriptionType:                snapshot.Group.SubscriptionType,
 			RateMultiplier:                  snapshot.Group.RateMultiplier,
+			InputTokenMultiplier:            snapshot.Group.InputTokenMultiplier,
+			OutputTokenMultiplier:           snapshot.Group.OutputTokenMultiplier,
+			CacheCreationTokenMultiplier:    snapshot.Group.CacheCreationTokenMultiplier,
+			CacheReadTokenMultiplier:        snapshot.Group.CacheReadTokenMultiplier,
+			ReturnBillableUsage:             snapshot.Group.ReturnBillableUsage,
+			TokenMultipliersConfigured:      true,
 			DailyLimitUSD:                   snapshot.Group.DailyLimitUSD,
 			WeeklyLimitUSD:                  snapshot.Group.WeeklyLimitUSD,
 			MonthlyLimitUSD:                 snapshot.Group.MonthlyLimitUSD,

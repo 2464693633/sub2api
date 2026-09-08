@@ -21,8 +21,17 @@ import UsageTable from '../UsageTable.vue'
 const messages: Record<string, string> = {
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
+  'usage.tokenDetails': 'Token Breakdown',
+  'usage.tokenBillingCalculation': 'Raw upstream tokens × request multiplier = customer billable tokens',
+  'usage.totalTokens': 'Total Tokens',
   'admin.usage.inputCost': 'Input Cost',
   'admin.usage.outputCost': 'Output Cost',
+  'admin.usage.inputTokens': 'Input Tokens',
+  'admin.usage.outputTokens': 'Output Tokens',
+  'admin.usage.cacheCreationTokens': 'Cache Creation Tokens',
+  'admin.usage.cacheReadTokens': 'Cache Read Tokens',
+  'admin.usage.cacheCreation5mTokens': 'Cache Creation',
+  'admin.usage.cacheCreation1hTokens': 'Cache Creation',
   'admin.usage.cacheCreationCost': 'Cache Creation Cost',
   'admin.usage.cacheReadCost': 'Cache Read Cost',
   'usage.inputTokenPrice': 'Input price',
@@ -40,6 +49,8 @@ const messages: Record<string, string> = {
   'usage.accountBilled': 'Account billed',
   'usage.imageUnit': ' images',
   'usage.imageCount': 'Image count',
+  'usage.imageInputTokens': 'Image Input Tokens',
+  'usage.imageOutputTokens': 'Image Output Tokens',
   'usage.imageBillingSize': 'Billing size',
   'usage.imageInputSize': 'Input size',
   'usage.imageOutputSize': 'Output size',
@@ -129,6 +140,27 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
+  it('hides raw upstream cost details in the user-facing table', () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [baseImageRow],
+        loading: false,
+        columns: [],
+        showAccountBilling: false,
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.find('[data-testid="cost-tooltip-trigger"]').exists()).toBe(false)
+  })
+
   beforeEach(() => {
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -173,6 +205,102 @@ describe('admin UsageTable tooltip', () => {
 
     expect(wrapper.findAll('[data-testid="long-context-billing-marker"]')).toHaveLength(1)
     expect(wrapper.get('[data-testid="long-context-billing-marker"]').text()).toBe('x2')
+  })
+
+  it('shows raw token counts and the applied multipliers when billing changes the usage', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          request_id: 'req-token-multiplier',
+          billing_mode: 'token',
+          image_count: 0,
+          input_tokens: 200,
+          output_tokens: 10,
+          cache_creation_tokens: 5,
+          cache_read_tokens: 0,
+          cache_creation_5m_tokens: 2,
+          cache_creation_1h_tokens: 3,
+          image_input_tokens: 40,
+          image_output_tokens: 0,
+          raw_input_tokens: 100,
+          raw_output_tokens: 10,
+          raw_cache_creation_tokens: 10,
+          raw_cache_read_tokens: 20,
+          raw_image_input_tokens: 20,
+          raw_image_output_tokens: 0,
+          input_token_multiplier: 2,
+          output_token_multiplier: 1,
+          cache_creation_token_multiplier: 0.5,
+          cache_read_token_multiplier: 0,
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="token-tooltip-trigger"]').trigger('mouseenter')
+    await nextTick()
+
+    const audit = wrapper.get('[data-testid="token-billing-adjustments"]')
+    expect(audit.text()).toContain('Raw upstream tokens × request multiplier = customer billable tokens')
+    expect(wrapper.get('[data-testid="token-adjustment-input"]').text()).toContain('100 × 2.00 = 200')
+    expect(wrapper.get('[data-testid="token-adjustment-image-input"]').text()).toContain('20 × 2.00 = 40')
+    expect(wrapper.get('[data-testid="token-adjustment-cache-creation"]').text()).toContain('10 × 0.50 = 5')
+    expect(wrapper.get('[data-testid="token-adjustment-cache-read"]').text()).toContain('20 × 0.0 = 0')
+    expect(wrapper.find('[data-testid="token-adjustment-output"]').exists()).toBe(false)
+  })
+
+  it('uses raw text and image token counts for upstream unit-price calculations', async () => {
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [{
+          ...baseImageRow,
+          request_id: 'req-raw-unit-price',
+          billing_mode: 'token',
+          image_count: 0,
+          input_tokens: 200,
+          output_tokens: 40,
+          image_input_tokens: 40,
+          image_output_tokens: 10,
+          raw_input_tokens: 100,
+          raw_output_tokens: 20,
+          raw_image_input_tokens: 20,
+          raw_image_output_tokens: 5,
+          input_cost: 0.0008,
+          image_input_cost: 0.0004,
+          output_cost: 0.00045,
+          image_output_cost: 0.00025,
+        }],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="cost-tooltip-trigger"]').trigger('mouseenter')
+    await nextTick()
+
+    const text = wrapper.text()
+    expect(text).toContain('$10.0000 / 1M tokens')
+    expect(text).toContain('$20.0000 / 1M tokens')
+    expect(text).toContain('$30.0000 / 1M tokens')
+    expect(text).toContain('$50.0000 / 1M tokens')
   })
 
   it('keeps the request type badge and adds a separate badge only for native compaction rows', () => {

@@ -90,6 +90,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
+	groupIn.EnsureTokenMultiplierDefaults()
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
@@ -99,6 +100,11 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetInputTokenMultiplier(groupIn.InputTokenMultiplier).
+		SetOutputTokenMultiplier(groupIn.OutputTokenMultiplier).
+		SetCacheCreationTokenMultiplier(groupIn.CacheCreationTokenMultiplier).
+		SetCacheReadTokenMultiplier(groupIn.CacheReadTokenMultiplier).
+		SetReturnBillableUsage(groupIn.ReturnBillableUsage).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -278,6 +284,7 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	groupIn.EnsureTokenMultiplierDefaults()
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
@@ -287,6 +294,11 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetRateMultiplier(groupIn.RateMultiplier).
+		SetInputTokenMultiplier(groupIn.InputTokenMultiplier).
+		SetOutputTokenMultiplier(groupIn.OutputTokenMultiplier).
+		SetCacheCreationTokenMultiplier(groupIn.CacheCreationTokenMultiplier).
+		SetCacheReadTokenMultiplier(groupIn.CacheReadTokenMultiplier).
+		SetReturnBillableUsage(groupIn.ReturnBillableUsage).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
 		SetSubscriptionType(groupIn.SubscriptionType).

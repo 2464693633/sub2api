@@ -76,6 +76,23 @@ func TestGatewayProfitControlInstallsForFivePlatformsOnlyOnTokenRequests(t *test
 	}
 }
 
+func TestGatewayProfitControlUsesConservativeTokenMultiplier(t *testing.T) {
+	group := gatewayProfitTestGroup(102, PlatformGemini)
+	group.RateMultiplier = 2
+	group.TokenMultipliersConfigured = true
+	group.InputTokenMultiplier = 3
+	group.OutputTokenMultiplier = 0.5
+	group.CacheCreationTokenMultiplier = 4
+	group.CacheReadTokenMultiplier = 2
+	groupID := group.ID
+
+	ctx := (&GatewayService{}).withGatewayProfitControlGate(gatewayProfitTestContext(group), &groupID)
+	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
+
+	require.NotNil(t, gate)
+	require.InDelta(t, 1.0, gate.threshold, 1e-12)
+}
+
 func TestGatewayProfitControlCompositeBillingUsesScheduledMemberConfig(t *testing.T) {
 	billingGroup := &Group{
 		ID:               201,

@@ -118,6 +118,104 @@ func (_u *GroupUpdate) AddRateMultiplier(v float64) *GroupUpdate {
 	return _u
 }
 
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (_u *GroupUpdate) SetInputTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetInputTokenMultiplier()
+	_u.mutation.SetInputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableInputTokenMultiplier sets the "input_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableInputTokenMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetInputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddInputTokenMultiplier adds value to the "input_token_multiplier" field.
+func (_u *GroupUpdate) AddInputTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddInputTokenMultiplier(v)
+	return _u
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (_u *GroupUpdate) SetOutputTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetOutputTokenMultiplier()
+	_u.mutation.SetOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableOutputTokenMultiplier sets the "output_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableOutputTokenMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetOutputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddOutputTokenMultiplier adds value to the "output_token_multiplier" field.
+func (_u *GroupUpdate) AddOutputTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (_u *GroupUpdate) SetCacheCreationTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetCacheCreationTokenMultiplier()
+	_u.mutation.SetCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCacheCreationTokenMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetCacheCreationTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheCreationTokenMultiplier adds value to the "cache_creation_token_multiplier" field.
+func (_u *GroupUpdate) AddCacheCreationTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (_u *GroupUpdate) SetCacheReadTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.ResetCacheReadTokenMultiplier()
+	_u.mutation.SetCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCacheReadTokenMultiplier(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetCacheReadTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheReadTokenMultiplier adds value to the "cache_read_token_multiplier" field.
+func (_u *GroupUpdate) AddCacheReadTokenMultiplier(v float64) *GroupUpdate {
+	_u.mutation.AddCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetReturnBillableUsage sets the "return_billable_usage" field.
+func (_u *GroupUpdate) SetReturnBillableUsage(v bool) *GroupUpdate {
+	_u.mutation.SetReturnBillableUsage(v)
+	return _u
+}
+
+// SetNillableReturnBillableUsage sets the "return_billable_usage" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableReturnBillableUsage(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetReturnBillableUsage(*v)
+	}
+	return _u
+}
+
 // SetPeakRateEnabled sets the "peak_rate_enabled" field.
 func (_u *GroupUpdate) SetPeakRateEnabled(v bool) *GroupUpdate {
 	_u.mutation.SetPeakRateEnabled(v)
@@ -1488,6 +1586,26 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InputTokenMultiplier(); ok {
+		if err := group.InputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "input_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.input_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		if err := group.OutputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "output_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.output_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		if err := group.CacheCreationTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_creation_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.cache_creation_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		if err := group.CacheReadTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_read_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.cache_read_token_multiplier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PeakStart(); ok {
 		if err := group.PeakStartValidator(v); err != nil {
 			return &ValidationError{Name: "peak_start", err: fmt.Errorf(`ent: validator failed for field "Group.peak_start": %w`, err)}
@@ -1586,6 +1704,33 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.InputTokenMultiplier(); ok {
+		_spec.SetField(group.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedInputTokenMultiplier(); ok {
+		_spec.AddField(group.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		_spec.SetField(group.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedOutputTokenMultiplier(); ok {
+		_spec.AddField(group.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		_spec.SetField(group.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheCreationTokenMultiplier(); ok {
+		_spec.AddField(group.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		_spec.SetField(group.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheReadTokenMultiplier(); ok {
+		_spec.AddField(group.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ReturnBillableUsage(); ok {
+		_spec.SetField(group.FieldReturnBillableUsage, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)
@@ -2309,6 +2454,104 @@ func (_u *GroupUpdateOne) SetNillableRateMultiplier(v *float64) *GroupUpdateOne 
 // AddRateMultiplier adds value to the "rate_multiplier" field.
 func (_u *GroupUpdateOne) AddRateMultiplier(v float64) *GroupUpdateOne {
 	_u.mutation.AddRateMultiplier(v)
+	return _u
+}
+
+// SetInputTokenMultiplier sets the "input_token_multiplier" field.
+func (_u *GroupUpdateOne) SetInputTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetInputTokenMultiplier()
+	_u.mutation.SetInputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableInputTokenMultiplier sets the "input_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableInputTokenMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetInputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddInputTokenMultiplier adds value to the "input_token_multiplier" field.
+func (_u *GroupUpdateOne) AddInputTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddInputTokenMultiplier(v)
+	return _u
+}
+
+// SetOutputTokenMultiplier sets the "output_token_multiplier" field.
+func (_u *GroupUpdateOne) SetOutputTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetOutputTokenMultiplier()
+	_u.mutation.SetOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableOutputTokenMultiplier sets the "output_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableOutputTokenMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetOutputTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddOutputTokenMultiplier adds value to the "output_token_multiplier" field.
+func (_u *GroupUpdateOne) AddOutputTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddOutputTokenMultiplier(v)
+	return _u
+}
+
+// SetCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field.
+func (_u *GroupUpdateOne) SetCacheCreationTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetCacheCreationTokenMultiplier()
+	_u.mutation.SetCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheCreationTokenMultiplier sets the "cache_creation_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCacheCreationTokenMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCacheCreationTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheCreationTokenMultiplier adds value to the "cache_creation_token_multiplier" field.
+func (_u *GroupUpdateOne) AddCacheCreationTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddCacheCreationTokenMultiplier(v)
+	return _u
+}
+
+// SetCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field.
+func (_u *GroupUpdateOne) SetCacheReadTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.ResetCacheReadTokenMultiplier()
+	_u.mutation.SetCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetNillableCacheReadTokenMultiplier sets the "cache_read_token_multiplier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCacheReadTokenMultiplier(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCacheReadTokenMultiplier(*v)
+	}
+	return _u
+}
+
+// AddCacheReadTokenMultiplier adds value to the "cache_read_token_multiplier" field.
+func (_u *GroupUpdateOne) AddCacheReadTokenMultiplier(v float64) *GroupUpdateOne {
+	_u.mutation.AddCacheReadTokenMultiplier(v)
+	return _u
+}
+
+// SetReturnBillableUsage sets the "return_billable_usage" field.
+func (_u *GroupUpdateOne) SetReturnBillableUsage(v bool) *GroupUpdateOne {
+	_u.mutation.SetReturnBillableUsage(v)
+	return _u
+}
+
+// SetNillableReturnBillableUsage sets the "return_billable_usage" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableReturnBillableUsage(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetReturnBillableUsage(*v)
+	}
 	return _u
 }
 
@@ -3695,6 +3938,26 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Group.name": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.InputTokenMultiplier(); ok {
+		if err := group.InputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "input_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.input_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		if err := group.OutputTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "output_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.output_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		if err := group.CacheCreationTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_creation_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.cache_creation_token_multiplier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		if err := group.CacheReadTokenMultiplierValidator(v); err != nil {
+			return &ValidationError{Name: "cache_read_token_multiplier", err: fmt.Errorf(`ent: validator failed for field "Group.cache_read_token_multiplier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PeakStart(); ok {
 		if err := group.PeakStartValidator(v); err != nil {
 			return &ValidationError{Name: "peak_start", err: fmt.Errorf(`ent: validator failed for field "Group.peak_start": %w`, err)}
@@ -3810,6 +4073,33 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.AddedRateMultiplier(); ok {
 		_spec.AddField(group.FieldRateMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.InputTokenMultiplier(); ok {
+		_spec.SetField(group.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedInputTokenMultiplier(); ok {
+		_spec.AddField(group.FieldInputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.OutputTokenMultiplier(); ok {
+		_spec.SetField(group.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedOutputTokenMultiplier(); ok {
+		_spec.AddField(group.FieldOutputTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CacheCreationTokenMultiplier(); ok {
+		_spec.SetField(group.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheCreationTokenMultiplier(); ok {
+		_spec.AddField(group.FieldCacheCreationTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.CacheReadTokenMultiplier(); ok {
+		_spec.SetField(group.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedCacheReadTokenMultiplier(); ok {
+		_spec.AddField(group.FieldCacheReadTokenMultiplier, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ReturnBillableUsage(); ok {
+		_spec.SetField(group.FieldReturnBillableUsage, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.PeakRateEnabled(); ok {
 		_spec.SetField(group.FieldPeakRateEnabled, field.TypeBool, value)

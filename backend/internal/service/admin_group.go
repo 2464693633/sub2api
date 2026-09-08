@@ -372,6 +372,23 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 	*input = UpdateGroupInput{Name: input.Name, Description: input.Description}
 }
 
+func groupTokenMultiplierOrDefault(field string, value *float64) (float64, error) {
+	if value == nil {
+		return DefaultGroupTokenMultiplier, nil
+	}
+	if err := ValidateGroupTokenMultiplier(field, *value); err != nil {
+		return 0, err
+	}
+	return *value, nil
+}
+
+func validateOptionalGroupTokenMultiplier(field string, value *float64) error {
+	if value == nil {
+		return nil
+	}
+	return ValidateGroupTokenMultiplier(field, *value)
+}
+
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && NormalizeGroupPlatform(input.Platform) == PlatformComposite {
 		return nil, infraerrors.BadRequest("SIMPLE_MODE_GROUP_NOT_BINDABLE", "composite groups are not supported in simple mode")
@@ -381,6 +398,22 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 	if input.RateMultiplier <= 0 {
 		return nil, errors.New("rate_multiplier must be > 0")
+	}
+	inputTokenMultiplier, err := groupTokenMultiplierOrDefault("input_token_multiplier", input.InputTokenMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	outputTokenMultiplier, err := groupTokenMultiplierOrDefault("output_token_multiplier", input.OutputTokenMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	cacheCreationTokenMultiplier, err := groupTokenMultiplierOrDefault("cache_creation_token_multiplier", input.CacheCreationTokenMultiplier)
+	if err != nil {
+		return nil, err
+	}
+	cacheReadTokenMultiplier, err := groupTokenMultiplierOrDefault("cache_read_token_multiplier", input.CacheReadTokenMultiplier)
+	if err != nil {
+		return nil, err
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
@@ -555,6 +588,12 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Description:                     input.Description,
 		Platform:                        platform,
 		RateMultiplier:                  input.RateMultiplier,
+		InputTokenMultiplier:            inputTokenMultiplier,
+		OutputTokenMultiplier:           outputTokenMultiplier,
+		CacheCreationTokenMultiplier:    cacheCreationTokenMultiplier,
+		CacheReadTokenMultiplier:        cacheReadTokenMultiplier,
+		ReturnBillableUsage:             input.ReturnBillableUsage,
+		TokenMultipliersConfigured:      true,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
 		SubscriptionType:                subscriptionType,
@@ -772,6 +811,34 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 			return nil, errors.New("rate_multiplier must be > 0")
 		}
 		group.RateMultiplier = *input.RateMultiplier
+	}
+	if err := validateOptionalGroupTokenMultiplier("input_token_multiplier", input.InputTokenMultiplier); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalGroupTokenMultiplier("output_token_multiplier", input.OutputTokenMultiplier); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalGroupTokenMultiplier("cache_creation_token_multiplier", input.CacheCreationTokenMultiplier); err != nil {
+		return nil, err
+	}
+	if err := validateOptionalGroupTokenMultiplier("cache_read_token_multiplier", input.CacheReadTokenMultiplier); err != nil {
+		return nil, err
+	}
+	group.EnsureTokenMultiplierDefaults()
+	if input.InputTokenMultiplier != nil {
+		group.InputTokenMultiplier = *input.InputTokenMultiplier
+	}
+	if input.OutputTokenMultiplier != nil {
+		group.OutputTokenMultiplier = *input.OutputTokenMultiplier
+	}
+	if input.CacheCreationTokenMultiplier != nil {
+		group.CacheCreationTokenMultiplier = *input.CacheCreationTokenMultiplier
+	}
+	if input.CacheReadTokenMultiplier != nil {
+		group.CacheReadTokenMultiplier = *input.CacheReadTokenMultiplier
+	}
+	if input.ReturnBillableUsage != nil {
+		group.ReturnBillableUsage = *input.ReturnBillableUsage
 	}
 	if input.IsExclusive != nil {
 		group.IsExclusive = *input.IsExclusive

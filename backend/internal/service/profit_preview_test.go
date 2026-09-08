@@ -75,6 +75,20 @@ func TestPreviewProfitAdmissionUsesAccountRatesAndPreinitializesModels(t *testin
 	require.True(t, present, "全部账号均不支持时也必须显式保留 0，供 CLI 发出警告")
 }
 
+func TestPreviewProfitAdmissionUsesConservativeTokenMultiplier(t *testing.T) {
+	group := profitControlTestGroup(49, 0.2, 0)
+	group.TokenMultipliersConfigured = true
+	group.InputTokenMultiplier = 2
+	group.OutputTokenMultiplier = 0.5
+	group.CacheCreationTokenMultiplier = 3
+	group.CacheReadTokenMultiplier = 4
+
+	report := PreviewProfitAdmission([]ProfitPreviewGroupInput{{Group: group}}, time.Now())[0]
+
+	require.InDelta(t, 0.5, report.DefaultD, 1e-12)
+	require.InDelta(t, 0.4, report.ThresholdDefault, 1e-12)
+}
+
 func TestPreviewProfitAdmissionAssumeEnabled(t *testing.T) {
 	now := time.Now()
 	group := profitControlTestGroup(51, 0, 0)
