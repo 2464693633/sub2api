@@ -209,27 +209,27 @@ func rewriteBillableSSEEvent(event []byte, group *service.Group, forceCacheBilli
 	var out bytes.Buffer
 	for index, line := range bytes.Split(event, []byte{'\n'}) {
 		if index > 0 {
-			out.WriteByte('\n')
+			_ = out.WriteByte('\n')
 		}
 		trimmed := bytes.TrimSpace(line)
 		if !bytes.HasPrefix(trimmed, []byte("data:")) {
-			out.Write(line)
+			_, _ = out.Write(line)
 			continue
 		}
 		payload := bytes.TrimSpace(bytes.TrimPrefix(trimmed, []byte("data:")))
 		if bytes.Equal(payload, []byte("[DONE]")) {
-			out.Write(line)
+			_, _ = out.Write(line)
 			continue
 		}
 		rewritten, changed := rewriteBillableUsageJSON(payload, group, firstBool(forceCacheBilling))
 		if !changed {
-			out.Write(line)
+			_, _ = out.Write(line)
 			continue
 		}
 		indent := line[:len(line)-len(bytes.TrimLeft(line, " \t"))]
-		out.Write(indent)
-		out.WriteString("data: ")
-		out.Write(rewritten)
+		_, _ = out.Write(indent)
+		_, _ = out.WriteString("data: ")
+		_, _ = out.Write(rewritten)
 	}
 	return out.Bytes()
 }
@@ -365,7 +365,6 @@ func rewriteTokenUsageMap(usage map[string]any, group *service.Group, forceCache
 	}
 	if forceCacheBilling && rawInput > 0 {
 		cacheRead += rawInput
-		hasCacheRead = true
 		rawInput = 0
 	}
 	imageInput, _ := nestedTokenField(usage, "input_tokens_details.image_tokens", "prompt_tokens_details.image_tokens")
