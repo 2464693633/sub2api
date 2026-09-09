@@ -1190,16 +1190,23 @@ func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	keys := make([]string, 0)
 	for rows.Next() {
 		var key string
 		if err := rows.Scan(&key); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		keys = append(keys, key)
 	}
-	return keys, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return keys, nil
 }
 
 // IncrementQuotaUsed 使用 Ent 原子递增 quota_used 字段并返回新值

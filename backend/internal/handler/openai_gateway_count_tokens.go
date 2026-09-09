@@ -74,10 +74,8 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
-		if recovered {
-			subscription = nextSubscription
-		} else {
+		_, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if !recovered {
 			reqLog.Info("openai_input_tokens.billing_eligibility_check_failed", zap.Error(finalErr))
 			status, code, message, retryAfter := billingErrorDetails(finalErr)
 			if retryAfter > 0 {
@@ -115,11 +113,10 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 		if err == nil && account != nil {
 			break
 		}
-		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		_, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
 		if billingErr != nil || !advanced {
 			break
 		}
-		subscription = nextSubscription
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 		routingModel = reqModel
 		forwardBody = body
@@ -284,9 +281,8 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
 	}
 	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, dispatchAllowed)
+		_, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, dispatchAllowed)
 		if recovered {
-			subscription = nextSubscription
 			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 			preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 		} else {
@@ -323,11 +319,10 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 		if err == nil && account != nil {
 			break
 		}
-		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		_, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
 		if billingErr != nil || !advanced {
 			break
 		}
-		subscription = nextSubscription
 		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 		preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 		currentRoutingModel = routingModel

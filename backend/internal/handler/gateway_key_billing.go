@@ -94,10 +94,6 @@ func (h *GatewayHandler) KeyBillingInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, buildMultiGroupKeyBillingInfo(apiKey, groups, resolvedRates, timezone.Now()))
 }
 
-func (h *GatewayHandler) resolveKeyBillingRate(c *gin.Context, apiKey *service.APIKey) (float64, bool) {
-	return h.resolveKeyBillingRateForGroup(c, apiKey.UserID, apiKey.Group)
-}
-
 func (h *GatewayHandler) resolveKeyBillingRateForGroup(c *gin.Context, userID int64, group *service.Group) (float64, bool) {
 	if group == nil {
 		return 0, false

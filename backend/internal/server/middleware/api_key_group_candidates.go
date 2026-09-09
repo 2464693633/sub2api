@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"errors"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -168,13 +167,4 @@ func candidateForActiveGroup(candidates []APIKeyGroupCandidate, groupID *int64) 
 		}
 	}
 	return APIKeyGroupCandidate{}, false
-}
-
-func isGroupSpecificSubscriptionError(err error) bool {
-	return errors.Is(err, service.ErrSubscriptionNotFound) ||
-		errors.Is(err, service.ErrSubscriptionExpired) ||
-		errors.Is(err, service.ErrSubscriptionSuspended) ||
-		errors.Is(err, service.ErrDailyLimitExceeded) ||
-		errors.Is(err, service.ErrWeeklyLimitExceeded) ||
-		errors.Is(err, service.ErrMonthlyLimitExceeded)
 }

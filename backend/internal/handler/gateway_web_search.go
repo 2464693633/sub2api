@@ -128,7 +128,6 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		return
 	}
 
-	failedAccounts := make(map[int64]struct{})
 	var account *service.Account
 	var accountReleaseFunc func()
 	var nativeResp *websearch.SearchResponse
@@ -147,7 +146,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	// First attempt + up to 3 failover accounts (max 4 total per group).
 groupAttempts:
 	for {
-		failedAccounts = make(map[int64]struct{})
+		failedAccounts := make(map[int64]struct{})
 		lastFailoverErr = nil
 		for attempt := 0; attempt < 4; attempt++ {
 			selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(

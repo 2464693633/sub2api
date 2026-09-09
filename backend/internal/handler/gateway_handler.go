@@ -2265,10 +2265,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
 	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
-		if recovered {
-			subscription = nextSubscription
-		} else {
+		_, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if !recovered {
 			status, code, message, retryAfter := billingErrorDetails(finalErr)
 			if retryAfter > 0 {
 				c.Header("Retry-After", strconv.Itoa(retryAfter))
@@ -2295,7 +2293,7 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 		if err == nil {
 			break
 		}
-		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		_, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
 		if billingErr != nil || !advanced {
 			reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, parsedReq.Model, parsedReq.Model, service.PlatformAnthropic)
@@ -2305,7 +2303,6 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 			h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 			return
 		}
-		subscription = nextSubscription
 		reqLog.Info("gateway.count_tokens.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
