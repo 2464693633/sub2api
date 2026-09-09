@@ -96,6 +96,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	)
 
 	if !service.GroupAllowsImageGeneration(apiKey.Group) {
+		activateFirstConfiguredAPIKeyGroup(c, apiKey, service.GroupAllowsImageGeneration)
+	}
+	if !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
@@ -133,14 +136,20 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, service.GroupAllowsImageGeneration)
+		if recovered {
+			subscription = nextSubscription
+			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, routingModel)
+		} else {
+			reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
 		}
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
-		return
 	}
 
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
@@ -156,6 +165,36 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(service.GroupAllowsImageGeneration)
+	var advanceGroup func(*service.UpstreamFailoverError) bool
+	advanceGroup = func(lastErr *service.UpstreamFailoverError) bool {
+		if lastErr != nil && !shouldTryNextAPIKeyGroup(c, lastErr) {
+			return false
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil {
+			status, code, message, _ := billingErrorDetails(billingErr)
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return false
+		}
+		if !advanced {
+			return false
+		}
+		if !service.GroupAllowsImageGeneration(apiKey.Group) {
+			return advanceGroup(lastErr)
+		}
+		subscription = nextSubscription
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, routingModel)
+		requestCtx = service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
+		switchCount = 0
+		profitVetoCount = 0
+		failedAccountIDs = make(map[int64]struct{})
+		sameAccountRetryCount = make(map[int64]int)
+		lastFailoverErr = nil
+		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
+		reqLog.Info("openai.images.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+		return true
+	}
 
 	for {
 		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
@@ -177,6 +216,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
+				if advanceGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -196,6 +241,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if len(failedAccountIDs) == 0 && advanceGroup(nil) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -226,6 +277,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// Images 调度不装利润门，此分支实际不可达；防御性排除重选并受同一否决上限约束。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				if advanceGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -331,6 +388,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
+						// Image generation may already have been accepted upstream even
+						// before any downstream byte exists. Never replay it in another group.
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}

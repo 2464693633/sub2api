@@ -113,6 +113,11 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			abortWithGoogleError(c, 401, "User account is not active")
 			return
 		}
+		candidates := ResolveAPIKeyGroupCandidates(c.Request.Context(), apiKey, subscriptionService, cfg.RunMode != config.RunModeSimple)
+		SetAPIKeyGroupCandidates(c, candidates)
+		if len(candidates) > 0 {
+			ActivateAPIKeyGroup(c, apiKey, candidates[0])
+		}
 		if code, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			if code == "GROUP_DELETED" {
@@ -165,16 +170,22 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
+		var subscription *service.UserSubscription
+		if candidate, ok := candidateForActiveGroup(candidates, apiKey.GroupID); ok {
+			subscription = candidate.Subscription
+		}
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 		if isSubscriptionType && subscriptionService != nil {
-			subscription, err := subscriptionService.GetActiveSubscription(
-				c.Request.Context(),
-				apiKey.User.ID,
-				apiKey.Group.ID,
-			)
-			if err != nil {
-				abortWithGoogleError(c, 403, "No active subscription found for this group")
-				return
+			if subscription == nil {
+				subscription, err = subscriptionService.GetActiveSubscription(
+					c.Request.Context(),
+					apiKey.User.ID,
+					apiKey.Group.ID,
+				)
+				if err != nil {
+					abortWithGoogleError(c, 403, "No active subscription found for this group")
+					return
+				}
 			}
 
 			needsMaintenance, err := subscriptionService.ValidateAndCheckLimits(subscription, apiKey.Group)

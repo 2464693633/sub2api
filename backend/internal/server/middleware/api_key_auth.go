@@ -157,6 +157,16 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
+		// Async image task polling only reads data that already belongs to the
+		// authenticated key and must remain available after the completed
+		// generation consumes the key's remaining balance.
+		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
+		candidates := ResolveAPIKeyGroupCandidates(c.Request.Context(), apiKey, subscriptionService, !skipBilling && cfg.RunMode != config.RunModeSimple)
+		SetAPIKeyGroupCandidates(c, candidates)
+		if len(candidates) > 0 {
+			ActivateAPIKeyGroup(c, apiKey, candidates[0])
+		}
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
@@ -165,11 +175,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 		c.Request = c.Request.WithContext(ctx)
-		billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
-		// Async image task polling only reads data that already belongs to the
-		// authenticated key and must remain available after the completed
-		// generation consumes the key's remaining balance.
-		skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 		// ── 4. SimpleMode → early return ─────────────────────────────
 
@@ -191,10 +196,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// ── 5. 按端点需要加载订阅 ───────────────────────────────────
 
 		var subscription *service.UserSubscription
+		if candidate, ok := candidateForActiveGroup(candidates, apiKey.GroupID); ok {
+			subscription = candidate.Subscription
+		}
 		isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
 		// 倍率自省不需要订阅数据；/v1/usage 仍保留原有订阅读取行为。
-		if isSubscriptionType && subscriptionService != nil && !billingInfoRequest {
+		if isSubscriptionType && subscription == nil && subscriptionService != nil && !billingInfoRequest {
 			sub, subErr := subscriptionService.GetActiveSubscription(
 				c.Request.Context(),
 				apiKey.User.ID,

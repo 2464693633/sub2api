@@ -806,7 +806,9 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, err
 	}
-	if response.Object != "sub2api.key_billing" || response.SchemaVersion != 1 || response.BillingScope != "token" {
+	if response.Object != "sub2api.key_billing" ||
+		(response.SchemaVersion != 1 && response.SchemaVersion != 2) ||
+		response.BillingScope != "token" {
 		return nil, fmt.Errorf("unexpected billing response schema")
 	}
 	if response.GroupRateMultiplier == nil || response.ResolvedRateMultiplier == nil ||

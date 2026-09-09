@@ -23,9 +23,20 @@ func WithGatewayTokenRequestPricing(ctx context.Context) (context.Context, time.
 	// 调度过程中可能因 fallback/composite 路由覆盖 ctxkey.Group；计费 D 仍必须
 	// 使用认证时刻的父分组，和最终 RecordUsage 的计费归属保持一致。
 	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && IsGroupContextValid(group) {
-		ctx = context.WithValue(ctx, gatewayTokenRequestBillingGroupCtxKey{}, group)
+		ctx = WithGatewayTokenRequestBillingGroup(ctx, group)
 	}
 	return ctx, pricingAt
+}
+
+// WithGatewayTokenRequestBillingGroup rebinds pricing and profit admission to
+// the group that owns the current attempt without changing the request's
+// already-frozen pricing instant.
+func WithGatewayTokenRequestBillingGroup(ctx context.Context, group *Group) context.Context {
+	if ctx == nil || !IsGroupContextValid(group) {
+		return ctx
+	}
+	ctx = context.WithValue(ctx, ctxkey.Group, group)
+	return context.WithValue(ctx, gatewayTokenRequestBillingGroupCtxKey{}, group)
 }
 
 func gatewayTokenRequestPricingAtFromContext(ctx context.Context) (time.Time, bool) {

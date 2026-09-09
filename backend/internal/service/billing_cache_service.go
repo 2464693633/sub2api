@@ -776,6 +776,72 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 	return nil
 }
 
+// CheckBillingEligibilityForGroupFailover validates a later group candidate
+// after the request-global API-key and user RPM checks have already run for the
+// first candidate. It intentionally charges only the candidate's group RPM;
+// replaying the full preflight would count one client request multiple times in
+// the user's global RPM window.
+func (s *BillingCacheService) CheckBillingEligibilityForGroupFailover(ctx context.Context, user *User, group *Group, subscription *UserSubscription, platform string) error {
+	if s.cfg.RunMode == config.RunModeSimple {
+		return nil
+	}
+	if s.circuitBreaker != nil && !s.circuitBreaker.Allow() {
+		return ErrBillingServiceUnavailable
+	}
+
+	isSubscriptionMode := group != nil && group.IsSubscriptionType() && subscription != nil
+	if isSubscriptionMode {
+		if err := s.checkSubscriptionEligibility(ctx, user.ID, group, subscription); err != nil {
+			return err
+		}
+	} else {
+		if err := s.checkBalanceEligibility(ctx, user.ID); err != nil {
+			return err
+		}
+		if err := s.checkUserPlatformQuotaEligibility(ctx, user.ID, platform); err != nil {
+			return err
+		}
+	}
+
+	if group == nil || s.userRPMCache == nil || user == nil {
+		return nil
+	}
+	override := user.UserGroupRPMOverride
+	if override == nil && s.userGroupRateRepo != nil {
+		dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, user.ID, group.ID)
+		if err != nil {
+			logger.LegacyPrintf("service.billing_cache", "Warning: failover RPM override lookup failed for user=%d group=%d: %v", user.ID, group.ID, err)
+		} else {
+			override = dbOverride
+		}
+	}
+	if override != nil {
+		if *override <= 0 {
+			return nil
+		}
+		count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
+		if err != nil {
+			logger.LegacyPrintf("service.billing_cache", "Warning: failover RPM increment failed for user=%d group=%d: %v", user.ID, group.ID, err)
+			return nil
+		}
+		if count > *override {
+			return ErrGroupRPMExceeded
+		}
+		return nil
+	}
+	if group.RPMLimit > 0 {
+		count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
+		if err != nil {
+			logger.LegacyPrintf("service.billing_cache", "Warning: failover group RPM increment failed for user=%d group=%d: %v", user.ID, group.ID, err)
+			return nil
+		}
+		if count > group.RPMLimit {
+			return ErrGroupRPMExceeded
+		}
+	}
+	return nil
+}
+
 // checkRPM 执行并行 RPM 限流，所有适用的限制同时生效，任一超限即拒绝：
 //
 //  1. (用户, 分组) rpm_override       — 最细粒度：管理员为特定用户在特定分组设定的专属限额。

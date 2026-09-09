@@ -730,6 +730,7 @@ export interface ApiKey {
   key: string
   name: string
   group_id: number | null
+  group_ids?: number[]
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -742,6 +743,7 @@ export interface ApiKey {
   updated_at: string
   current_concurrency: number
   group?: Group
+  groups?: Group[]
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -759,6 +761,7 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
+  group_ids?: number[]
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -772,6 +775,7 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
+  group_ids?: number[]
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -1056,9 +1060,30 @@ export interface TempUnschedulableStatus {
   state?: TempUnschedulableState
 }
 
+export interface UpstreamBillingGroupData {
+  group_id: number
+  position: number
+  billing_type: string
+  group_rate_multiplier: number
+  user_rate_multiplier?: number
+  resolved_rate_multiplier: number
+  peak_rate_enabled: boolean
+  peak_start?: string
+  peak_end?: string
+  peak_rate_multiplier?: number
+  applied_peak_multiplier?: number
+  effective_rate_multiplier: number
+  timezone?: string
+  input_token_multiplier: number
+  output_token_multiplier: number
+  cache_creation_token_multiplier: number
+  cache_read_token_multiplier: number
+  return_billable_usage: boolean
+}
+
 export interface UpstreamBillingData {
   object: 'sub2api.key_billing'
-  schema_version: 1
+  schema_version: 1 | 2
   billing_scope: 'token'
   group_rate_multiplier: number
   user_rate_multiplier?: number
@@ -1070,6 +1095,8 @@ export interface UpstreamBillingData {
   applied_peak_multiplier?: number
   effective_rate_multiplier: number
   timezone?: string
+  routing_mode?: 'ordered_failover'
+  groups?: UpstreamBillingGroupData[]
   observed_at: string
 }
 

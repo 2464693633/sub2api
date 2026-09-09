@@ -597,6 +597,28 @@ func TestUpstreamBillingProbeRejectsMissingRequiredMultiplier(t *testing.T) {
 	require.ErrorContains(t, err, "incomplete billing response")
 }
 
+func TestUpstreamBillingProbeAcceptsMultiGroupSchema(t *testing.T) {
+	data, err := parseUpstreamBillingProbeResponse([]byte(`{
+		"object":"sub2api.key_billing",
+		"schema_version":2,
+		"billing_scope":"token",
+		"group_rate_multiplier":1.25,
+		"resolved_rate_multiplier":1.25,
+		"peak_rate_enabled":false,
+		"effective_rate_multiplier":1.25,
+		"routing_mode":"ordered_failover",
+		"groups":[
+			{"group_id":7,"position":0,"effective_rate_multiplier":0.5},
+			{"group_id":9,"position":1,"effective_rate_multiplier":1.25}
+		],
+		"observed_at":"2026-07-13T01:00:00Z"
+	}`))
+
+	require.NoError(t, err)
+	require.Equal(t, 2, data["schema_version"])
+	require.Equal(t, 1.25, data["effective_rate_multiplier"])
+}
+
 func TestUpstreamBillingProbeDiscardsResultWhenIdentityChangesInFlight(t *testing.T) {
 	account := &Account{
 		ID:          19,

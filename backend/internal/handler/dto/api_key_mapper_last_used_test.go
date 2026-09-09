@@ -45,3 +45,19 @@ func TestAPIKeyFromService_MapsNilLastUsedAt(t *testing.T) {
 	require.Nil(t, out.LastUsedAt)
 	require.Nil(t, out.LastUsedIP)
 }
+
+func TestAPIKeyFromServiceMapsOrderedGroupsAndLegacyPrimary(t *testing.T) {
+	first := &service.Group{ID: 7, Name: "first"}
+	second := &service.Group{ID: 8, Name: "second"}
+	src := &service.APIKey{
+		ID: 1, GroupID: &first.ID, Group: first,
+		GroupIDs: []int64{first.ID, second.ID}, Groups: []*service.Group{first, second},
+	}
+
+	out := APIKeyFromService(src)
+	require.Equal(t, []int64{7, 8}, out.GroupIDs)
+	require.Len(t, out.Groups, 2)
+	require.Equal(t, int64(7), *out.GroupID)
+	require.Equal(t, int64(7), out.Group.ID)
+	require.Equal(t, int64(8), out.Groups[1].ID)
+}

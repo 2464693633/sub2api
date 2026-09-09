@@ -79,13 +79,18 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if recovered {
+			subscription = nextSubscription
+		} else {
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			c.JSON(status, gin.H{"error": gin.H{"type": code, "message": message}})
+			return
 		}
-		c.JSON(status, gin.H{"error": gin.H{"type": code, "message": message}})
-		return
 	}
 
 	subject, _ := middleware2.GetAuthSubjectFromContext(c)
@@ -129,6 +134,8 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	var nativeResp *websearch.SearchResponse
 	var providerName string
 	var err error
+	var lastFailoverErr *service.UpstreamFailoverError
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey)
 
 	// Acquire + release holder for the whole handler (including failover retries).
 	defer func() {
@@ -137,63 +144,67 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		}
 	}()
 
-	// First attempt + up to 3 failover accounts (max 4 total).
-	for attempt := 0; attempt < 4; attempt++ {
-		selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(
-			c.Request.Context(), groupID, "", searchModel, failedAccounts, "", 0,
-		)
-		if selectErr != nil {
-			if attempt == 0 {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
-					"type":    "scheduling_error",
-					"message": selectErr.Error(),
-				}})
-				return
+	// First attempt + up to 3 failover accounts (max 4 total per group).
+groupAttempts:
+	for {
+		failedAccounts = make(map[int64]struct{})
+		lastFailoverErr = nil
+		for attempt := 0; attempt < 4; attempt++ {
+			selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(
+				c.Request.Context(), groupID, "", searchModel, failedAccounts, "", 0,
+			)
+			if selectErr != nil {
+				err = selectErr
+				break
 			}
-			break
-		}
-		if selected == nil || selected.Account == nil {
-			if attempt == 0 {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{
-					"type":    "scheduling_error",
-					"message": "No available accounts",
-				}})
-				return
+			if selected == nil || selected.Account == nil {
+				err = service.ErrNoAvailableAccounts
+				break
 			}
-			break
-		}
 
-		release, acquireOK, acquireErr := h.acquireWebSearchAccountSlot(c, selected)
-		if !acquireOK {
-			// First hop: surface concurrency errors; later hops try another account.
-			if attempt == 0 && acquireErr != nil {
-				h.handleConcurrencyError(c, acquireErr, "account", false)
-				return
+			release, acquireOK, acquireErr := h.acquireWebSearchAccountSlot(c, selected)
+			if !acquireOK {
+				// First hop: surface concurrency errors; later hops try another account.
+				if attempt == 0 && acquireErr != nil {
+					h.handleConcurrencyError(c, acquireErr, "account", false)
+					return
+				}
+				failedAccounts[selected.Account.ID] = struct{}{}
+				continue
 			}
-			failedAccounts[selected.Account.ID] = struct{}{}
-			continue
-		}
-		account = selected.Account
-		accountReleaseFunc = release
+			account = selected.Account
+			accountReleaseFunc = release
 
-		if isXSearch {
-			nativeResp, providerName, err = h.doGrokNativeXSearch(c.Request.Context(), c, account, req, searchModel, maxResults)
-		} else {
-			nativeResp, providerName, err = h.doGrokNativeWebSearch(c.Request.Context(), c, account, req.Query, maxResults, searchModel)
+			if isXSearch {
+				nativeResp, providerName, err = h.doGrokNativeXSearch(c.Request.Context(), c, account, req, searchModel, maxResults)
+			} else {
+				nativeResp, providerName, err = h.doGrokNativeWebSearch(c.Request.Context(), c, account, req.Query, maxResults, searchModel)
+			}
+			if err == nil {
+				break groupAttempts
+			}
+			var failoverErr *service.UpstreamFailoverError
+			if !errors.As(err, &failoverErr) || !failoverErr.ShouldRetryNextAccount() {
+				break
+			}
+			lastFailoverErr = failoverErr
+			failedAccounts[account.ID] = struct{}{}
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+				accountReleaseFunc = nil
+			}
+			account = nil
 		}
-		if err == nil {
+		if c.Writer.Written() || (lastFailoverErr != nil && !shouldTryNextAPIKeyGroup(c, lastFailoverErr)) {
 			break
 		}
-		var failoverErr *service.UpstreamFailoverError
-		if !errors.As(err, &failoverErr) || !failoverErr.ShouldRetryNextAccount() {
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil || !advanced {
 			break
 		}
-		failedAccounts[account.ID] = struct{}{}
-		if accountReleaseFunc != nil {
-			accountReleaseFunc()
-			accountReleaseFunc = nil
-		}
-		account = nil
+		subscription = nextSubscription
+		groupID = apiKey.GroupID
+		reqLog.Info("gateway.web_search.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
 	}
 	if err != nil || nativeResp == nil {
 		msg := "web search failed"

@@ -171,6 +171,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
+	reasoningPolicyGroup := apiKey.Group
 	if policyBody, changed, err := applyAnthropicReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
 		respondOpenAIReasoningEffortPolicyError(c, err, h.errorResponse)
 		return
@@ -253,14 +254,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 
 	// 2. 【新增】Wait后二次检查余额/订阅
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, func(group *service.Group) bool {
+			return groupReasoningPolicyMatches(reasoningPolicyGroup, group)
+		})
+		if recovered {
+			subscription = nextSubscription
+			c.Request = c.Request.WithContext(service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), apiKey.Group))
+			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		} else {
+			reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
 		}
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
-		return
 	}
 
 	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
@@ -614,11 +624,43 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	currentAPIKey := apiKey
 	currentSubscription := subscription
+	groupFailover := newAPIKeyGroupFailoverState(c, currentAPIKey).require(func(group *service.Group) bool {
+		return groupReasoningPolicyMatches(reasoningPolicyGroup, group)
+	})
 	var fallbackGroupID *int64
 	if apiKey.Group != nil {
 		fallbackGroupID = apiKey.Group.FallbackGroupIDOnInvalidRequest
 	}
 	fallbackUsed := false
+	forceCacheAfterGroupSwitch := false
+	advanceConfiguredGroup := func() bool {
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, currentAPIKey, h.billingCacheService)
+		if billingErr != nil {
+			status, code, message, retryAfter := billingErrorDetails(billingErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return false
+		}
+		if !advanced {
+			return false
+		}
+		currentSubscription = nextSubscription
+		forceCacheAfterGroupSwitch = forceCacheAfterGroupSwitch || hasBoundSession
+		sessionBoundAccountID = 0
+		if sessionKey != "" {
+			sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), currentAPIKey.GroupID, sessionKey)
+		}
+		hasBoundSession = sessionKey != "" && sessionBoundAccountID > 0
+		fallbackUsed = false
+		fallbackGroupID = currentAPIKey.Group.FallbackGroupIDOnInvalidRequest
+		parsedReq.GroupID = currentAPIKey.GroupID
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), currentAPIKey.GroupID, reqModel)
+		c.Request = c.Request.WithContext(service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), currentAPIKey.Group))
+		reqLog.Info("gateway.failover_switch_group", zap.Int64("group_id", currentAPIKey.Group.ID))
+		return true
+	}
 
 	// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 	// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -646,8 +688,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		if forceCacheAfterGroupSwitch {
+			fs.ForceCacheBilling = true
+		}
 		retryWithFallback := false
 
+	accountAttempts:
 		for {
 			attemptParsedReq, err := parsedReq.CloneForBody(body)
 			if err != nil {
@@ -665,6 +711,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
+					if advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
 					if !cls.ModelNotFound {
 						markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -694,6 +747,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 					failoverClientGone(c)
 					return
 				default: // FailoverExhausted
+					if (fs.LastFailoverErr == nil || shouldTryNextAPIKeyGroup(c, fs.LastFailoverErr)) && advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					if fs.LastFailoverErr != nil {
 						h.handleFailoverExhausted(c, fs.LastFailoverErr, platform, streamStarted)
 					} else {
@@ -735,6 +795,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			accountReleaseFunc := selection.ReleaseFunc
 			if !selection.Acquired {
 				if selection.WaitPlan == nil {
+					if advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					markOpsRoutingCapacityLimited(c)
 					reqLog.Warn("gateway.select_account_no_slot_no_wait_plan",
 						zap.Int64("account_id", account.ID),
@@ -749,6 +816,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if err != nil {
 					reqLog.Warn("gateway.account_wait_counter_increment_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				} else if !canWait {
+					if advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					reqLog.Info("gateway.account_wait_queue_full",
 						zap.Int64("account_id", account.ID),
 						zap.Int("max_waiting", selection.WaitPlan.MaxWaiting),
@@ -777,6 +851,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				if err != nil {
 					reqLog.Warn("gateway.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 					releaseWait()
+					if advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					h.handleConcurrencyError(c, err, "account", streamStarted)
 					return
 				}
@@ -792,6 +873,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				}
 				reqLog.Debug("gateway.account_slot_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
 				if fs.RecordProfitVeto(account.ID) == FailoverExhausted {
+					if advanceConfiguredGroup() {
+						retryWithFallback = true
+						break accountAttempts
+					}
+					if c.Writer.Written() {
+						return
+					}
 					reqLog.Warn("gateway.profit_veto_attempts_exhausted", zap.Int("profit_veto_count", fs.ProfitVetoCount()))
 					markOpsRoutingCapacityLimited(c)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", profitVetoExhaustedMessage, streamStarted)
@@ -1049,6 +1137,15 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						delete(sessionSlotAccounts, account.ID)
 						continue
 					case FailoverExhausted:
+						if shouldTryNextAPIKeyGroup(c, fs.LastFailoverErr) && advanceConfiguredGroup() {
+							h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionKey)
+							delete(sessionSlotAccounts, account.ID)
+							retryWithFallback = true
+							break accountAttempts
+						}
+						if c.Writer.Written() {
+							return
+						}
 						h.handleFailoverExhausted(c, fs.LastFailoverErr, account.Platform, streamStarted)
 						return
 					case FailoverCanceled:
@@ -2167,13 +2264,18 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if recovered {
+			subscription = nextSubscription
+		} else {
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
 	}
 
 	// 计算粘性会话 hash
@@ -2184,16 +2286,27 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
-	// 选择支持该模型的账号
-	account, err := h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
-	if err != nil {
-		reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
-		cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, parsedReq.Model, parsedReq.Model, service.PlatformAnthropic)
-		if !cls.ModelNotFound {
-			markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+	// 选择支持该模型的账号；count_tokens 尚未发送上游时可安全按序切组。
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey)
+	var account *service.Account
+	for {
+		parsedReq.GroupID = apiKey.GroupID
+		account, err = h.gatewayService.SelectAccountForModel(c.Request.Context(), apiKey.GroupID, sessionHash, parsedReq.Model)
+		if err == nil {
+			break
 		}
-		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
-		return
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil || !advanced {
+			reqLog.Warn("gateway.count_tokens_select_account_failed", zap.Error(err))
+			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, parsedReq.Model, parsedReq.Model, service.PlatformAnthropic)
+			if !cls.ModelNotFound {
+				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+			}
+			h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+			return
+		}
+		subscription = nextSubscription
+		reqLog.Info("gateway.count_tokens.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 

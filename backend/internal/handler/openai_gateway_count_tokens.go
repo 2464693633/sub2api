@@ -73,14 +73,19 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	}
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai_input_tokens.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if recovered {
+			subscription = nextSubscription
+		} else {
+			reqLog.Info("openai_input_tokens.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
 	}
 
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
@@ -96,14 +101,35 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	requestStart := time.Now()
-	account, err := h.gatewayService.SelectAccountForTokenCount(
-		c.Request.Context(),
-		apiKey.GroupID,
-		sessionHash,
-		routingModel,
-		service.OpenAIEndpointCapabilityChatCompletions,
-		requestPlatform,
-	)
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey)
+	var account *service.Account
+	for {
+		account, err = h.gatewayService.SelectAccountForTokenCount(
+			c.Request.Context(),
+			apiKey.GroupID,
+			sessionHash,
+			routingModel,
+			service.OpenAIEndpointCapabilityChatCompletions,
+			requestPlatform,
+		)
+		if err == nil && account != nil {
+			break
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil || !advanced {
+			break
+		}
+		subscription = nextSubscription
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		routingModel = reqModel
+		forwardBody = body
+		if channelMapping.Mapped {
+			routingModel = channelMapping.MappedModel
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, routingModel)
+		}
+		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		reqLog.Info("openai_input_tokens.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		reqLog.Warn("openai_input_tokens.account_select_failed", zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)))
@@ -194,6 +220,11 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	)
 
 	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
+		activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool {
+			return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
+		})
+	}
+	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
 		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group does not allow /v1/messages dispatch")
 		return
@@ -249,14 +280,24 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	mappedBodyForMessages := newOpenAIModelMappedBodyCache(body, h.gatewayService.ReplaceModelInBody)
 
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai_count_tokens.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	dispatchAllowed := func(group *service.Group) bool {
+		return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
+	}
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, dispatchAllowed)
+		if recovered {
+			subscription = nextSubscription
+			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+			preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+		} else {
+			reqLog.Info("openai_count_tokens.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.anthropicErrorResponse(c, status, code, message)
+			return
 		}
-		h.anthropicErrorResponse(c, status, code, message)
-		return
 	}
 
 	requestStart := time.Now()
@@ -268,14 +309,33 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	if preferredMappedModel != "" {
 		currentRoutingModel = preferredMappedModel
 	}
-	account, err := h.gatewayService.SelectAccountForTokenCount(
-		c.Request.Context(),
-		apiKey.GroupID,
-		sessionHash,
-		currentRoutingModel,
-		service.OpenAIEndpointCapabilityChatCompletions,
-		openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
-	)
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(dispatchAllowed)
+	var account *service.Account
+	for {
+		account, err = h.gatewayService.SelectAccountForTokenCount(
+			c.Request.Context(),
+			apiKey.GroupID,
+			sessionHash,
+			currentRoutingModel,
+			service.OpenAIEndpointCapabilityChatCompletions,
+			openAICompatibleRequestPlatform(c.Request.Context(), apiKey),
+		)
+		if err == nil && account != nil {
+			break
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil || !advanced {
+			break
+		}
+		subscription = nextSubscription
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+		currentRoutingModel = routingModel
+		if preferredMappedModel != "" {
+			currentRoutingModel = preferredMappedModel
+		}
+		reqLog.Info("openai_count_tokens.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+	}
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err != nil {
 		requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)

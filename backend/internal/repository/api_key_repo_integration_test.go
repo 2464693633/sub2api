@@ -86,6 +86,38 @@ func (s *APIKeyRepoSuite) TestGetByKey_NotFound() {
 	s.Require().Error(err, "expected error for non-existent key")
 }
 
+func (s *APIKeyRepoSuite) TestOrderedGroupChainCreateHydrateAndReorder() {
+	user := s.mustCreateUser("ordered-groups@test.com")
+	first := s.mustCreateGroup("g-ordered-first")
+	second := s.mustCreateGroup("g-ordered-second")
+	third := s.mustCreateGroup("g-ordered-third")
+	key := &service.APIKey{
+		UserID: user.ID, Key: "sk-ordered-groups", Name: "Ordered", Status: service.StatusActive,
+		GroupID: &first.ID, Group: first,
+		GroupIDs: []int64{first.ID, second.ID, third.ID}, Groups: []*service.Group{first, second, third},
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	got, err := s.repo.GetByKeyForAuth(s.ctx, key.Key)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{first.ID, second.ID, third.ID}, got.GroupIDs)
+	s.Require().Len(got.Groups, 3)
+	s.Require().Equal([]int64{first.ID, second.ID, third.ID}, []int64{got.Groups[0].ID, got.Groups[1].ID, got.Groups[2].ID})
+	s.Require().True(got.Groups[1].Hydrated)
+
+	got.GroupIDs = []int64{third.ID, first.ID, second.ID}
+	got.Groups = []*service.Group{third, first, second}
+	got.GroupID = &third.ID
+	got.Group = third
+	s.Require().NoError(s.repo.Update(s.ctx, got, service.APIKeyUpdateFields{GroupID: true, GroupIDs: true}))
+
+	reordered, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{third.ID, first.ID, second.ID}, reordered.GroupIDs)
+	s.Require().Equal(third.ID, *reordered.GroupID)
+	s.Require().Equal(third.ID, reordered.Group.ID)
+}
+
 func (s *APIKeyRepoSuite) TestGetByKeyForAuth_PreservesMessagesDispatchModelConfig() {
 	user := s.mustCreateUser("getbykey-auth-dispatch@test.com")
 	group, err := s.client.Group.Create().
@@ -347,6 +379,56 @@ func (s *APIKeyRepoSuite) TestClearGroupIDByGroupID() {
 
 	count, _ := s.repo.CountByGroupID(s.ctx, group.ID)
 	s.Require().Zero(count)
+}
+
+func (s *APIKeyRepoSuite) TestClearGroupIDByGroupIDPromotesAndPreservesFallbacks() {
+	user := s.mustCreateUser("clear-promote@test.com")
+	first := s.mustCreateGroup("g-clear-promote-first")
+	second := s.mustCreateGroup("g-clear-promote-second")
+	third := s.mustCreateGroup("g-clear-promote-third")
+	key := &service.APIKey{
+		UserID: user.ID, Key: "sk-clear-promote", Name: "Promote", Status: service.StatusActive,
+		GroupID: &first.ID, Group: first,
+		GroupIDs: []int64{first.ID, second.ID, third.ID}, Groups: []*service.Group{first, second, third},
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	affected, err := s.repo.ClearGroupIDByGroupID(s.ctx, first.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{second.ID, third.ID}, got.GroupIDs)
+	s.Require().Equal(second.ID, *got.GroupID)
+}
+
+func (s *APIKeyRepoSuite) TestUpdateGroupIDByUserAndGroupPreservesOrderAndDeduplicates() {
+	user := s.mustCreateUser("replace-chain@test.com")
+	first := s.mustCreateGroup("g-replace-first")
+	middle := s.mustCreateGroup("g-replace-middle")
+	last := s.mustCreateGroup("g-replace-last")
+	replacement := s.mustCreateGroup("g-replace-new")
+	key := &service.APIKey{
+		UserID: user.ID, Key: "sk-replace-chain", Name: "Replace", Status: service.StatusActive,
+		GroupID: &first.ID, Group: first,
+		GroupIDs: []int64{first.ID, middle.ID, last.ID}, Groups: []*service.Group{first, middle, last},
+	}
+	s.Require().NoError(s.repo.Create(s.ctx, key))
+
+	affected, err := s.repo.UpdateGroupIDByUserAndGroup(s.ctx, user.ID, middle.ID, replacement.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+	got, err := s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{first.ID, replacement.ID, last.ID}, got.GroupIDs)
+
+	affected, err = s.repo.UpdateGroupIDByUserAndGroup(s.ctx, user.ID, first.ID, last.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), affected)
+	got, err = s.repo.GetByID(s.ctx, key.ID)
+	s.Require().NoError(err)
+	s.Require().Equal([]int64{last.ID, replacement.ID}, got.GroupIDs)
+	s.Require().Equal(last.ID, *got.GroupID)
 }
 
 // --- Combined CRUD/Search/ClearGroupID (original test preserved as integration) ---

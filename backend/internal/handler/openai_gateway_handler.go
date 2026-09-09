@@ -463,6 +463,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
+	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
+	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+		activateFirstConfiguredAPIKeyGroup(c, apiKey, service.GroupAllowsImageGeneration)
+	}
+	reasoningPolicyGroup := apiKey.Group
 	if cappedBody, changed, err := applyOpenAIReasoningEffortPolicyForRequest(c, apiKey, body); err != nil {
 		respondOpenAIReasoningEffortPolicyError(c, err, h.errorResponse)
 		return
@@ -540,7 +545,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 使用 IsExplicitImageGenerationIntent 排除被动 image_gen namespace 声明。
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
-	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -595,14 +599,26 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 2. Re-check billing eligibility after wait
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, requireGroupConditions(
+			func(group *service.Group) bool { return !imageIntent || service.GroupAllowsImageGeneration(group) },
+			func(group *service.Group) bool { return groupReasoningPolicyMatches(reasoningPolicyGroup, group) },
+		))
+		if recovered {
+			subscription = nextSubscription
+			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+			forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+			forwardModel = openAIChannelForwardModel(channelMapping, reqModel)
+			requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		} else {
+			reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return
 		}
-		h.handleStreamingAwareError(c, status, code, message, streamStarted)
-		return
 	}
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
@@ -639,6 +655,46 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// token 计费部分仍受利润门保护，独立图片/视频端点才在门外。
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(requireGroupConditions(
+		func(group *service.Group) bool { return !imageIntent || service.GroupAllowsImageGeneration(group) },
+		func(group *service.Group) bool { return groupReasoningPolicyMatches(reasoningPolicyGroup, group) },
+	))
+	var advanceResponsesGroup func(*service.UpstreamFailoverError) bool
+	advanceResponsesGroup = func(lastErr *service.UpstreamFailoverError) bool {
+		if previousResponseID != "" || (lastErr != nil && !shouldTryNextAPIKeyGroup(c, lastErr)) {
+			return false
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil {
+			status, code, message, _ := billingErrorDetails(billingErr)
+			h.handleStreamingAwareError(c, status, code, message, streamStarted)
+			return false
+		}
+		if !advanced {
+			return false
+		}
+		if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+			return advanceResponsesGroup(lastErr)
+		}
+		subscription = nextSubscription
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+		forwardModel = openAIChannelForwardModel(channelMapping, reqModel)
+		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		ctx := h.gatewayService.RebindOpenAIRequestPricingGroup(c.Request.Context(), apiKey.GroupID)
+		ctx = service.WithOpenAIForwardModel(ctx, forwardModel, legacyCompact)
+		c.Request = c.Request.WithContext(ctx)
+		switchCount = 0
+		firstOutputTimeoutSwitchCount = 0
+		profitVetoCount = 0
+		failedAccountIDs = make(map[int64]struct{})
+		sameAccountRetryCount = make(map[int64]int)
+		lastFailoverErr = nil
+		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
+		passthroughFailoverState = openAIPassthroughFailoverState{}
+		reqLog.Info("openai.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+		return true
+	}
 
 	for {
 		// Streaming Forward intentionally detaches the upstream request so usage can
@@ -673,6 +729,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
+				if advanceResponsesGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				if legacyCompact && errors.Is(err, service.ErrNoAvailableCompactAccounts) {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 					h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "compact_not_supported", "No available accounts support /responses/compact", streamStarted)
@@ -686,6 +748,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
 				return
 			}
+			if advanceResponsesGroup(lastFailoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			if lastFailoverErr != nil {
 				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
 			} else {
@@ -694,6 +762,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
+			if advanceResponsesGroup(lastFailoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -746,6 +820,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				if advanceResponsesGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -869,6 +949,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 					if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
+						if advanceResponsesGroup(failoverErr) {
+							continue
+						}
+						if c.Writer.Written() && !failoverErr.SafeToFailoverAfterWrite {
+							return
+						}
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -897,11 +983,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
+						if advanceResponsesGroup(failoverErr) {
+							continue
+						}
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
 					switchCount++
 					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+						if advanceResponsesGroup(failoverErr) {
+							continue
+						}
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -1137,6 +1229,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 检查分组是否允许 /v1/messages 调度
 	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
+		activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool {
+			return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
+		})
+	}
+	if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
 		h.anthropicErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group does not allow /v1/messages dispatch")
 		return
@@ -1177,6 +1274,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
+	reasoningPolicyGroup := apiKey.Group
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
 	routingModel := service.NormalizeOpenAICompatRequestedModel(reqModel)
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
@@ -1215,14 +1313,27 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, requireGroupConditions(
+			func(group *service.Group) bool {
+				return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
+			},
+			func(group *service.Group) bool { return groupReasoningPolicyMatches(reasoningPolicyGroup, group) },
+		))
+		if recovered {
+			subscription = nextSubscription
+			channelMappingMsg, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+			preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+			requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		} else {
+			reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(finalErr))
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
+			return
 		}
-		h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
-		return
 	}
 
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
@@ -1244,6 +1355,44 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(msgPricingCtx)
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(requireGroupConditions(
+		func(group *service.Group) bool {
+			return group.Platform == service.PlatformGrok || service.IsCNProvider(group.Platform) || group.AllowMessagesDispatch
+		},
+		func(group *service.Group) bool { return groupReasoningPolicyMatches(reasoningPolicyGroup, group) },
+	))
+	var advanceMessagesGroup func(*service.UpstreamFailoverError) bool
+	advanceMessagesGroup = func(lastErr *service.UpstreamFailoverError) bool {
+		if lastErr != nil && !shouldTryNextAPIKeyGroup(c, lastErr) {
+			return false
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil {
+			status, code, message, _ := billingErrorDetails(billingErr)
+			h.anthropicStreamingAwareError(c, status, code, message, streamStarted)
+			return false
+		}
+		if !advanced {
+			return false
+		}
+		if !allowOpenAICompatibleMessagesDispatch(c, apiKey) {
+			return advanceMessagesGroup(lastErr)
+		}
+		subscription = nextSubscription
+		channelMappingMsg, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
+		preferredMappedModel = resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
+		effectiveMappedModel = preferredMappedModel
+		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		c.Request = c.Request.WithContext(h.gatewayService.RebindOpenAIRequestPricingGroup(c.Request.Context(), apiKey.GroupID))
+		switchCount = 0
+		profitVetoCount = 0
+		failedAccountIDs = make(map[int64]struct{})
+		sameAccountRetryCount = make(map[int64]int)
+		lastFailoverErr = nil
+		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
+		reqLog.Info("openai_messages.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+		return true
+	}
 
 	for {
 		if failoverClientGone(c) {
@@ -1278,6 +1427,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
+				if advanceMessagesGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				if err != nil {
 					cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
 					if !cls.ModelNotFound {
@@ -1287,6 +1442,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					return
 				}
 			} else {
+				if advanceMessagesGroup(lastFailoverErr) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				if lastFailoverErr != nil {
 					h.handleAnthropicFailoverExhausted(c, lastFailoverErr, streamStarted)
 				} else {
@@ -1296,6 +1457,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			}
 		}
 		if selection == nil || selection.Account == nil {
+			if advanceMessagesGroup(lastFailoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -1314,6 +1481,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				if advanceMessagesGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -1453,11 +1626,23 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
+						if advanceMessagesGroup(failoverErr) {
+							continue
+						}
+						if c.Writer.Written() {
+							return
+						}
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
 					switchCount++
 					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+						if advanceMessagesGroup(failoverErr) {
+							continue
+						}
+						if c.Writer.Written() {
+							return
+						}
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}

@@ -135,6 +135,60 @@ func TestGatewayHandlerKeyBillingInfoUsesUserOverride(t *testing.T) {
 	require.Equal(t, 0.5, got.EffectiveRateMultiplier)
 }
 
+func TestGatewayHandlerKeyBillingInfoReturnsOrderedMultiGroupPolicy(t *testing.T) {
+	firstID, secondID := int64(7), int64(9)
+	firstRate, secondRate := 0.5, 1.25
+	repo := &keyBillingUserGroupRateRepo{}
+	h := newKeyBillingHandler(repo)
+	first := &service.Group{
+		ID:                         firstID,
+		Platform:                   service.PlatformAnthropic,
+		SubscriptionType:           service.SubscriptionTypeStandard,
+		RateMultiplier:             firstRate,
+		InputTokenMultiplier:       2,
+		OutputTokenMultiplier:      3,
+		TokenMultipliersConfigured: true,
+	}
+	second := &service.Group{
+		ID:                           secondID,
+		Platform:                     service.PlatformAnthropic,
+		SubscriptionType:             service.SubscriptionTypeSubscription,
+		RateMultiplier:               secondRate,
+		CacheCreationTokenMultiplier: 4,
+		CacheReadTokenMultiplier:     5,
+		TokenMultipliersConfigured:   true,
+	}
+	apiKey := &service.APIKey{
+		UserID:   11,
+		GroupID:  &firstID,
+		Group:    first,
+		GroupIDs: []int64{firstID, secondID},
+		Groups:   []*service.Group{first, second},
+	}
+	c, w := newKeyBillingContext(apiKey)
+
+	h.KeyBillingInfo(c)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var got keyBillingInfoResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+	require.Equal(t, keyBillingInfoMultiGroupSchemaVersion, got.SchemaVersion)
+	require.Equal(t, "ordered_failover", got.RoutingMode)
+	require.Len(t, got.Groups, 2)
+	require.Equal(t, firstID, got.Groups[0].GroupID)
+	require.Equal(t, 0, got.Groups[0].Position)
+	require.Equal(t, 2.0, got.Groups[0].InputTokenMultiplier)
+	require.Equal(t, secondID, got.Groups[1].GroupID)
+	require.Equal(t, 1, got.Groups[1].Position)
+	require.Equal(t, service.SubscriptionTypeSubscription, got.Groups[1].BillingType)
+	require.Equal(t, 4.0, got.Groups[1].CacheCreationTokenMultiplier)
+	require.Equal(t, 5.0, got.Groups[1].CacheReadTokenMultiplier)
+	// The fallback returns raw usage, so legacy top-level fields conservatively
+	// include its largest token multiplier (1.25 * 5).
+	require.Equal(t, 6.25, got.ResolvedRateMultiplier)
+	require.Equal(t, 6.25, got.EffectiveRateMultiplier)
+}
+
 func TestBuildKeyBillingInfoAppliesPeakMultiplier(t *testing.T) {
 	groupID := int64(7)
 	apiKey := &service.APIKey{

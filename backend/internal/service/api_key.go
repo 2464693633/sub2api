@@ -28,14 +28,20 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
-	ID          int64
-	UserID      int64
-	Key         string
-	Name        string
-	GroupID     *int64
-	Status      string
-	IPWhitelist []string
-	IPBlacklist []string
+	ID      int64
+	UserID  int64
+	Key     string
+	Name    string
+	GroupID *int64
+	// GroupIDs and Groups form the ordered routing chain. GroupID and Group
+	// mirror the first item for backward compatibility and represent the active
+	// group after a request switches to a fallback.
+	GroupIDs          []int64
+	Groups            []*Group
+	GroupRPMOverrides map[int64]int
+	Status            string
+	IPWhitelist       []string
+	IPBlacklist       []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`
@@ -62,6 +68,39 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
+}
+
+// NormalizeGroupChain fills the ordered chain and legacy primary fields from
+// whichever representation was loaded by an older or newer repository.
+func (k *APIKey) NormalizeGroupChain() {
+	if k == nil {
+		return
+	}
+	if len(k.GroupIDs) == 0 && len(k.Groups) > 0 {
+		k.GroupIDs = make([]int64, 0, len(k.Groups))
+		for _, group := range k.Groups {
+			if group != nil {
+				k.GroupIDs = append(k.GroupIDs, group.ID)
+			}
+		}
+	}
+	if len(k.Groups) == 0 && k.Group != nil {
+		k.Groups = []*Group{k.Group}
+	}
+	if len(k.GroupIDs) == 0 && k.GroupID != nil && *k.GroupID > 0 {
+		k.GroupIDs = []int64{*k.GroupID}
+	}
+	if len(k.GroupIDs) > 0 {
+		gid := k.GroupIDs[0]
+		k.GroupID = &gid
+	} else {
+		k.GroupID = nil
+	}
+	if len(k.Groups) > 0 {
+		k.Group = k.Groups[0]
+	} else if len(k.GroupIDs) == 0 {
+		k.Group = nil
+	}
 }
 
 func (k *APIKey) IsActive() bool {

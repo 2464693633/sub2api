@@ -100,13 +100,20 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		defer userRelease()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
+	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
+		if recovered {
+			subscription = nextSubscription
+			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestedModel)
+			forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+		} else {
+			status, code, message, retryAfter := billingErrorDetails(finalErr)
+			if retryAfter > 0 {
+				c.Header("Retry-After", strconv.Itoa(retryAfter))
+			}
+			h.errorResponse(c, status, code, message)
+			return
 		}
-		h.errorResponse(c, status, code, message)
-		return
 	}
 
 	searchID := strings.TrimSpace(gjson.GetBytes(body, "id").String())
@@ -123,6 +130,33 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 	//（记录路径经 service.OpenAIPricingAtFromContext 从请求 ctx 回读）。
 	asPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(asPricingCtx)
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey)
+	advanceGroup := func(lastErr *service.UpstreamFailoverError) bool {
+		if lastErr != nil && !shouldTryNextAPIKeyGroup(c, lastErr) {
+			return false
+		}
+		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
+		if billingErr != nil {
+			status, code, message, _ := billingErrorDetails(billingErr)
+			h.errorResponse(c, status, code, message)
+			return false
+		}
+		if !advanced {
+			return false
+		}
+		subscription = nextSubscription
+		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, requestedModel)
+		forwardBody = openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
+		c.Request = c.Request.WithContext(h.gatewayService.RebindOpenAIRequestPricingGroup(c.Request.Context(), apiKey.GroupID))
+		profitVetoCount = 0
+		failedAccountIDs = make(map[int64]struct{})
+		sameAccountRetryCount = make(map[int64]int)
+		lastFailoverErr = nil
+		switchCount = 0
+		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
+		reqLog.Info("openai_alpha_search.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
+		return true
+	}
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -145,11 +179,23 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				return
 			}
 			if len(failedAccountIDs) == 0 {
+				if advanceGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestedModel, requestedModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
+				return
+			}
+			if advanceGroup(lastFailoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
 				return
 			}
 			if lastFailoverErr != nil {
@@ -166,6 +212,12 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+				if advanceGroup(nil) {
+					continue
+				}
+				if c.Writer.Written() {
+					return
+				}
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -240,11 +292,23 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
 		if switchCount >= h.maxAccountSwitches {
+			if advanceGroup(failoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			h.handleFailoverExhausted(c, failoverErr, false)
 			return
 		}
 		switchCount++
 		if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+			if advanceGroup(failoverErr) {
+				continue
+			}
+			if c.Writer.Written() {
+				return
+			}
 			h.handleFailoverExhausted(c, failoverErr, false)
 			return
 		}

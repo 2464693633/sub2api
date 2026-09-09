@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // v25: per-bucket token multipliers and billable response usage policy
+const apiKeyAuthSnapshotVersion = 26 // v26: ordered per-key group routing chain
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -335,11 +335,13 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	if apiKey == nil || apiKey.User == nil {
 		return nil
 	}
+	apiKey.NormalizeGroupChain()
 	snapshot := &APIKeyAuthSnapshot{
 		Version:     apiKeyAuthSnapshotVersion,
 		APIKeyID:    apiKey.ID,
 		UserID:      apiKey.UserID,
 		GroupID:     apiKey.GroupID,
+		GroupIDs:    append([]int64(nil), apiKey.GroupIDs...),
 		Name:        apiKey.Name,
 		Status:      apiKey.Status,
 		IPWhitelist: apiKey.IPWhitelist,
@@ -368,14 +370,30 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			RPMLimit:                   apiKey.User.RPMLimit,
 		},
 	}
-
-	// 填充 (user, group) RPM override —— snapshot 构建时查一次 DB，后续请求零 DB 往返。
-	if apiKey.GroupID != nil && *apiKey.GroupID > 0 && s.userGroupRateRepo != nil {
-		override, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID)
-		if err == nil && override != nil {
-			snapshot.User.UserGroupRPMOverride = override
+	if len(apiKey.GroupRPMOverrides) > 0 {
+		snapshot.GroupRPMOverrides = make(map[int64]int, len(apiKey.GroupRPMOverrides))
+		for groupID, override := range apiKey.GroupRPMOverrides {
+			snapshot.GroupRPMOverrides[groupID] = override
 		}
-		// 查询失败或无 override 时留 nil，checkRPM 会回退到 DB 查询
+	}
+
+	// Cache each (user, group) RPM override so fallback attempts remain on the
+	// zero-DB auth path and do not inherit the primary group's value.
+	if s.userGroupRateRepo != nil {
+		for _, groupID := range apiKey.GroupIDs {
+			override, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, apiKey.UserID, groupID)
+			if err != nil || override == nil {
+				continue
+			}
+			if snapshot.GroupRPMOverrides == nil {
+				snapshot.GroupRPMOverrides = make(map[int64]int)
+			}
+			snapshot.GroupRPMOverrides[groupID] = *override
+			if apiKey.GroupID != nil && groupID == *apiKey.GroupID {
+				value := *override
+				snapshot.User.UserGroupRPMOverride = &value
+			}
+		}
 	}
 	if apiKey.Group != nil {
 		apiKey.Group.EnsureTokenMultiplierDefaults()
@@ -443,7 +461,88 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
 		}
 	}
+	snapshot.Groups = make([]*APIKeyAuthGroupSnapshot, 0, len(apiKey.Groups))
+	for i, group := range apiKey.Groups {
+		if group == nil {
+			continue
+		}
+		if i == 0 && snapshot.Group != nil && snapshot.Group.ID == group.ID {
+			snapshot.Groups = append(snapshot.Groups, snapshot.Group)
+			continue
+		}
+		snapshot.Groups = append(snapshot.Groups, apiKeyAuthGroupSnapshotFromGroup(group))
+	}
 	return snapshot
+}
+
+func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
+	if group == nil {
+		return nil
+	}
+	group.EnsureTokenMultiplierDefaults()
+	return &APIKeyAuthGroupSnapshot{
+		ID:                              group.ID,
+		Name:                            group.Name,
+		Platform:                        group.Platform,
+		IsExclusive:                     group.IsExclusive,
+		Status:                          group.Status,
+		SubscriptionType:                group.SubscriptionType,
+		RateMultiplier:                  group.RateMultiplier,
+		InputTokenMultiplier:            group.InputTokenMultiplier,
+		OutputTokenMultiplier:           group.OutputTokenMultiplier,
+		CacheCreationTokenMultiplier:    group.CacheCreationTokenMultiplier,
+		CacheReadTokenMultiplier:        group.CacheReadTokenMultiplier,
+		ReturnBillableUsage:             group.ReturnBillableUsage,
+		DailyLimitUSD:                   group.DailyLimitUSD,
+		WeeklyLimitUSD:                  group.WeeklyLimitUSD,
+		MonthlyLimitUSD:                 group.MonthlyLimitUSD,
+		AllowImageGeneration:            group.AllowImageGeneration,
+		AllowBatchImageGeneration:       group.AllowBatchImageGeneration,
+		ImageRateIndependent:            group.ImageRateIndependent,
+		ImageRateMultiplier:             group.ImageRateMultiplier,
+		ImagePrice1K:                    group.ImagePrice1K,
+		ImagePrice2K:                    group.ImagePrice2K,
+		ImagePrice4K:                    group.ImagePrice4K,
+		VideoRateIndependent:            group.VideoRateIndependent,
+		VideoRateMultiplier:             group.VideoRateMultiplier,
+		VideoPrice480P:                  group.VideoPrice480P,
+		VideoPrice720P:                  group.VideoPrice720P,
+		VideoPrice1080P:                 group.VideoPrice1080P,
+		VideoModelPrices:                NormalizeVideoModelPrices(group.VideoModelPrices),
+		WebSearchPricePerCall:           group.WebSearchPricePerCall,
+		SearchPricePer1k:                group.SearchPricePer1k,
+		AudioRealtimePricePerMin:        group.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:    group.AudioTTSPricePerMillionChars,
+		AudioSTTPricePerHour:            group.AudioSTTPricePerHour,
+		LongContextPricingEnabled:       group.LongContextPricingEnabled,
+		ModelPricing:                    group.ModelPricing,
+		ClaudeCodeOnly:                  group.ClaudeCodeOnly,
+		FallbackGroupID:                 group.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                    group.ModelRouting,
+		ModelRoutingEnabled:             group.ModelRoutingEnabled,
+		MCPXMLInject:                    group.MCPXMLInject,
+		SupportedModelScopes:            group.SupportedModelScopes,
+		AllowMessagesDispatch:           group.AllowMessagesDispatch,
+		AllowLive:                       group.AllowLive,
+		ForceOpenAIFast:                 group.ForceOpenAIFast,
+		FreeOpenAIFast:                  group.FreeOpenAIFast,
+		DefaultMappedModel:              group.DefaultMappedModel,
+		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
+		ModelAllowlist:                  group.ModelAllowlist,
+		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
+		RPMLimit:                        group.RPMLimit,
+		MaxReasoningEffort:              group.MaxReasoningEffort,
+		MaxReasoningEffortOverLimit:     group.MaxReasoningEffortOverLimit,
+		ReasoningEffortMappings:         group.ReasoningEffortMappings,
+		PeakRateEnabled:                 group.PeakRateEnabled,
+		PeakStart:                       group.PeakStart,
+		PeakEnd:                         group.PeakEnd,
+		PeakRateMultiplier:              group.PeakRateMultiplier,
+		ProfitControlEnabled:            group.ProfitControlEnabled,
+		ProfitMinMargin:                 group.ProfitMinMargin,
+		ProfitSafetyBuffer:              group.ProfitSafetyBuffer,
+	}
 }
 
 func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapshot) *APIKey {
@@ -454,6 +553,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		ID:          snapshot.APIKeyID,
 		UserID:      snapshot.UserID,
 		GroupID:     snapshot.GroupID,
+		GroupIDs:    append([]int64(nil), snapshot.GroupIDs...),
 		Key:         key,
 		Name:        snapshot.Name,
 		Status:      snapshot.Status,
@@ -483,6 +583,12 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			RPMLimit:                   snapshot.User.RPMLimit,
 			UserGroupRPMOverride:       snapshot.User.UserGroupRPMOverride,
 		},
+	}
+	if len(snapshot.GroupRPMOverrides) > 0 {
+		apiKey.GroupRPMOverrides = make(map[int64]int, len(snapshot.GroupRPMOverrides))
+		for groupID, override := range snapshot.GroupRPMOverrides {
+			apiKey.GroupRPMOverrides[groupID] = override
+		}
 	}
 	if snapshot.Group != nil {
 		apiKey.Group = &Group{
@@ -551,6 +657,95 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ProfitSafetyBuffer:              snapshot.Group.ProfitSafetyBuffer,
 		}
 	}
+	apiKey.Groups = make([]*Group, 0, len(snapshot.Groups))
+	for i, groupSnapshot := range snapshot.Groups {
+		if groupSnapshot == nil {
+			continue
+		}
+		if i == 0 && apiKey.Group != nil && apiKey.Group.ID == groupSnapshot.ID {
+			apiKey.Groups = append(apiKey.Groups, apiKey.Group)
+			continue
+		}
+		apiKey.Groups = append(apiKey.Groups, apiKeyAuthGroupFromSnapshot(groupSnapshot))
+	}
+	if len(apiKey.Groups) > 0 && len(apiKey.GroupIDs) != len(apiKey.Groups) {
+		apiKey.GroupIDs = make([]int64, 0, len(apiKey.Groups))
+		for _, group := range apiKey.Groups {
+			apiKey.GroupIDs = append(apiKey.GroupIDs, group.ID)
+		}
+	}
+	apiKey.NormalizeGroupChain()
 	s.compileAPIKeyIPRules(apiKey)
 	return apiKey
+}
+
+func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
+	if snapshot == nil {
+		return nil
+	}
+	return &Group{
+		ID:                              snapshot.ID,
+		Name:                            snapshot.Name,
+		Platform:                        snapshot.Platform,
+		IsExclusive:                     snapshot.IsExclusive,
+		Status:                          snapshot.Status,
+		Hydrated:                        true,
+		SubscriptionType:                snapshot.SubscriptionType,
+		RateMultiplier:                  snapshot.RateMultiplier,
+		InputTokenMultiplier:            snapshot.InputTokenMultiplier,
+		OutputTokenMultiplier:           snapshot.OutputTokenMultiplier,
+		CacheCreationTokenMultiplier:    snapshot.CacheCreationTokenMultiplier,
+		CacheReadTokenMultiplier:        snapshot.CacheReadTokenMultiplier,
+		ReturnBillableUsage:             snapshot.ReturnBillableUsage,
+		TokenMultipliersConfigured:      true,
+		DailyLimitUSD:                   snapshot.DailyLimitUSD,
+		WeeklyLimitUSD:                  snapshot.WeeklyLimitUSD,
+		MonthlyLimitUSD:                 snapshot.MonthlyLimitUSD,
+		AllowImageGeneration:            snapshot.AllowImageGeneration,
+		AllowBatchImageGeneration:       snapshot.AllowBatchImageGeneration,
+		ImageRateIndependent:            snapshot.ImageRateIndependent,
+		ImageRateMultiplier:             snapshot.ImageRateMultiplier,
+		ImagePrice1K:                    snapshot.ImagePrice1K,
+		ImagePrice2K:                    snapshot.ImagePrice2K,
+		ImagePrice4K:                    snapshot.ImagePrice4K,
+		VideoRateIndependent:            snapshot.VideoRateIndependent,
+		VideoRateMultiplier:             snapshot.VideoRateMultiplier,
+		VideoPrice480P:                  snapshot.VideoPrice480P,
+		VideoPrice720P:                  snapshot.VideoPrice720P,
+		VideoPrice1080P:                 snapshot.VideoPrice1080P,
+		VideoModelPrices:                NormalizeVideoModelPrices(snapshot.VideoModelPrices),
+		WebSearchPricePerCall:           snapshot.WebSearchPricePerCall,
+		SearchPricePer1k:                snapshot.SearchPricePer1k,
+		AudioRealtimePricePerMin:        snapshot.AudioRealtimePricePerMin,
+		AudioTTSPricePerMillionChars:    snapshot.AudioTTSPricePerMillionChars,
+		AudioSTTPricePerHour:            snapshot.AudioSTTPricePerHour,
+		LongContextPricingEnabled:       snapshot.LongContextPricingEnabled,
+		ModelPricing:                    snapshot.ModelPricing,
+		ClaudeCodeOnly:                  snapshot.ClaudeCodeOnly,
+		FallbackGroupID:                 snapshot.FallbackGroupID,
+		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,
+		ModelRouting:                    snapshot.ModelRouting,
+		ModelRoutingEnabled:             snapshot.ModelRoutingEnabled,
+		MCPXMLInject:                    snapshot.MCPXMLInject,
+		SupportedModelScopes:            snapshot.SupportedModelScopes,
+		AllowMessagesDispatch:           snapshot.AllowMessagesDispatch,
+		AllowLive:                       snapshot.AllowLive,
+		ForceOpenAIFast:                 snapshot.ForceOpenAIFast,
+		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
+		DefaultMappedModel:              snapshot.DefaultMappedModel,
+		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
+		ModelAllowlist:                  snapshot.ModelAllowlist,
+		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
+		RPMLimit:                        snapshot.RPMLimit,
+		MaxReasoningEffort:              snapshot.MaxReasoningEffort,
+		MaxReasoningEffortOverLimit:     snapshot.MaxReasoningEffortOverLimit,
+		ReasoningEffortMappings:         snapshot.ReasoningEffortMappings,
+		PeakRateEnabled:                 snapshot.PeakRateEnabled,
+		PeakStart:                       snapshot.PeakStart,
+		PeakEnd:                         snapshot.PeakEnd,
+		PeakRateMultiplier:              snapshot.PeakRateMultiplier,
+		ProfitControlEnabled:            snapshot.ProfitControlEnabled,
+		ProfitMinMargin:                 snapshot.ProfitMinMargin,
+		ProfitSafetyBuffer:              snapshot.ProfitSafetyBuffer,
+	}
 }
