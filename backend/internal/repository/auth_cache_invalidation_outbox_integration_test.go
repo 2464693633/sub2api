@@ -20,13 +20,19 @@ func TestAuthCacheInvalidationTriggers_CoverSecurityMutationsOnly(t *testing.T) 
 	group := mustCreateGroup(t, integrationEntClient, &service.Group{
 		Name: fmt.Sprintf("auth-outbox-group-%d", suffix), RateMultiplier: 1, IsExclusive: true,
 	})
+	fallbackGroup := mustCreateGroup(t, integrationEntClient, &service.Group{
+		Name: fmt.Sprintf("auth-outbox-fallback-group-%d", suffix), RateMultiplier: 1, IsExclusive: true,
+	})
 	user := mustCreateUser(t, integrationEntClient, &service.User{
 		Email: fmt.Sprintf("auth-outbox-%d@example.com", suffix), Concurrency: 5,
 	})
 	groupID := group.ID
 	keyValue := fmt.Sprintf("sk-auth-outbox-%d", suffix)
 	apiKeyRepo := NewAPIKeyRepository(integrationEntClient, integrationDB)
-	key := &service.APIKey{UserID: user.ID, GroupID: &groupID, Key: keyValue, Name: "outbox", Status: service.StatusActive}
+	key := &service.APIKey{
+		UserID: user.ID, GroupID: &groupID, GroupIDs: []int64{groupID, fallbackGroup.ID},
+		Key: keyValue, Name: "outbox", Status: service.StatusActive,
+	}
 	require.NoError(t, apiKeyRepo.Create(ctx, key))
 
 	sum := sha256.Sum256([]byte(keyValue))
@@ -53,7 +59,7 @@ func TestAuthCacheInvalidationTriggers_CoverSecurityMutationsOnly(t *testing.T) 
 		require.NoError(t, err)
 		_, err = integrationDB.ExecContext(ctx, "DELETE FROM users WHERE id = $1", user.ID)
 		require.NoError(t, err)
-		_, err = integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE id = $1", group.ID)
+		_, err = integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE id IN ($1, $2)", group.ID, fallbackGroup.ID)
 		require.NoError(t, err)
 	})
 
@@ -104,6 +110,14 @@ func TestAuthCacheInvalidationTriggers_CoverSecurityMutationsOnly(t *testing.T) 
 	require.NoError(t, err)
 	clear()
 
+	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET name = name || '-cosmetic' WHERE id = $1", fallbackGroup.ID)
+	require.NoError(t, err)
+	require.Zero(t, count(), "cosmetic fallback-group update must not enqueue")
+	_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET allow_image_generation = NOT allow_image_generation WHERE id = $1", fallbackGroup.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count(), "fallback-group auth changes must enqueue once")
+	clear()
+
 	_, err = integrationDB.ExecContext(ctx,
 		"INSERT INTO user_allowed_groups (user_id, group_id) VALUES ($1, $2)", user.ID, group.ID)
 	require.NoError(t, err)
@@ -112,6 +126,17 @@ func TestAuthCacheInvalidationTriggers_CoverSecurityMutationsOnly(t *testing.T) 
 		"DELETE FROM user_allowed_groups WHERE user_id = $1 AND group_id = $2", user.ID, group.ID)
 	require.NoError(t, err)
 	require.Equal(t, 1, count(), "exclusive-group revocation must enqueue")
+	clear()
+
+	_, err = integrationDB.ExecContext(ctx,
+		"INSERT INTO user_allowed_groups (user_id, group_id) VALUES ($1, $2)", user.ID, fallbackGroup.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count(), "exclusive fallback-group grant must enqueue once")
+	clear()
+	_, err = integrationDB.ExecContext(ctx,
+		"DELETE FROM user_allowed_groups WHERE user_id = $1 AND group_id = $2", user.ID, fallbackGroup.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1, count(), "exclusive fallback-group revocation must enqueue once")
 	clear()
 
 	require.NoError(t, apiKeyRepo.DeleteWithAudit(ctx, key.ID))

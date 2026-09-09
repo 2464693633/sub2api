@@ -606,6 +606,9 @@ func beginAPIKeyMutation(ctx context.Context, root *dbent.Client) (*dbent.Client
 		return existing.Client(), nil, nil
 	}
 	tx, err := root.Tx(ctx)
+	if errors.Is(err, dbent.ErrTxStarted) {
+		return root, nil, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}

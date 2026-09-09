@@ -105,11 +105,23 @@ DECLARE
     target_group_id BIGINT;
 BEGIN
     target_group_id := OLD.id;
+    IF TG_OP = 'UPDATE'
+       AND (to_jsonb(OLD) - ARRAY[
+           'name', 'description', 'sort_order', 'created_at', 'updated_at',
+           'duplicate_operation_id'
+       ]) IS NOT DISTINCT FROM (to_jsonb(NEW) - ARRAY[
+           'name', 'description', 'sort_order', 'created_at', 'updated_at',
+           'duplicate_operation_id'
+       ]) THEN
+        RETURN NEW;
+    END IF;
+
     INSERT INTO auth_cache_invalidation_outbox (cache_key)
     SELECT DISTINCT encode(sha256(convert_to(k.key, 'UTF8')), 'hex')
     FROM api_key_groups AS akg
     JOIN api_keys AS k ON k.id = akg.api_key_id
     WHERE akg.group_id = target_group_id
+      AND k.group_id IS DISTINCT FROM target_group_id
       AND k.deleted_at IS NULL
       AND k.key <> '';
     IF TG_OP = 'DELETE' THEN
@@ -132,7 +144,26 @@ DECLARE
     target_user_id BIGINT;
     target_group_id BIGINT;
 BEGIN
-    IF TG_OP = 'DELETE' THEN
+    IF TG_OP = 'UPDATE' THEN
+        IF OLD.user_id IS NOT DISTINCT FROM NEW.user_id
+           AND OLD.group_id IS NOT DISTINCT FROM NEW.group_id THEN
+            RETURN NEW;
+        END IF;
+
+        INSERT INTO auth_cache_invalidation_outbox (cache_key)
+        SELECT DISTINCT encode(sha256(convert_to(k.key, 'UTF8')), 'hex')
+        FROM (VALUES
+            (OLD.user_id, OLD.group_id),
+            (NEW.user_id, NEW.group_id)
+        ) AS target(user_id, group_id)
+        JOIN groups AS g ON g.id = target.group_id AND g.is_exclusive = TRUE
+        JOIN api_key_groups AS akg ON akg.group_id = target.group_id
+        JOIN api_keys AS k ON k.id = akg.api_key_id AND k.user_id = target.user_id
+        WHERE k.group_id IS DISTINCT FROM target.group_id
+          AND k.deleted_at IS NULL
+          AND k.key <> '';
+        RETURN NEW;
+    ELSIF TG_OP = 'DELETE' THEN
         target_user_id := OLD.user_id;
         target_group_id := OLD.group_id;
     ELSE
@@ -144,8 +175,10 @@ BEGIN
     SELECT DISTINCT encode(sha256(convert_to(k.key, 'UTF8')), 'hex')
     FROM api_key_groups AS akg
     JOIN api_keys AS k ON k.id = akg.api_key_id
+    JOIN groups AS g ON g.id = target_group_id AND g.is_exclusive = TRUE
     WHERE k.user_id = target_user_id
       AND akg.group_id = target_group_id
+      AND k.group_id IS DISTINCT FROM target_group_id
       AND k.deleted_at IS NULL
       AND k.key <> '';
 
