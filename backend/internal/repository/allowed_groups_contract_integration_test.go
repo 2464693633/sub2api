@@ -145,3 +145,54 @@ func TestGroupRepository_DeleteCascade_PreservesApiKeyGroupID(t *testing.T) {
 	require.Equal(t, targetGroup.ID, *keyAfter.GroupID)
 	require.Nil(t, keyAfter.Group)
 }
+
+func TestGroupRepository_DeleteCascade_PromotesNextAPIKeyGroup(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	entClient := tx.Client()
+
+	targetGroup, err := entClient.Group.Create().
+		SetName(uniqueTestValue(t, "delete-cascade-primary")).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+	nextGroup, err := entClient.Group.Create().
+		SetName(uniqueTestValue(t, "delete-cascade-next")).
+		SetStatus(service.StatusActive).
+		Save(ctx)
+	require.NoError(t, err)
+
+	userRepo := newUserRepositoryWithSQL(entClient, tx)
+	groupRepo := newGroupRepositoryWithSQL(entClient, tx)
+	apiKeyRepo := newAPIKeyRepositoryWithSQL(entClient, tx)
+	user := &service.User{
+		Email:         uniqueTestValue(t, "cascade-promote-user") + "@example.com",
+		PasswordHash:  "test-password-hash",
+		Role:          service.RoleUser,
+		Status:        service.StatusActive,
+		Concurrency:   5,
+		AllowedGroups: []int64{targetGroup.ID, nextGroup.ID},
+	}
+	require.NoError(t, userRepo.Create(ctx, user))
+
+	key := &service.APIKey{
+		UserID:   user.ID,
+		Key:      uniqueTestValue(t, "sk-test-delete-cascade-promote"),
+		Name:     "promote next group",
+		GroupID:  &targetGroup.ID,
+		GroupIDs: []int64{targetGroup.ID, nextGroup.ID},
+		Status:   service.StatusActive,
+	}
+	require.NoError(t, apiKeyRepo.Create(ctx, key))
+
+	_, err = groupRepo.DeleteCascade(ctx, targetGroup.ID)
+	require.NoError(t, err)
+
+	keyAfter, err := apiKeyRepo.GetByID(ctx, key.ID)
+	require.NoError(t, err)
+	require.NotNil(t, keyAfter.GroupID)
+	require.Equal(t, nextGroup.ID, *keyAfter.GroupID)
+	require.Equal(t, []int64{nextGroup.ID}, keyAfter.GroupIDs)
+	require.NotNil(t, keyAfter.Group)
+	require.Equal(t, nextGroup.ID, keyAfter.Group.ID)
+}

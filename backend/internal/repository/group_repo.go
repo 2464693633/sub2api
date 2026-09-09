@@ -967,13 +967,13 @@ func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEm
 	}
 	if _, err := exec.ExecContext(ctx, `
 		UPDATE api_keys AS k
-		SET group_id = (
+		SET group_id = COALESCE((
 			SELECT akg.group_id
 			FROM api_key_groups AS akg
 			WHERE akg.api_key_id = k.id
 			ORDER BY akg.sort_order, akg.group_id
 			LIMIT 1
-		), updated_at = NOW()
+		), k.group_id), updated_at = NOW()
 		WHERE k.group_id = $1 AND k.deleted_at IS NULL`, id); err != nil {
 		return nil, err
 	}
