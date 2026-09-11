@@ -404,6 +404,27 @@
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
+          <template #header-health="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.health.hint')" width-class="w-72" />
+            </div>
+          </template>
+          <template #cell-health="{ row }">
+            <div v-if="row.health" class="flex flex-col gap-0.5 font-mono text-[11px] leading-4">
+              <span
+                class="whitespace-nowrap"
+                :class="row.health.failed > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-700 dark:text-gray-300'"
+                :title="t('admin.accounts.health.hint')"
+              >
+                {{ formatAccountHealth(row.health) }}
+              </span>
+              <span v-if="row.health.failed > 0" class="whitespace-nowrap text-red-500 dark:text-red-400">
+                {{ t('admin.accounts.health.failedShort', { failed: row.health.failed }) }}
+              </span>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
           </template>
@@ -925,6 +946,17 @@ const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string =
   if (!score) return '-'
   if (score.sticky_score_infinity) return '+∞'
   return formatSchedulerScore(score.sticky_score)
+}
+
+// 健康度展示: "首字 1.2s · 35 次"（首字延迟 EWMA + 窗口成功数）
+const formatAccountHealth = (health: NonNullable<Account['health']>): string => {
+  const parts: string[] = []
+  if (health.avg_first_token_ms != null && health.avg_first_token_ms > 0) {
+    const ms = health.avg_first_token_ms
+    parts.push(ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`)
+  }
+  parts.push(t('admin.accounts.health.okShort', { ok: health.ok }))
+  return parts.join(' · ')
 }
 
 const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] => {
@@ -1798,6 +1830,7 @@ const allColumns = computed(() => {
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
+    { key: 'health', label: t('admin.accounts.columns.health'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },

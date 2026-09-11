@@ -268,6 +268,19 @@ export default {
       geminiCli: 'Gemini CLI',
       geminiCliDesc: '导入为 Gemini CLI 配置'
     },
+    ccsContextSelect: {
+      title: '选择 Codex 上下文窗口',
+      description: '选择上下文规格，系统会复制对应的 Codex 配置片段。',
+      warning: 'CC Switch 3.19.1 的供应商深链会丢弃上下文字段，因此需在导入后粘贴下面两行。',
+      oneM: '1M 上下文',
+      oneMBadge: '默认',
+      oneMDesc: '上下文 1,050,000，达到 800,000 tokens 时自动压缩',
+      standard: '272K 标准上下文',
+      standardDesc: '上下文 272,000，达到 244,800 tokens 时自动压缩',
+      pasteHint: '导入完成后打开该供应商编辑页，将以下内容粘贴到 config.toml 顶部并保存：',
+      confirm: '复制配置并打开 CC Switch',
+      copied: 'Codex 上下文配置已复制'
+    },
     // 配额和有效期
     quotaLimit: '额度限制',
     quotaAmount: '额度金额 (USD)',

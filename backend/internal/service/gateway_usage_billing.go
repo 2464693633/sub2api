@@ -719,6 +719,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	user := input.User
 	account := input.Account
 	subscription := input.Subscription
+	// 健康度采集：成功请求记入滚动窗口（流式请求附带首字延迟）
+	if account != nil {
+		s.RecordAccountSuccess(ctx, account.ID, result.FirstTokenMs)
+	}
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
 

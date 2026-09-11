@@ -238,6 +238,13 @@ func (s *FailoverState) HandleFailoverError(
 		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
 	}
 
+	// 健康度采集：该账号本次被判定为失败（切换到下一账号）
+	if recorder, ok := gatewayService.(interface {
+		RecordAccountFailure(ctx context.Context, accountID int64)
+	}); ok {
+		recorder.RecordAccountFailure(ctx, accountID)
+	}
+
 	// 加入失败列表
 	s.FailedAccountIDs[accountID] = struct{}{}
 

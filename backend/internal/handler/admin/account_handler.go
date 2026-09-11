@@ -65,6 +65,7 @@ type AccountHandler struct {
 	grokImportProber        grokImportProber
 	upstreamBillingProbe    *service.UpstreamBillingProbeService
 	ollamaCloudUsage        *service.OllamaCloudUsageService
+	accountHealth           *service.AccountHealthService
 	cfg                     *config.Config
 }
 
@@ -197,9 +198,10 @@ type AccountWithConcurrency struct {
 	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
 	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
 	// 以下字段仅对 Anthropic OAuth/SetupToken 账号有效，且仅在启用相应功能时返回
-	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
-	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
-	CurrentRPM        *int     `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	CurrentWindowCost *float64                       `json:"current_window_cost,omitempty"` // 当前窗口费用
+	ActiveSessions    *int                           `json:"active_sessions,omitempty"`     // 当前活跃会话数
+	CurrentRPM        *int                           `json:"current_rpm,omitempty"`         // 当前分钟 RPM 计数
+	Health            *service.AccountHealthSnapshot `json:"health,omitempty"`              // 健康度（滚动窗口）
 }
 
 // AccountListItemWithConcurrency is the compact account-list envelope used
@@ -207,12 +209,13 @@ type AccountWithConcurrency struct {
 // so groups/account_groups never appear in the list payload.
 type AccountListItemWithConcurrency struct {
 	*dto.AccountListItem
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
-	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
-	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
+	CurrentConcurrency int                            `json:"current_concurrency"`
+	SchedulerScore     *AccountSchedulerScore         `json:"scheduler_score,omitempty"`
+	SchedulerScores    []AccountSchedulerGroupScore   `json:"scheduler_scores,omitempty"`
+	CurrentWindowCost  *float64                       `json:"current_window_cost,omitempty"`
+	ActiveSessions     *int                           `json:"active_sessions,omitempty"`
+	CurrentRPM         *int                           `json:"current_rpm,omitempty"`
+	Health             *service.AccountHealthSnapshot `json:"health,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -717,6 +720,12 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
+	// 健康度快照（Redis pipeline，低开销）
+	var healthSnapshots map[int64]service.AccountHealthSnapshot
+	if h.accountHealth != nil {
+		healthSnapshots = h.accountHealth.Snapshot(c.Request.Context(), accountIDs)
+	}
+
 	// 识别需要查询窗口费用、会话数和 RPM 的账号（Anthropic OAuth/SetupToken 且启用了相应功能）
 	windowCostAccountIDs := make([]int64, 0)
 	sessionLimitAccountIDs := make([]int64, 0)
@@ -822,6 +831,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 			}
 		}
 
+		// 附加健康度快照（仅当窗口内有数据时）
+		if hs, ok := healthSnapshots[acc.ID]; ok {
+			hs := hs
+			item.Health = &hs
+		}
 		result[i] = item
 	}
 
@@ -839,6 +853,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentWindowCost:  item.CurrentWindowCost,
 				ActiveSessions:     item.ActiveSessions,
 				CurrentRPM:         item.CurrentRPM,
+				Health:             item.Health,
 			}
 		}
 		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)

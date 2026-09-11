@@ -207,8 +207,10 @@ apiClient.interceptors.response.use(
             localStorage.removeItem('token_expires_at')
             sessionStorage.setItem('auth_expired', '1')
 
-            if (!window.location.pathname.includes('/login')) {
-              window.location.href = '/login'
+            const onAuthPage = window.location.pathname.includes('/login') || window.location.pathname === '/home'
+            if (!onAuthPage) {
+              // 会话过期回到视频主页(主页内嵌登录表单)
+              window.location.href = '/home'
             }
 
             return Promise.reject({
@@ -237,9 +239,10 @@ apiClient.interceptors.response.use(
         if ((hasToken || sentAuth) && !isAuthEndpoint) {
           sessionStorage.setItem('auth_expired', '1')
         }
-        // Only redirect if not already on login page
-        if (!window.location.pathname.includes('/login')) {
-          window.location.href = '/login'
+        // Only redirect if not already on an auth surface (login page or video home)
+        const onAuthSurface = window.location.pathname.includes('/login') || window.location.pathname === '/home'
+        if (!onAuthSurface) {
+          window.location.href = '/home'
         }
       }
 

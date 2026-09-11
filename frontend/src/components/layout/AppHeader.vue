@@ -350,10 +350,11 @@ async function handleLogout() {
   try {
     await authStore.logout()
   } catch (error) {
-    // Ignore logout errors - still redirect to login
+    // Ignore logout errors - still redirect away
     console.error('Logout error:', error)
   }
-  await router.push('/login')
+  // 退出后回到视频主页(主页内嵌登录/注册表单)
+  await router.push('/home')
 }
 
 function handleReplayGuide() {

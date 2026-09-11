@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  CODEX_CONTEXT_WINDOW_SPECS,
   GROK_CC_SWITCH_MODEL,
   OPENAI_CC_SWITCH_CODEX_MODEL,
+  buildCodexContextConfigSnippet,
   buildCcSwitchImportDeeplink
 } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
@@ -18,6 +20,24 @@ describe('ccswitchImport utils', () => {
 
   it('defaults Grok Build imports to the current Grok model', () => {
     expect(GROK_CC_SWITCH_MODEL).toBe('grok-4.5')
+  })
+
+  it('builds the 1M Codex context config snippet', () => {
+    expect(buildCodexContextConfigSnippet('1m')).toBe(
+      'model_context_window = 1050000\nmodel_auto_compact_token_limit = 800000'
+    )
+  })
+
+  it('builds the 272K Codex context config snippet', () => {
+    expect(buildCodexContextConfigSnippet('standard')).toBe(
+      'model_context_window = 272000\nmodel_auto_compact_token_limit = 244800'
+    )
+  })
+
+  it('keeps the auto-compact limit below the context window', () => {
+    for (const spec of Object.values(CODEX_CONTEXT_WINDOW_SPECS)) {
+      expect(spec.autoCompactTokenLimit).toBeLessThan(spec.contextWindow)
+    }
   })
 
   const baseInput = {

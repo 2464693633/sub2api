@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"math"
 	mathrand "math/rand"
 	"sort"
 	"strings"
@@ -819,6 +820,30 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 	return nil, false, nil
 }
 
+// RecordAccountSuccess 记录一次账号成功请求（含可选首字延迟），用于健康度监控。
+func (s *GatewayService) RecordAccountSuccess(ctx context.Context, accountID int64, firstTokenMs *int) {
+	if s == nil || s.accountHealth == nil {
+		return
+	}
+	s.accountHealth.RecordSuccess(ctx, accountID, firstTokenMs)
+}
+
+// RecordAccountFailure 记录一次账号级失败（failover 切换账号），用于健康度监控。
+func (s *GatewayService) RecordAccountFailure(ctx context.Context, accountID int64) {
+	if s == nil || s.accountHealth == nil {
+		return
+	}
+	s.accountHealth.RecordFailure(ctx, accountID)
+}
+
+// GetAccountsHealthSnapshot 批量读取账号健康度快照。
+func (s *GatewayService) GetAccountsHealthSnapshot(ctx context.Context, accountIDs []int64) map[int64]AccountHealthSnapshot {
+	if s == nil || s.accountHealth == nil {
+		return nil
+	}
+	return s.accountHealth.Snapshot(ctx, accountIDs)
+}
+
 func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 	if s.cfg != nil {
 		return s.cfg.Gateway.Scheduling
@@ -830,6 +855,7 @@ func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
 		FallbackMaxWaiting:       100,
 		LoadBatchEnabled:         true,
 		SlotCleanupInterval:      30 * time.Second,
+		HealthSortEnabled:        true,
 	}
 }
 
@@ -1848,6 +1874,96 @@ func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOA
 	} else {
 		// 默认按最后使用时间排序
 		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
+	}
+	// 健康度偏好：同优先级内把"近期无失败 + 首字快"的账号排到前面
+	if s.schedulingConfig().HealthSortEnabled {
+		s.applyHealthOrderingWithinPriority(accounts)
+	}
+}
+
+// accountHealthSortState 是同优先级段内健康度排序的排序键。
+type accountHealthSortState struct {
+	account  *Account
+	snapshot AccountHealthSnapshot
+	hasData  bool
+	// failBucket: 0=有样本且无失败(健康) 1=无数据(保持原序) 2=有失败
+	failBucket int
+	// ftKey: 首字延迟 EWMA；无样本时排到有样本之后
+	ftKey float64
+	ftSet bool
+}
+
+// applyHealthOrderingWithinPriority 在不破坏优先级分段的前提下，
+// 对每个同优先级段内按健康度重排：
+//  1. 无失败的账号在前，有失败在后，无数据的保持原相对顺序居中；
+//  2. 同一失败状态下按首字延迟 EWMA 升序（无流式样本的排在有样本之后，保持原序）。
+//
+// 稳定排序保证无数据账号保留原有 last_used/随机 语义。
+func (s *GatewayService) applyHealthOrderingWithinPriority(accounts []*Account) {
+	if s == nil || s.accountHealth == nil || len(accounts) < 2 {
+		return
+	}
+	ids := make([]int64, 0, len(accounts))
+	for _, acc := range accounts {
+		ids = append(ids, acc.ID)
+	}
+	snapshots := s.accountHealth.Snapshot(context.Background(), ids)
+	if len(snapshots) == 0 {
+		return
+	}
+
+	states := make([]accountHealthSortState, len(accounts))
+	for i, acc := range accounts {
+		state := accountHealthSortState{account: acc}
+		if snapshot, ok := snapshots[acc.ID]; ok {
+			state.snapshot = snapshot
+			state.hasData = true
+			switch {
+			case snapshot.Failed > 0:
+				state.failBucket = 2
+			case snapshot.OK > 0:
+				state.failBucket = 0
+			default:
+				state.failBucket = 1
+			}
+			if snapshot.AvgFirstTokenMs != nil {
+				state.ftKey = float64(*snapshot.AvgFirstTokenMs)
+				state.ftSet = true
+			} else {
+				state.ftKey = math.MaxFloat64 / 2
+			}
+		} else {
+			state.failBucket = 1
+			state.ftKey = math.MaxFloat64 / 2
+		}
+		states[i] = state
+	}
+
+	start := 0
+	for start < len(accounts) {
+		priority := accounts[start].Priority
+		end := start + 1
+		for end < len(accounts) && accounts[end].Priority == priority {
+			end++
+		}
+		segment := states[start:end]
+		sort.SliceStable(segment, func(i, j int) bool {
+			a, b := segment[i], segment[j]
+			if a.failBucket != b.failBucket {
+				return a.failBucket < b.failBucket
+			}
+			if a.ftSet != b.ftSet {
+				return a.ftSet
+			}
+			if a.ftSet && a.ftKey != b.ftKey {
+				return a.ftKey < b.ftKey
+			}
+			return false
+		})
+		for offset := range segment {
+			accounts[start+offset] = segment[offset].account
+		}
+		start = end
 	}
 }
 

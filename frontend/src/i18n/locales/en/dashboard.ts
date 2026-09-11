@@ -263,6 +263,19 @@ export default {
       geminiCli: 'Gemini CLI',
       geminiCliDesc: 'Import as Gemini CLI configuration',
     },
+    ccsContextSelect: {
+      title: 'Choose Codex Context Window',
+      description: 'Select a context size. The matching Codex config snippet will be copied.',
+      warning: 'CC Switch 3.19.1 provider deep links drop context fields, so paste the two lines below after importing.',
+      oneM: '1M Context',
+      oneMBadge: 'Default',
+      oneMDesc: 'Context 1,050,000, auto-compact at 800,000 tokens',
+      standard: '272K Standard Context',
+      standardDesc: 'Context 272,000, auto-compact at 244,800 tokens',
+      pasteHint: 'After importing, open the provider edit page and paste the following at the top of config.toml, then save:',
+      confirm: 'Copy Config & Open CC Switch',
+      copied: 'Codex context config copied'
+    },
     // Quota and expiration
     quotaLimit: 'Quota Limit',
     quotaAmount: 'Quota Amount (USD)',

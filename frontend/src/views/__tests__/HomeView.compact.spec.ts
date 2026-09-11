@@ -50,6 +50,14 @@ function mountHome(settings: Record<string, unknown> = {}) {
         RouterLink: RouterLinkStub,
         LocaleSwitcher: { template: '<div data-testid="locale-switcher" />' },
         Icon: { template: '<span data-testid="icon" />' },
+        // 视频背景在独立 spec 中覆盖；这里只关心 HomeView 的分支与链接行为
+        HeroVideoBackground: {
+          template: '<div data-testid="hero-video-stub" />',
+          methods: {
+            selectTheme: () => {},
+            isThemeFailed: () => false,
+          },
+        },
       },
     },
   })
@@ -108,7 +116,7 @@ describe('HomeView compact mode', () => {
     const wrapper = mountHome(settings)
 
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
-    expect(wrapper.find('.terminal-container').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="hero-video-stub"]').exists()).toBe(true)
   })
 
   it('links unauthenticated visitors to login', () => {

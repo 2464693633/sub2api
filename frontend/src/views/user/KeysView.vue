@@ -1012,6 +1012,81 @@
       </template>
     </BaseDialog>
 
+    <!-- CCS Codex Context Window Selection Dialog for OpenAI -->
+    <BaseDialog
+      :show="showCcsContextSelect"
+      :title="t('keys.ccsContextSelect.title')"
+      width="narrow"
+      @close="closeCcsContextSelect"
+    >
+      <div class="space-y-4">
+        <p class="text-sm text-gray-600 dark:text-gray-400">
+          {{ t('keys.ccsContextSelect.description') }}
+        </p>
+
+        <div
+          class="rounded-lg border border-amber-300/60 bg-amber-50 px-4 py-3 text-xs leading-relaxed text-amber-800 dark:border-amber-500/40 dark:bg-amber-900/20 dark:text-amber-300"
+        >
+          {{ t('keys.ccsContextSelect.warning') }}
+        </div>
+
+        <!-- 1M context option -->
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all"
+          :class="
+            selectedCodexContextWindow === '1m'
+              ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+              : 'border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500'
+          "
+          @click="selectedCodexContextWindow = '1m'"
+        >
+          <Icon name="sparkles" size="lg" class="shrink-0 text-primary-500" />
+          <span class="min-w-0 flex-1">
+            <span class="flex items-center gap-2">
+              <span class="font-medium text-gray-900 dark:text-white">{{ t('keys.ccsContextSelect.oneM') }}</span>
+              <span class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">{{ t('keys.ccsContextSelect.oneMBadge') }}</span>
+            </span>
+            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ t('keys.ccsContextSelect.oneMDesc') }}</span>
+          </span>
+        </button>
+
+        <!-- 272K standard option -->
+        <button
+          type="button"
+          class="flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all"
+          :class="
+            selectedCodexContextWindow === 'standard'
+              ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+              : 'border-gray-200 dark:border-dark-600 hover:border-primary-400 dark:hover:border-primary-500'
+          "
+          @click="selectedCodexContextWindow = 'standard'"
+        >
+          <Icon name="terminal" size="lg" class="shrink-0 text-gray-600 dark:text-gray-400" />
+          <span class="min-w-0 flex-1">
+            <span class="block font-medium text-gray-900 dark:text-white">{{ t('keys.ccsContextSelect.standard') }}</span>
+            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">{{ t('keys.ccsContextSelect.standardDesc') }}</span>
+          </span>
+        </button>
+
+        <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
+          {{ t('keys.ccsContextSelect.pasteHint') }}
+        </p>
+
+        <pre class="overflow-x-auto rounded-lg bg-gray-900 px-4 py-3 font-mono text-xs leading-relaxed text-gray-100 dark:bg-black/40">{{ codexContextSnippet }}</pre>
+      </div>
+      <template #footer>
+        <div class="flex justify-end gap-2">
+          <button @click="closeCcsContextSelect" class="btn btn-secondary">
+            {{ t('common.cancel') }}
+          </button>
+          <button @click="handleCcsContextConfirm" class="btn btn-primary">
+            {{ t('keys.ccsContextSelect.confirm') }}
+          </button>
+        </div>
+      </template>
+    </BaseDialog>
+
   </AppLayout>
 </template>
 
@@ -1047,6 +1122,8 @@ import { maskApiKey } from '@/utils/maskApiKey'
 import { getApiKeyGroupIds } from '@/utils/apiKeyGroups'
 import {
   buildCcSwitchImportDeeplink,
+  buildCodexContextConfigSnippet,
+  type CodexContextWindowOption,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
 
@@ -1187,6 +1264,8 @@ const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
 const showCcsClientSelect = ref(false)
+const showCcsContextSelect = ref(false)
+const selectedCodexContextWindow = ref<CodexContextWindowOption>('1m')
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
@@ -1696,6 +1775,14 @@ const importToCcswitch = (row: ApiKey) => {
     return
   }
 
+  // For openai (Codex) platform, show context window selection dialog first
+  if (platform === 'openai') {
+    pendingCcsRow.value = row
+    selectedCodexContextWindow.value = '1m'
+    showCcsContextSelect.value = true
+    return
+  }
+
   // For other platforms, execute directly
   executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
 }
@@ -1755,6 +1842,28 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
 
 const closeCcsClientSelect = () => {
   showCcsClientSelect.value = false
+  pendingCcsRow.value = null
+}
+
+// Codex 上下文窗口选择：确认时复制 config.toml 片段并打开 CC Switch 深链
+const codexContextSnippet = computed(() =>
+  buildCodexContextConfigSnippet(selectedCodexContextWindow.value)
+)
+
+const handleCcsContextConfirm = async () => {
+  await clipboardCopy(
+    codexContextSnippet.value,
+    t('keys.ccsContextSelect.copied')
+  )
+  if (pendingCcsRow.value) {
+    executeCcsImport(pendingCcsRow.value, 'claude')
+  }
+  showCcsContextSelect.value = false
+  pendingCcsRow.value = null
+}
+
+const closeCcsContextSelect = () => {
+  showCcsContextSelect.value = false
   pendingCcsRow.value = null
 }
 

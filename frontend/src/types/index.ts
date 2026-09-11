@@ -1320,6 +1320,13 @@ export interface Account {
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
 
+  // 健康度（滚动窗口，仅当窗口内有数据时返回）
+  health?: {
+    avg_first_token_ms?: number | null
+    ok: number
+    failed: number
+  } | null
+
   // 影子账号关系（spark 维度影子）
   parent_account_id?: number | null
   quota_dimension?: string

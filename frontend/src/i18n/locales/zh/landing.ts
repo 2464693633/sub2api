@@ -14,6 +14,24 @@ export default {
     login: '登录',
     getStarted: '立即开始',
     goToDashboard: '进入控制台',
+    // 视频主页（默认分支）
+    hero: {
+      badge: '统一模型网关',
+      description: '一个 API 密钥，畅用 Claude、GPT、Gemini 等主流模型。订阅额度统一分发，无需管理多个账号。',
+      themeLabel: '切换背景主题',
+      themes: {
+        morning: '晨光',
+        water: '静水',
+        forest: '深林',
+        dawn: '破晓',
+        aurora: '极光'
+      },
+      stats: {
+        models: '可用模型',
+        platforms: '支持平台',
+        uptime: '服务可用性'
+      }
+    },
     // 新增：面向用户的价值主张
     heroSubtitle: '一个密钥，畅用多个 AI 模型',
     heroDescription: '无需管理多个订阅账号，一站式接入 Claude、GPT、Gemini 等主流 AI 服务',
