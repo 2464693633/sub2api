@@ -11,17 +11,18 @@
       <video
         v-for="(theme, index) in themes"
         :key="theme.src"
-      :ref="(el) => setVideoRef(index, el)"
-      class="absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ease-out"
-      :class="index === activeIndex ? 'opacity-100' : 'opacity-0'"
-      muted
-      playsinline
-      :autoplay="index === activeIndex && !switching"
-      :preload="preloads[index]"
-      @timeupdate="onTimeUpdate(index)"
-      @ended="onEnded(index)"
-    >
-        <source :src="theme.src" type="video/mp4" @error="onError(index)" />
+        :ref="(el) => setVideoRef(index, el)"
+        class="absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ease-out"
+        :class="index === activeIndex ? 'opacity-100' : 'opacity-0'"
+        muted
+        playsinline
+        :autoplay="index === activeIndex && !switching"
+        :preload="preloads[index]"
+        @error="onError(index)"
+        @timeupdate="onTimeUpdate(index)"
+        @ended="onEnded(index)"
+      >
+        <source :src="theme.src" type="video/mp4" />
       </video>
     </template>
     <!-- 渐变蒙层：保证前景文字可读 -->
@@ -86,37 +87,44 @@ function waitForReady(video: HTMLVideoElement): Promise<void> {
 }
 
 /**
- * play() 带 4 秒超时上限。真实浏览器中 play() 总是返回 Promise；
- * 其他环境（如测试）可能返回非 Promise 或抛错，此时立即结束等待。
+ * play() 带 4 秒超时上限；返回是否真正开始播放（收到 playing 事件）。
+ * 非浏览器环境（如测试）play() 可能返回非 Promise 或抛错，此时按未播放处理。
  */
-function playWithTimeout(video: HTMLVideoElement): Promise<void> {
+function playWithTimeout(video: HTMLVideoElement): Promise<boolean> {
   return new Promise((resolve) => {
     let settled = false
-    const finish = () => {
+    const finish = (started: boolean) => {
       if (settled) return
       settled = true
-      video.removeEventListener('playing', finish)
-      resolve()
+      video.removeEventListener('playing', onPlaying)
+      resolve(started)
     }
-    const timeout = window.setTimeout(finish, 4000)
-    video.addEventListener('playing', () => {
+    const onPlaying = () => {
       window.clearTimeout(timeout)
-      finish()
-    }, { once: true })
+      finish(true)
+    }
+    const timeout = window.setTimeout(() => finish(false), 4000)
+    video.addEventListener('playing', onPlaying, { once: true })
     try {
       const result = video.play() as unknown
       if (result instanceof Promise) {
-        result.then(finish, () => {
-          window.clearTimeout(timeout)
-          finish()
-        })
+        result.then(
+          () => {
+            // play() resolve 不保证已出帧；仍等 playing 事件，最多到超时
+            window.setTimeout(() => finish(false), 0)
+          },
+          () => {
+            window.clearTimeout(timeout)
+            finish(false)
+          }
+        )
       } else {
         window.clearTimeout(timeout)
-        finish()
+        finish(false)
       }
     } catch {
       window.clearTimeout(timeout)
-      finish()
+      finish(false)
     }
   })
 }
@@ -142,7 +150,14 @@ async function selectTheme(index: number) {
   try {
     if (video.readyState < 3) video.load()
     await waitForReady(video)
-    await playWithTimeout(video)
+    const started = await playWithTimeout(video)
+    if (!started) {
+      // 播放未真正开始：不切换画面（保持旧主题可见），标记失败并尝试下一个
+      markFailed(index)
+      const next = nextAvailableIndex(index === activeIndex.value ? index : activeIndex.value)
+      if (next >= 0 && next !== index && next !== activeIndex.value) void selectTheme(next)
+      return
+    }
     const previous = activeIndex.value
     activeIndex.value = index
     if (previous !== index) pauseAndReset(videoRefs.value[previous])
@@ -180,12 +195,19 @@ function onEnded(index: number) {
 }
 
 function onError(index: number) {
-  failedIndexes.value = new Set(failedIndexes.value).add(index)
-  pauseAndReset(videoRefs.value[index])
+  markFailed(index)
   if (index === activeIndex.value) {
     const next = nextAvailableIndex(index)
     if (next >= 0) void selectTheme(next)
   }
+}
+
+function markFailed(index: number) {
+  // 用不可变 Set 重建以触发响应式；从 index 起原子合并，避免并发覆盖
+  const next = new Set(failedIndexes.value)
+  next.add(index)
+  failedIndexes.value = next
+  pauseAndReset(videoRefs.value[index])
 }
 
 onMounted(() => {

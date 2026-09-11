@@ -219,9 +219,21 @@
             </button>
           </form>
 
-          <!-- 注册表单 -->
+          <!-- 注册表单;实例启用图形验证码(Turnstile/腾讯)时主页无法承载验证流程,引导到完整注册页 -->
+          <div v-if="homeAuthMode === 'register' && captchaEnabled" class="space-y-4 text-center">
+            <p class="text-sm leading-relaxed text-white/70">
+              {{ t('home.hero.captchaRedirectHint') }}
+            </p>
+            <router-link
+              to="/register"
+              class="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-amber-500/90 px-6 text-sm font-semibold text-black shadow-lg transition-all hover:bg-amber-400 hover:shadow-[0_0_28px_rgba(245,158,11,0.45)]"
+            >
+              {{ t('auth.signUp') }}
+            </router-link>
+          </div>
+
           <form
-            v-else
+            v-else-if="homeAuthMode === 'register'"
             class="space-y-3 text-left"
             @submit.prevent="handleHomeRegister"
           >
@@ -438,6 +450,13 @@ const registerError = ref('')
 const registrationEnabled = computed(() => appStore.cachedPublicSettings?.registration_enabled !== false)
 const invitationCodeEnabled = computed(() => appStore.cachedPublicSettings?.invitation_code_enabled === true)
 const emailVerifyEnabled = computed(() => appStore.cachedPublicSettings?.email_verify_enabled === true)
+// 图形验证码开启时主页注册无法获取 proof,注册流程引导到完整注册页
+const captchaEnabled = computed(
+  () =>
+    appStore.cachedPublicSettings?.turnstile_enabled === true ||
+    appStore.cachedPublicSettings?.tencent_captcha_enabled === true ||
+    appStore.cachedPublicSettings?.aliyun_captcha_enabled === true,
+)
 
 // 邮箱验证码
 const registerVerifyCode = ref('')

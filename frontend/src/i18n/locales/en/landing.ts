@@ -19,6 +19,7 @@ export default {
       badge: 'Unified Model Gateway',
       description: 'One API key for Claude, GPT, Gemini and more. Subscription quota distribution without juggling multiple accounts.',
       themeLabel: 'Switch background theme',
+      captchaRedirectHint: 'This site has captcha enabled; registration requires completing the challenge. Please register on the full sign-up page:',
       themes: {
         morning: 'Morning',
         water: 'Water',

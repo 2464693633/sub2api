@@ -77,6 +77,19 @@ func (s *AccountHealthService) RecordFailure(ctx context.Context, accountID int6
 	_, _ = pipe.Exec(ctx)
 }
 
+// snapshotTimeout 限制调度热路径上健康快照的最长等待；超时返回空快照（退回原有排序）。
+const snapshotTimeout = 50 * time.Millisecond
+
+// SnapshotWithTimeout 在独立超时 context 下批量读取健康快照，绝不阻塞调度。
+func (s *AccountHealthService) SnapshotWithTimeout(ctx context.Context, accountIDs []int64) map[int64]AccountHealthSnapshot {
+	if !s.Available() || len(accountIDs) == 0 {
+		return nil
+	}
+	snapCtx, cancel := context.WithTimeout(ctx, snapshotTimeout)
+	defer cancel()
+	return s.Snapshot(snapCtx, accountIDs)
+}
+
 // Snapshot 批量读取账号健康度；读取失败的账号不出现在返回值中。
 func (s *AccountHealthService) Snapshot(ctx context.Context, accountIDs []int64) map[int64]AccountHealthSnapshot {
 	if !s.Available() || len(accountIDs) == 0 {

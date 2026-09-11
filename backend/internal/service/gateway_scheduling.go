@@ -836,12 +836,69 @@ func (s *GatewayService) RecordAccountFailure(ctx context.Context, accountID int
 	s.accountHealth.RecordFailure(ctx, accountID)
 }
 
-// GetAccountsHealthSnapshot 批量读取账号健康度快照。
+// GetAccountsHealthSnapshot 批量读取账号健康度快照（带超时保护，绝不阻塞调度热路径）。
 func (s *GatewayService) GetAccountsHealthSnapshot(ctx context.Context, accountIDs []int64) map[int64]AccountHealthSnapshot {
 	if s == nil || s.accountHealth == nil {
 		return nil
 	}
-	return s.accountHealth.Snapshot(ctx, accountIDs)
+	return s.accountHealth.SnapshotWithTimeout(ctx, accountIDs)
+}
+
+// healthSnapshotsForAccounts 供调度循环使用：健康排序关闭或无后端时返回空表（退回 LRU 语义）。
+func (s *GatewayService) healthSnapshotsForAccounts(ctx context.Context, accounts []Account) map[int64]AccountHealthSnapshot {
+	if s == nil || s.accountHealth == nil || !s.schedulingConfig().HealthSortEnabled || len(accounts) == 0 {
+		return nil
+	}
+	ids := make([]int64, 0, len(accounts))
+	for i := range accounts {
+		ids = append(ids, accounts[i].ID)
+	}
+	return s.accountHealth.SnapshotWithTimeout(ctx, ids)
+}
+
+// compareAccountHealth 比较两个账号的健康度，返回 -1 表示 a 优于 b。
+// 排序键：失败桶（0=有样本且无失败 1=无数据 2=有失败）→ 首字 EWMA 升序。
+// 双方无数据或键完全相同时返回 0，由调用方退回 LRU 比较。
+func compareAccountHealth(a, b AccountHealthSnapshot) int {
+	bucket := func(s AccountHealthSnapshot) int {
+		switch {
+		case s.Failed > 0:
+			return 2
+		case s.OK > 0:
+			return 0
+		default:
+			return 1
+		}
+	}
+	ba, bb := bucket(a), bucket(b)
+	if ba != bb {
+		if ba < bb {
+			return -1
+		}
+		return 1
+	}
+	ftKey := func(s AccountHealthSnapshot) (float64, bool) {
+		if s.AvgFirstTokenMs != nil && *s.AvgFirstTokenMs > 0 {
+			return float64(*s.AvgFirstTokenMs), true
+		}
+		return 0, false
+	}
+	fa, aOK := ftKey(a)
+	fb, bOK := ftKey(b)
+	switch {
+	case aOK && !bOK:
+		return -1
+	case !aOK && bOK:
+		return 1
+	case aOK && bOK:
+		if fa < fb {
+			return -1
+		}
+		if fa > fb {
+			return 1
+		}
+	}
+	return 0
 }
 
 func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
@@ -1907,7 +1964,7 @@ func (s *GatewayService) applyHealthOrderingWithinPriority(accounts []*Account) 
 	for _, acc := range accounts {
 		ids = append(ids, acc.ID)
 	}
-	snapshots := s.accountHealth.Snapshot(context.Background(), ids)
+	snapshots := s.accountHealth.SnapshotWithTimeout(context.Background(), ids)
 	if len(snapshots) == 0 {
 		return
 	}
@@ -2452,7 +2509,11 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 	// 3. 按优先级+最久未用选择（考虑模型支持和混合调度）
 	// needsUpstreamCheck 仅在主选择循环中使用；粘性会话命中时跳过此检查。
 	needsUpstreamCheck := s.needsUpstreamChannelRestrictionCheck(ctx, groupID)
+	// 健康度快照：同优先级内先比健康（无失败优先、首字 EWMA 升序），再退回 LRU。
+	// 快照带 50ms 超时，Redis 抖动时返回空表，比较退化为原有 LRU 行为。
+	healthSnapshots := s.healthSnapshotsForAccounts(ctx, accounts)
 	var selected *Account
+	var selectedHealth *AccountHealthSnapshot
 	for i := range accounts {
 		acc := &accounts[i]
 		if _, excluded := excludedIDs[acc.ID]; excluded {
@@ -2494,25 +2555,39 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 		if !s.isAccountSchedulableForRPM(ctx, acc, false) {
 			continue
 		}
+		accHealth := healthSnapshots[acc.ID]
 		if selected == nil {
 			selected = acc
+			selectedHealth = &accHealth
 			continue
 		}
 		if acc.Priority < selected.Priority {
 			selected = acc
+			selectedHealth = &accHealth
 		} else if acc.Priority == selected.Priority {
+			// 同优先级：先比健康度（无失败 > 无数据 > 有失败；同桶按首字 EWMA 升序）
+			if cmp := compareAccountHealth(accHealth, *selectedHealth); cmp < 0 {
+				selected = acc
+				selectedHealth = &accHealth
+				continue
+			} else if cmp > 0 {
+				continue
+			}
 			switch {
 			case acc.LastUsedAt == nil && selected.LastUsedAt != nil:
 				selected = acc
+				selectedHealth = &accHealth
 			case acc.LastUsedAt != nil && selected.LastUsedAt == nil:
 				// keep selected (never used is preferred)
 			case acc.LastUsedAt == nil && selected.LastUsedAt == nil:
 				if preferOAuth && acc.Platform == PlatformGemini && selected.Platform == PlatformGemini && acc.Type != selected.Type && acc.Type == AccountTypeOAuth {
 					selected = acc
+					selectedHealth = &accHealth
 				}
 			default:
 				if acc.LastUsedAt.Before(*selected.LastUsedAt) {
 					selected = acc
+					selectedHealth = &accHealth
 				}
 			}
 		}

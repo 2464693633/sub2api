@@ -19,6 +19,7 @@ export default {
       badge: '统一模型网关',
       description: '一个 API 密钥，畅用 Claude、GPT、Gemini 等主流模型。订阅额度统一分发，无需管理多个账号。',
       themeLabel: '切换背景主题',
+      captchaRedirectHint: '当前站点已启用安全验证，注册需要完成图形验证码。请在完整注册页完成注册：',
       themes: {
         morning: '晨光',
         water: '静水',

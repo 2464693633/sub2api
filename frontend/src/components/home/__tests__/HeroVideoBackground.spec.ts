@@ -13,7 +13,14 @@ const themes = [
 /** jsdom 未实现媒体播放；在原型上替换属性与方法，所有 <video> 同时生效 */
 function stubMediaElement(overrides: { currentTime?: number; duration?: number } = {}) {
   const proto = HTMLMediaElement.prototype
-  vi.spyOn(proto, 'play').mockResolvedValue(undefined)
+  vi.spyOn(proto, 'play').mockImplementation(function (this: HTMLVideoElement) {
+    // 模拟真实浏览器：play() resolve 后异步触发 playing 事件
+    const el = this
+    Promise.resolve().then(() => {
+      el.dispatchEvent(new Event('playing'))
+    })
+    return Promise.resolve()
+  })
   vi.spyOn(proto, 'pause').mockImplementation(() => {})
   vi.spyOn(proto, 'load').mockImplementation(() => {})
   vi.spyOn(proto, 'readyState', 'get').mockReturnValue(4)
@@ -84,10 +91,31 @@ describe('HeroVideoBackground', () => {
     expect(wrapper.vm.isThemeFailed(0)).toBe(false)
   })
 
+  it('keeps the current theme visible when the next theme fails to play', async () => {
+    // 拦截主题 b 的 play:不触发 playing(模拟播放失败/超时)
+    const proto = HTMLMediaElement.prototype
+    const origPlay = proto.play
+    vi.spyOn(proto, 'play').mockImplementation(function (this: HTMLVideoElement) {
+      const src = this.querySelector('source')?.getAttribute('src')
+      if (src === themes[1].src) {
+        return Promise.reject(new DOMException('abort', 'AbortError'))
+      }
+      return origPlay.call(this)
+    })
+    const wrapper = mountHero()
+    await wrapper.vm.selectTheme(1)
+    await flushPromises()
+    // 主题 b 播放失败:activeIndex 不变,主题 b 被标记失败
+    expect(wrapper.emitted('update:activeIndex')).toBeUndefined()
+    expect(wrapper.vm.isThemeFailed(1)).toBe(true)
+    // 原主题 a 仍然可见
+    expect(wrapper.findAll('video')[0].classes()).toContain('opacity-100')
+  })
+
   it('falls back to the static image when every theme fails', async () => {
     const wrapper = mountHero()
-    for (const source of wrapper.findAll('source')) {
-      await source.trigger('error')
+    for (const video of wrapper.findAll('video')) {
+      await video.trigger('error')
     }
     await flushPromises()
     expect(wrapper.find('img').attributes('src')).toBe(HOME_HERO_FALLBACK_IMAGE)
@@ -96,7 +124,7 @@ describe('HeroVideoBackground', () => {
 
   it('skips a failed theme when advancing', async () => {
     const wrapper = mountHero()
-    await wrapper.findAll('source')[1].trigger('error')
+    await wrapper.findAll('video')[1].trigger('error')
     await wrapper.findAll('video')[0].trigger('ended')
     await flushPromises()
     expect(wrapper.emitted('update:activeIndex')?.at(-1)).toEqual([2])
