@@ -106,7 +106,7 @@ export default {
     addFailoverGroup: '添加分组',
     noGroupsSelected: '尚未选择分组',
     noCompatibleGroups: '没有可添加的同平台分组',
-    samePlatformGroupsHint: '请求按顺序使用同平台分组；切换到余额分组时将按实际用量扣除账户余额。',
+    samePlatformGroupsHint: '故障转移链：请求按顺序优先使用靠前的分组；分组内无可用账号或上游故障时自动切换到下一个分组，恢复后不再自动切回。须为同平台分组；订阅分组扣订阅额度，余额分组按实际用量扣账户余额。',
     compositeSingleGroupHint: 'Composite 分组当前仅支持单个绑定。',
     selectedGroupCount: '{count}/{max} 个分组',
     groupLimitReached: '最多选择 {max} 个分组',

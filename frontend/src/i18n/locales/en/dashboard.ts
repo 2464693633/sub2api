@@ -106,7 +106,7 @@ export default {
     addFailoverGroup: 'Add group',
     noGroupsSelected: 'No groups selected',
     noCompatibleGroups: 'No compatible groups available',
-    samePlatformGroupsHint: 'Requests use same-platform groups in order; balance groups charge the account when selected.',
+    samePlatformGroupsHint: 'Failover chain: requests prefer the topmost group in order; if a group has no available account or hits upstream failures, the next group is tried automatically, with no auto-fallback after recovery. Groups must share the same platform; subscription groups consume subscription quota, while balance groups charge actual usage to the account.',
     compositeSingleGroupHint: 'Composite groups currently support a single binding only.',
     selectedGroupCount: '{count}/{max} groups',
     groupLimitReached: 'Up to {max} groups',
