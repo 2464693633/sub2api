@@ -15,6 +15,7 @@ function stubMediaElement(overrides: { currentTime?: number; duration?: number }
   const proto = HTMLMediaElement.prototype
   vi.spyOn(proto, 'play').mockImplementation(function (this: HTMLVideoElement) {
     // 模拟真实浏览器：play() resolve 后异步触发 playing 事件
+    // eslint-disable-next-line @typescript-eslint/no-this-alias -- 异步回调里需要 this 引用派发事件
     const el = this
     Promise.resolve().then(() => {
       el.dispatchEvent(new Event('playing'))
