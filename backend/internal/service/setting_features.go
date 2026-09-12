@@ -18,10 +18,10 @@ import (
 func (s *SettingService) IsRegistrationEnabled(ctx context.Context) bool {
 	value, err := s.settingRepo.GetValue(ctx, SettingKeyRegistrationEnabled)
 	if err != nil {
-		// 安全默认：如果设置不存在或查询出错，默认关闭注册
-		return false
+		// Lyozc fork 默认：设置不存在时开启注册（公开服务定位）；显式 "false" 才关闭
+		return true
 	}
-	return value == "true"
+	return value != "false"
 }
 
 // IsEmailVerifyEnabled 检查是否开启邮件验证
