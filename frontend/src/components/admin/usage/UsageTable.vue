@@ -217,7 +217,6 @@
               >x2</span>
               <!-- Cost Detail Tooltip -->
               <div
-                v-if="showAccountBilling"
                 data-testid="cost-tooltip-trigger"
                 class="group relative"
                 @mouseenter="showTooltip($event, row)"
