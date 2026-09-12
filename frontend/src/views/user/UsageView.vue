@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :show-standard-cost="false" />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -662,7 +662,6 @@ const exportToCSV = async () => {
       'Cache Creation Tokens',
       'Rate Multiplier',
       'Billed Cost',
-      'Original Cost',
       'First Token (ms)',
       'Duration (ms)',
     ]
@@ -681,7 +680,6 @@ const exportToCSV = async () => {
       log.cache_creation_tokens,
       log.rate_multiplier,
       log.actual_cost.toFixed(8),
-      log.total_cost.toFixed(8),
       log.first_token_ms ?? '',
       log.duration_ms ?? '',
     ].map(escapeCSVValue))

@@ -72,7 +72,7 @@
             <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
             <span> · </span>
           </template>
-          <span>
+          <span v-if="showStandardCost">
             {{ t('usage.standardCost') }}
             <span :class="{ 'line-through': strikeStandardCost }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
           </span>
@@ -99,9 +99,11 @@ const props = withDefaults(defineProps<{
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
   showAccountCost?: boolean
   strikeStandardCost?: boolean
+  showStandardCost?: boolean
 }>(), {
   showAccountCost: true,
   strikeStandardCost: false,
+  showStandardCost: true,
 })
 
 const { t } = useI18n()

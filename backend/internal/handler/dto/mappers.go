@@ -781,6 +781,8 @@ func UsageLogFromService(l *service.UsageLog) *UsageLog {
 	u.CacheReadCost = l.CacheReadCost * multipliers.CacheRead
 	u.ImageInputCost = l.ImageInputCost * multipliers.Input
 	u.ImageOutputCost = l.ImageOutputCost * multipliers.Output
+	// 用户侧不暴露税前成本:total_cost 与实扣同口径,避免倍率被反推
+	u.TotalCost = u.ActualCost
 	return &u
 }
 

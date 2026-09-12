@@ -419,6 +419,8 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 	stats.TotalAccountCost = nil
 	stats.UpstreamEndpoints = nil
 	stats.EndpointPaths = nil
+	// 用户侧不暴露税前成本:总消费与实扣同口径
+	stats.TotalCost = stats.TotalActualCost
 
 	response.Success(c, stats)
 }
