@@ -771,6 +771,16 @@ func UsageLogFromService(l *service.UsageLog) *UsageLog {
 		return nil
 	}
 	u := usageLogFromServiceUser(l)
+	// 用户侧分项费用按计费口径返回:分项费用 × 当次倍率快照,与计费 Token
+	// (billable)同口径,保证"计费 Token × 单价 = 分项费用"自洽,且不暴露
+	// 原始用量与倍率本身。历史行无倍率快照时按 1.0 处理,数值不变。
+	multipliers := l.EffectiveTokenMultipliers()
+	u.InputCost = l.InputCost * multipliers.Input
+	u.OutputCost = l.OutputCost * multipliers.Output
+	u.CacheCreationCost = l.CacheCreationCost * multipliers.CacheCreation
+	u.CacheReadCost = l.CacheReadCost * multipliers.CacheRead
+	u.ImageInputCost = l.ImageInputCost * multipliers.Input
+	u.ImageOutputCost = l.ImageOutputCost * multipliers.Output
 	return &u
 }
 
