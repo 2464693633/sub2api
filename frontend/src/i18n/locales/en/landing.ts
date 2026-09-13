@@ -37,6 +37,8 @@ export default {
     copied: 'Copied to clipboard',
     copyFailed: 'Copy failed, please download instead',
     restored: 'Restored to current batch',
+    zoomIn: 'Zoom in',
+    close: 'Close',
     clearAllConfirm: 'Clear all local history? This cannot be undone',
     generateN: 'Generate {n} images',
     generating: 'Generating…',

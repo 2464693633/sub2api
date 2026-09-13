@@ -1,6 +1,6 @@
 <template>
   <AppLayout>
-    <div class="mx-auto max-w-[1600px] space-y-4 p-4 text-gray-900 dark:text-gray-100">
+    <div class="flex w-full flex-col gap-4 text-gray-900 dark:text-gray-100">
     <!-- 页头 -->
     <div class="flex flex-wrap items-center justify-between gap-3">
       <div>
@@ -23,9 +23,9 @@
       <router-link to="/user/keys" class="ml-1 text-primary-500 hover:underline">{{ t('imageStudio.goCreateKey') }}</router-link>
     </div>
 
-    <div v-else class="grid grid-cols-1 gap-4 xl:grid-cols-[270px_minmax(0,1fr)_330px]">
+    <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[270px_minmax(0,1fr)_330px]">
       <!-- 左列:参数 -->
-      <div class="card space-y-4 self-start p-4">
+      <div class="card space-y-4 p-4 xl:h-full xl:overflow-y-auto">
         <!-- 模式 -->
         <div class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-800">
           <button
@@ -135,16 +135,12 @@
           </div>
         </div>
 
-        <!-- 预计费用 -->
-        <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-800/60">
-          <span class="text-xs text-gray-500">{{ t('imageStudio.estimate') }}</span>
-          <span class="text-sm font-semibold text-amber-500">${{ estimate.toFixed(2) }}</span>
-        </div>
+        <!-- 预留底部说明 -->
         <p class="text-xs text-gray-400">{{ t('imageStudio.feeNote') }}</p>
       </div>
 
       <!-- 中列:提示词框 + 当前批次 -->
-      <div class="space-y-4">
+      <div class="flex min-h-0 flex-col gap-4">
         <div class="card p-4">
           <!-- 提示词框 tabs -->
           <div class="mb-2 flex flex-wrap items-center gap-1.5">
@@ -229,7 +225,7 @@
         </div>
 
         <!-- 当前批次 -->
-        <div class="card p-4">
+        <div class="card flex min-h-0 flex-col p-4 xl:flex-1">
           <div class="mb-3 flex items-center justify-between">
             <span class="text-sm font-semibold">{{ t('imageStudio.currentBatch') }}</span>
             <button
@@ -239,13 +235,19 @@
               @click="clearFailed"
             >{{ t('imageStudio.clearFailed') }}</button>
           </div>
-          <div v-if="batch.length === 0" class="flex min-h-64 items-center justify-center text-sm text-gray-400">
-            {{ t('imageStudio.emptyResult') }}
-          </div>
-          <div v-else class="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
-              <template v-if="slot.status === 'done' && slot.url">
-                <img :src="slot.url" class="aspect-square w-full object-cover" :alt="slot.prompt.slice(0, 30)" />
+          <div class="min-h-0 flex-1 xl:overflow-y-auto">
+            <div v-if="batch.length === 0" class="flex min-h-64 items-center justify-center text-sm text-gray-400">
+              {{ t('imageStudio.emptyResult') }}
+            </div>
+            <div v-else class="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
+                <template v-if="slot.status === 'done' && slot.url">
+                  <img
+                    :src="slot.url"
+                    class="aspect-square w-full cursor-zoom-in object-cover"
+                    :alt="slot.prompt.slice(0, 30)"
+                    @click="openViewer(slot.url!, slot.prompt)"
+                  />
                 <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <a :href="slot.url" :download="`image-${slot.slotId}.${outputFormat}`" class="text-[10px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
                   <button type="button" class="text-[10px] text-white hover:underline" @click="copySlotImage(slot.slotId)">{{ t('imageStudio.copyImage') }}</button>
@@ -269,13 +271,14 @@
                 </div>
                 <span class="absolute bottom-1 left-1/2 -translate-x-1/2 rounded bg-black/50 px-1.5 text-[10px] text-white">{{ slot.status === 'running' ? t('imageStudio.generating') : t('imageStudio.queued') }}</span>
               </template>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 右列:本地历史 -->
-      <div class="card space-y-3 self-start p-4">
+      <div class="card flex flex-col space-y-3 p-4 xl:h-full xl:min-h-0">
         <div class="flex items-center justify-between">
           <span class="text-sm font-semibold">{{ t('imageStudio.history') }}</span>
           <span class="text-xs text-gray-400">{{ history.length }}</span>
@@ -304,7 +307,7 @@
         <div v-else class="text-[11px] text-gray-400">{{ t('imageStudio.starredEmpty') }}</div>
 
         <!-- 历史列表 -->
-        <div class="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+        <div class="max-h-[420px] min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 xl:max-h-none">
           <div v-if="filteredHistory.length === 0" class="py-6 text-center text-xs text-gray-400">
             {{ t('imageStudio.historyEmpty') }}
           </div>
@@ -323,6 +326,13 @@
               </div>
             </div>
             <div class="flex shrink-0 flex-col items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+              <button
+                v-if="objectUrlFor(item)"
+                type="button"
+                class="text-xs text-gray-400 hover:text-primary-400"
+                :title="t('imageStudio.zoomIn')"
+                @click.stop="openViewer(objectUrlFor(item), item.prompt)"
+              >⤢</button>
               <button type="button" class="text-xs" :class="item.starred ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'" :title="item.starred ? t('imageStudio.unstar') : t('imageStudio.star')" @click.stop="toggleHistoryStar(item)">★</button>
               <button type="button" class="text-xs text-gray-400 hover:text-red-500" @click.stop="deleteHistory(item.id)">✕</button>
             </div>
@@ -350,6 +360,29 @@
           </label>
           <button type="button" class="rounded-lg border border-red-200 px-2 py-1.5 text-xs text-red-500 transition-colors hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20" @click="clearAllHistory">{{ t('imageStudio.clearAll') }}</button>
         </div>
+      </div>
+    </div>
+
+    <!-- 图片放大预览 -->
+    <div
+      v-if="viewer"
+      class="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6"
+      @click="closeViewer"
+    >
+      <button
+        type="button"
+        class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg text-white transition-colors hover:bg-white/20"
+        :title="t('common.close')"
+        @click="closeViewer"
+      >✕</button>
+      <img
+        :src="viewer.url"
+        class="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
+        :alt="viewer.prompt.slice(0, 50)"
+        @click.stop
+      />
+      <div v-if="viewer.prompt" class="absolute inset-x-0 bottom-5 mx-auto max-w-[80vw] truncate rounded-lg bg-black/60 px-4 py-2 text-center text-xs text-white/90">
+        {{ viewer.prompt }}
       </div>
     </div>
     </div>
@@ -395,13 +428,6 @@ const MAX_PROMPT_BOXES = 8
 const IMAGE_MODEL_PATTERN = /(image|dall|flux|seedream|banana|diffusion)/i
 const FALLBACK_MODELS = ['gpt-image-2.5', 'gpt-image-2', 'gpt-image-1', 'dall-e-3']
 const CLARITY_BASE: Record<string, number> = { '1k': 1024, '2k': 2048, '4k': 4096 }
-const DEFAULT_UNIT: Record<string, number> = { '1k': 0.15, '2k': 0.35, '4k': 0.7 }
-const UNIT_ESTIMATE: Record<string, Record<string, number>> = {
-  'gpt-image-2.5': { '1k': 0.15, '2k': 0.35, '4k': 0.7 },
-  'gpt-image-2': { '1k': 0.12, '2k': 0.28, '4k': 0.55 },
-  'gpt-image-1': { '1k': 0.1, '2k': 0.22, '4k': 0.45 },
-  'dall-e-3': { '1k': 0.05, '2k': 0.08, '4k': 0.12 }
-}
 
 // ===== 类型 =====
 interface PromptBox { id: number; text: string; status: 'draft' | 'done' }
@@ -464,6 +490,15 @@ const objectUrlCache = new Map<number, string>()
 const storageUsed = ref(0)
 const storageQuota = ref(0)
 
+// ===== 图片放大预览 =====
+const viewer = ref<{ url: string; prompt: string } | null>(null)
+function openViewer(url: string, promptText: string) {
+  viewer.value = { url, prompt: promptText }
+}
+function closeViewer() {
+  viewer.value = null
+}
+
 const gatewayBase = computed(() => window.location.origin)
 const selectedKey = computed(() => keys.value.find(k => k.id === selectedKeyId.value) || null)
 
@@ -481,14 +516,6 @@ const computedSize = computed(() => {
   else width = Math.round(base * ratio)
   return `${width}x${height}`
 })
-
-function unitEstimate(): number {
-  for (const k of Object.keys(UNIT_ESTIMATE)) {
-    if (model.value.includes(k)) return UNIT_ESTIMATE[k][clarity.value] ?? DEFAULT_UNIT[clarity.value] ?? 0.15
-  }
-  return DEFAULT_UNIT[clarity.value] ?? 0.15
-}
-const estimate = computed(() => unitEstimate() * quantity.value)
 
 const filteredHistory = computed(() => {
   const kw = historySearch.value.trim().toLowerCase()
@@ -1033,13 +1060,19 @@ onMounted(() => {
   void loadHistory()
   updateStorageMeter()
   window.addEventListener('paste', onPaste)
+  window.addEventListener('keydown', onKeydown)
 })
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
+  window.removeEventListener('keydown', onKeydown)
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   clearRefItems()
   objectUrlCache.forEach(url => URL.revokeObjectURL(url))
   objectUrlCache.clear()
 })
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && viewer.value) closeViewer()
+}
 </script>
 

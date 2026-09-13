@@ -37,6 +37,8 @@ export default {
     copied: '已复制到剪贴板',
     copyFailed: '复制失败,请使用下载',
     restored: '已恢复到当前批次',
+    zoomIn: '放大预览',
+    close: '关闭',
     clearAllConfirm: '确定清空全部本地历史记录?此操作不可恢复',
     generateN: '开始生成 {n} 张',
     generating: '生成中…',
