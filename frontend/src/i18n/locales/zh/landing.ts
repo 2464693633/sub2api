@@ -9,6 +9,7 @@ export default {
     size: '画幅',
     quantity: '数量',
     prompt: '提示词',
+    refImage: '参考图',
     promptPlaceholder: '描述画面主体、环境、光线、构图与细节…',
     generate: '开始生成',
     generating: '生成中…',
@@ -19,7 +20,14 @@ export default {
     download: '下载',
     open: '查看原图',
     feeNote: '最终费用以使用记录为准',
-    feeNote2: '费用按实际生成结果计算'
+    feeNote2: '费用按实际生成结果计算',
+    modeText2Image: '文生图',
+    modeImage2Image: '图生图',
+    history: '本地历史',
+    historySearch: '搜索提示词或模型',
+    historyEmpty: '还没有本地生成记录',
+    historyNote: '历史保存在当前浏览器中,清理网站数据或更换设备可能丢失,请下载原图留存',
+    clearAll: '清空全部'
   },
   batchImageGuide: {
     title: '图片批量生成',

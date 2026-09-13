@@ -9,6 +9,7 @@ export default {
     size: 'Size',
     quantity: 'Quantity',
     prompt: 'Prompt',
+    refImage: 'Reference image',
     promptPlaceholder: 'Describe the subject, environment, lighting, composition and details…',
     generate: 'Generate',
     generating: 'Generating…',
@@ -19,7 +20,14 @@ export default {
     download: 'Download',
     open: 'Open full size',
     feeNote: 'Final fee is subject to usage records',
-    feeNote2: 'Fees are calculated on actual results'
+    feeNote2: 'Fees are calculated on actual results',
+    modeText2Image: 'Text to Image',
+    modeImage2Image: 'Image to Image',
+    history: 'Local history',
+    historySearch: 'Search prompts or models',
+    historyEmpty: 'No local generations yet',
+    historyNote: 'History is stored in this browser only. Clearing site data or switching devices may lose records. Download originals to keep them.',
+    clearAll: 'Clear all'
   },
   batchImageGuide: {
     title: 'Batch Image Generation',
