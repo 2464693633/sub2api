@@ -177,7 +177,7 @@
             <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.refImage') }} {{ refItems.length }}/8</label>
             <div class="flex flex-wrap gap-2">
               <div v-for="(ref, idx) in refItems" :key="ref.url" class="group relative h-20 w-20 overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600">
-                <img :src="ref.url" class="h-full w-full object-cover" alt="ref" />
+                <img :src="ref.url" class="h-full w-full object-cover" draggable="false" alt="ref" />
                 <button
                   type="button"
                   class="absolute right-0.5 top-0.5 hidden h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] text-white group-hover:flex"
@@ -235,6 +235,8 @@
                     class="aspect-square w-full cursor-zoom-in object-cover"
                     :alt="slot.prompt.slice(0, 30)"
                     @click="openViewer(slot.url!, slot.prompt)"
+                    @dragstart="onImageDragStart($event, slot.blob)"
+                    @dragend="draggingImage = null"
                   />
                 <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <a :href="slot.url" :download="`image-${slot.slotId}.${outputFormat}`" class="text-[10px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
@@ -283,7 +285,7 @@
           <div class="mb-1 text-xs text-gray-400">{{ t('imageStudio.starredBar') }}</div>
           <div class="flex gap-2 overflow-x-auto pb-1">
             <div v-for="item in starredItems" :key="`star-${item.id}`" class="group relative h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-amber-300 dark:border-amber-600">
-              <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-full w-full cursor-pointer object-cover" :alt="item.prompt.slice(0, 20)" @click="restoreHistory(item)" />
+              <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-full w-full cursor-pointer object-cover" draggable="false" :alt="item.prompt.slice(0, 20)" @click="restoreHistory(item)" />
               <div class="absolute inset-x-0 bottom-0 flex items-center justify-around bg-black/60 opacity-0 transition-opacity group-hover:opacity-100">
                 <a v-if="objectUrlFor(item)" :href="objectUrlFor(item)" :download="`lyozc-${item.ts}.${item.format}`" class="text-[10px] text-white" :title="t('imageStudio.download')">⬇</a>
                 <button type="button" class="text-[10px] text-amber-300" :title="t('imageStudio.unstar')" @click="toggleHistoryStar(item)">★</button>
@@ -305,7 +307,7 @@
             class="group flex cursor-pointer items-center gap-2 rounded-lg border border-gray-100 p-2 transition-colors hover:border-primary-300 dark:border-dark-700"
             @click="restoreHistory(item)"
           >
-            <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-12 w-12 shrink-0 rounded object-cover" :alt="item.prompt.slice(0, 20)" />
+            <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-12 w-12 shrink-0 rounded object-cover" draggable="false" :alt="item.prompt.slice(0, 20)" />
             <div v-else class="flex h-12 w-12 shrink-0 items-center justify-center rounded bg-red-50 text-[10px] text-red-400 dark:bg-red-900/20">{{ t('imageStudio.failedShort') }}</div>
             <div class="min-w-0 flex-1">
               <div class="truncate text-xs">{{ item.prompt || t('imageStudio.prompt') }}</div>
@@ -367,6 +369,7 @@
         :src="viewer.url"
         class="max-h-[90vh] max-w-[92vw] rounded-lg object-contain shadow-2xl"
         :alt="viewer.prompt.slice(0, 50)"
+        draggable="false"
         @click.stop
       />
       <div v-if="viewer.prompt" class="absolute inset-x-0 bottom-5 mx-auto max-w-[80vw] truncate rounded-lg bg-black/60 px-4 py-2 text-center text-xs text-white/90">
@@ -482,6 +485,39 @@ function openViewer(url: string, promptText: string) {
 }
 function closeViewer() {
   viewer.value = null
+}
+
+// ===== 拖图变参考图 =====
+// 原生拖拽会让浏览器按原图全尺寸栅格化拖拽幻影(大图直接卡死主线程),
+// 这里改用 96px 缩略图作幻影;松手时把图加入参考图,不再走浏览器默认行为。
+const draggingImage = ref<{ blob: Blob; name: string } | null>(null)
+function onImageDragStart(event: DragEvent, blob?: Blob) {
+  if (!blob || !event.dataTransfer) return
+  draggingImage.value = { blob, name: `ref-${Date.now()}.${outputFormat.value}` }
+  event.dataTransfer.effectAllowed = 'copy'
+  event.dataTransfer.setData('application/x-image-studio', '1')
+  const img = event.target as HTMLImageElement
+  if (img.naturalWidth > 0) {
+    const canvas = document.createElement('canvas')
+    canvas.width = 96
+    canvas.height = 96
+    const ctx = canvas.getContext('2d')
+    if (ctx) {
+      ctx.drawImage(img, 0, 0, 96, 96)
+      try { event.dataTransfer.setDragImage(canvas, 48, 48) } catch { /* 不支持时退回默认幻影 */ }
+    }
+  }
+}
+function onWindowDragOver(event: DragEvent) {
+  if (draggingImage.value) event.preventDefault()
+}
+function onWindowDrop(event: DragEvent) {
+  const dragging = draggingImage.value
+  if (!dragging) return
+  event.preventDefault()
+  draggingImage.value = null
+  addRefFiles([new File([dragging.blob], dragging.name, { type: dragging.blob.type || 'image/png' })])
+  appStore.showSuccess(t('imageStudio.refAdded'))
 }
 
 const gatewayBase = computed(() => window.location.origin)
@@ -1043,10 +1079,14 @@ onMounted(() => {
   updateStorageMeter()
   window.addEventListener('paste', onPaste)
   window.addEventListener('keydown', onKeydown)
+  window.addEventListener('dragover', onWindowDragOver)
+  window.addEventListener('drop', onWindowDrop)
 })
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
   window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('dragover', onWindowDragOver)
+  window.removeEventListener('drop', onWindowDrop)
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   clearRefItems()
   objectUrlCache.forEach(url => URL.revokeObjectURL(url))
