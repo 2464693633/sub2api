@@ -140,7 +140,7 @@ const baseImageRow = {
 }
 
 describe('admin UsageTable tooltip', () => {
-  it('hides raw upstream cost details in the user-facing table', () => {
+  it('hides raw upstream cost details in the user-facing table', async () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [baseImageRow],
@@ -158,7 +158,15 @@ describe('admin UsageTable tooltip', () => {
       },
     })
 
-    expect(wrapper.find('[data-testid="cost-tooltip-trigger"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="cost-tooltip-trigger"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="cost-tooltip-trigger"]').trigger('mouseenter')
+    await nextTick()
+
+    expect(wrapper.text()).toContain('User billed')
+    expect(wrapper.text()).not.toContain('Original')
+    expect(wrapper.text()).not.toContain('Account billed')
+    expect(wrapper.text()).not.toContain('Account rate')
   })
 
   beforeEach(() => {
