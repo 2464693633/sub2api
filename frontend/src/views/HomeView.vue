@@ -202,13 +202,23 @@
               :placeholder="t('auth.emailPlaceholder')"
               class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
             />
-            <input
-              v-model="loginPassword"
-              type="password"
-              autocomplete="current-password"
-              :placeholder="t('auth.passwordPlaceholder')"
-              class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
-            />
+            <div class="relative">
+              <input
+                v-model="loginPassword"
+                :type="showLoginPassword ? 'text' : 'password'"
+                autocomplete="current-password"
+                :placeholder="t('auth.passwordPlaceholder')"
+                class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 pr-10 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
+              />
+              <button
+                type="button"
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-white/50 transition-colors hover:text-white"
+                :aria-label="showLoginPassword ? t('auth.hidePassword') : t('auth.showPassword')"
+                @click="showLoginPassword = !showLoginPassword"
+              >
+                <Icon :name="showLoginPassword ? 'eyeOff' : 'eye'" size="sm" />
+              </button>
+            </div>
             <p v-if="loginError" class="text-sm text-red-300">{{ loginError }}</p>
             <button
               type="submit"
@@ -244,13 +254,23 @@
               :placeholder="t('auth.emailPlaceholder')"
               class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
             />
-            <input
-              v-model="registerPassword"
-              type="password"
-              autocomplete="new-password"
-              :placeholder="t('auth.createPasswordPlaceholder')"
-              class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
-            />
+            <div class="relative">
+              <input
+                v-model="registerPassword"
+                :type="showRegisterPassword ? 'text' : 'password'"
+                autocomplete="new-password"
+                :placeholder="t('auth.createPasswordPlaceholder')"
+                class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 pr-10 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
+              />
+              <button
+                type="button"
+                class="absolute inset-y-0 right-0 flex items-center px-3 text-white/50 transition-colors hover:text-white"
+                :aria-label="showRegisterPassword ? t('auth.hidePassword') : t('auth.showPassword')"
+                @click="showRegisterPassword = !showRegisterPassword"
+              >
+                <Icon :name="showRegisterPassword ? 'eyeOff' : 'eye'" size="sm" />
+              </button>
+            </div>
             <!-- 邮箱验证码(实例开启邮箱验证时显示) -->
             <div v-if="emailVerifyEnabled" class="flex gap-2">
               <input
@@ -439,6 +459,8 @@ const loginEmail = ref('')
 const loginPassword = ref('')
 const loginLoading = ref(false)
 const loginError = ref('')
+const showLoginPassword = ref(false)
+const showRegisterPassword = ref(false)
 
 // 主页内嵌注册(与登录同卡片切换;开启邮箱验证时增加验证码步骤)
 const homeAuthMode = ref<'login' | 'register'>('login')
