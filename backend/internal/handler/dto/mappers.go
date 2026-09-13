@@ -764,6 +764,30 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	}
 }
 
+// scaleUserCostsByBillableRatio 将用户侧分项费用按"计费 Token ÷ 原始 Token"的
+// 精确比例分摊:计费 Token 的整数取整误差摊入 token 数而非单价,保证
+// "计费 Token × 单价 = 分项费用"与费用明细、用户扣费严格自洽。
+// 历史行无计费快照时计费 = 原始,比例恒为 1,数值不变。
+func scaleUserCostsByBillableRatio(u *UsageLog, raw service.UsageTokens, billable service.UsageTokens) {
+	scale := func(rawTokens, billedTokens int, cost float64) float64 {
+		if rawTokens <= 0 {
+			// 无 token 样本(如合成记录)无从按比例分摊,费用原样保留
+			return cost
+		}
+		if billedTokens <= 0 {
+			// 计费 Token 为 0 = 该类未计费
+			return 0
+		}
+		return cost * float64(billedTokens) / float64(rawTokens)
+	}
+	u.InputCost = scale(raw.InputTokens, billable.InputTokens, u.InputCost)
+	u.OutputCost = scale(raw.OutputTokens, billable.OutputTokens, u.OutputCost)
+	u.CacheCreationCost = scale(raw.CacheCreationTokens, billable.CacheCreationTokens, u.CacheCreationCost)
+	u.CacheReadCost = scale(raw.CacheReadTokens, billable.CacheReadTokens, u.CacheReadCost)
+	u.ImageInputCost = scale(raw.ImageInputTokens, billable.ImageInputTokens, u.ImageInputCost)
+	u.ImageOutputCost = scale(raw.ImageOutputTokens, billable.ImageOutputTokens, u.ImageOutputCost)
+}
+
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
 // It excludes admin-only account/upstream internals while keeping user billing and request metadata.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
@@ -771,16 +795,18 @@ func UsageLogFromService(l *service.UsageLog) *UsageLog {
 		return nil
 	}
 	u := usageLogFromServiceUser(l)
-	// 用户侧分项费用按计费口径返回:分项费用 × 当次倍率快照,与计费 Token
-	// (billable)同口径,保证"计费 Token × 单价 = 分项费用"自洽,且不暴露
-	// 原始用量与倍率本身。历史行无倍率快照时按 1.0 处理,数值不变。
-	multipliers := l.EffectiveTokenMultipliers()
-	u.InputCost = l.InputCost * multipliers.Input
-	u.OutputCost = l.OutputCost * multipliers.Output
-	u.CacheCreationCost = l.CacheCreationCost * multipliers.CacheCreation
-	u.CacheReadCost = l.CacheReadCost * multipliers.CacheRead
-	u.ImageInputCost = l.ImageInputCost * multipliers.Input
-	u.ImageOutputCost = l.ImageOutputCost * multipliers.Output
+	// 用户侧分项费用按计费口径返回(见 scaleUserCostsByBillableRatio)。
+	rawTokens := service.UsageTokens{
+		InputTokens:           l.InputTokens,
+		OutputTokens:          l.OutputTokens,
+		CacheCreationTokens:   l.CacheCreationTokens,
+		CacheReadTokens:       l.CacheReadTokens,
+		CacheCreation5mTokens: l.CacheCreation5mTokens,
+		CacheCreation1hTokens: l.CacheCreation1hTokens,
+		ImageInputTokens:      l.ImageInputTokens,
+		ImageOutputTokens:     l.ImageOutputTokens,
+	}
+	scaleUserCostsByBillableRatio(&u, rawTokens, l.BillableTokens())
 	// 用户侧不暴露税前成本:total_cost 与实扣同口径,避免倍率被反推
 	u.TotalCost = u.ActualCost
 	return &u
