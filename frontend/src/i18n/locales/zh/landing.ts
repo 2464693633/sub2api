@@ -51,6 +51,8 @@ export default {
     generateN: '开始生成 {n} 张',
     generating: '生成中…',
     queued: '排队中',
+    elapsed: '已等待 {n} 秒',
+    genTimeHint: '通常 40 秒 ~ 3 分钟,取决于模型与上游',
     retry: '重试',
     generateFailed: '生成失败,请稍后重试或联系管理员',
     timeout: '生成超时,请稍后重试',

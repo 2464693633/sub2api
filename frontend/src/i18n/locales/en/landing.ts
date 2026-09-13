@@ -51,6 +51,8 @@ export default {
     generateN: 'Generate {n} images',
     generating: 'Generating…',
     queued: 'Queued',
+    elapsed: 'Waited {n}s',
+    genTimeHint: 'Usually 40s–3min, depending on model and upstream',
     retry: 'Retry',
     generateFailed: 'Generation failed, try again later or contact the admin',
     timeout: 'Generation timed out, please retry',

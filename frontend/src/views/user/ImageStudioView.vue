@@ -1,14 +1,6 @@
 <template>
   <AppLayout>
     <div class="flex w-full flex-col gap-4 text-gray-900 dark:text-gray-100">
-    <!-- 页头 -->
-    <div class="flex flex-wrap items-center justify-between gap-3">
-      <div>
-        <h1 class="text-xl font-bold">{{ t('imageStudio.title') }}</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('imageStudio.subtitle') }}</p>
-      </div>
-    </div>
-
     <div v-if="initError" class="card p-6 text-center text-sm text-red-500">{{ initError }}</div>
 
     <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]">
@@ -165,10 +157,10 @@
           <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
           <textarea
             v-model="prompt"
-            rows="4"
+            rows="8"
             maxlength="4000"
             :placeholder="t('imageStudio.promptPlaceholder')"
-            class="w-full rounded-lg border border-gray-300 bg-white p-3 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            class="w-full flex-1 min-h-[240px] resize-y rounded-lg border border-gray-300 bg-white p-3 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
           ></textarea>
           <!-- AI 优化提示词:选择密钥与文本模型,一键改写当前提示词 -->
           <div class="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
@@ -236,6 +228,7 @@
             </button>
           </div>
           <p v-if="mode === 'i2i' && refItems.length === 0" class="mt-1 text-[11px] text-amber-500">{{ t('imageStudio.refEmptyHint') }}</p>
+          <p v-if="generating" class="mt-2 text-center text-[11px] text-gray-400">{{ t('imageStudio.genTimeHint') }}</p>
       </div>
 
       <!-- 结果区:占满剩余宽度 -->
@@ -264,16 +257,18 @@
                     @pointerdown="onBatchImgPointerDown($event, slot)"
                     @click="onBatchImgClick(slot)"
                   />
-                <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
-                  <a :href="slot.url" :download="`image-${slot.slotId}.${outputFormat}`" class="text-[10px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
-                  <button type="button" class="text-[10px] text-white hover:underline" @click="copySlotImage(slot.slotId)">{{ t('imageStudio.copyImage') }}</button>
-                  <button type="button" class="text-[10px] text-primary-300 hover:underline" @click="setRefFromSlot(slot.slotId)">{{ t('imageStudio.setRefImage') }}</button>
-                  <button type="button" class="text-[10px] text-amber-300" :title="t('imageStudio.star')" @click="starSlot(slot.slotId, slot.blob)">★</button>
-                  <button type="button" class="text-[10px] text-white" @click="removeSlot(slot.slotId)">✕</button>
+                <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 bg-black/60 px-2 py-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <a :href="slot.url" :download="`image-${slot.slotId}.${outputFormat}`" class="text-xs text-white hover:underline">{{ t('imageStudio.download') }}</a>
+                  <button type="button" class="text-xs text-white hover:underline" @click="copySlotImage(slot.slotId)">{{ t('imageStudio.copyImage') }}</button>
+                  <button type="button" class="text-xs text-primary-300 hover:underline" @click="setRefFromSlot(slot.slotId)">{{ t('imageStudio.setRefImage') }}</button>
+                  <button type="button" class="text-xs text-amber-300" :title="t('imageStudio.star')" @click="starSlot(slot.slotId, slot.blob)">★</button>
+                  <button type="button" class="text-xs text-white" @click="removeSlot(slot.slotId)">✕</button>
                 </div>
                 <span class="absolute right-1 top-1 rounded bg-green-500/80 px-1 text-[10px] text-white">{{ t('imageStudio.doneTag') }}</span>
-                <span v-if="slot.actualSize" class="absolute bottom-1 left-1 rounded bg-black/50 px-1 text-[10px] text-white" :title="t('imageStudio.actualSizeNote')">{{ slot.actualSize }}</span>
-                <span v-if="slot.ms" class="absolute bottom-1 left-1 translate-x-[calc(100%+2px)] rounded bg-black/50 px-1 text-[10px] text-white">{{ (slot.ms / 1000).toFixed(1) }}s</span>
+                <div class="absolute bottom-1 left-1 flex items-center gap-1">
+                  <span v-if="slot.actualSize" class="rounded bg-black/50 px-1 text-[10px] text-white" :title="t('imageStudio.actualSizeNote')">{{ slot.actualSize }}</span>
+                  <span v-if="slot.ms" class="rounded bg-black/50 px-1 text-[10px] text-white">{{ (slot.ms / 1000).toFixed(1) }}s</span>
+                </div>
               </template>
               <template v-else-if="slot.status === 'failed'">
                 <div class="flex aspect-square w-full flex-col items-center justify-center gap-1 bg-red-50 p-2 text-center dark:bg-red-900/20">
@@ -283,8 +278,10 @@
                 <span class="absolute right-1 top-1 rounded bg-red-500/80 px-1 text-[10px] text-white">{{ t('imageStudio.failedShort') }}</span>
               </template>
               <template v-else>
-                <div class="flex aspect-square w-full items-center justify-center bg-gray-50 dark:bg-dark-800">
+                <div class="flex aspect-square w-full flex-col items-center justify-center gap-2 bg-gray-50 px-3 text-center dark:bg-dark-800">
                   <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600"></span>
+                  <span class="text-[11px] font-medium text-gray-500 dark:text-gray-300">{{ t('imageStudio.elapsed', { n: elapsed }) }}</span>
+                  <span class="text-[10px] leading-tight text-gray-400">{{ t('imageStudio.genTimeHint') }}</span>
                 </div>
                 <span class="absolute bottom-1 left-1/2 -translate-x-1/2 rounded bg-black/50 px-1.5 text-[10px] text-white">{{ slot.status === 'running' ? t('imageStudio.generating') : t('imageStudio.queued') }}</span>
               </template>
@@ -452,6 +449,21 @@ const RATIOS = [
 const QUANTITIES = [1, 4, 8, 16, 32, 50]
 const MAX_REFS = 8
 const MAX_PROMPT_BOXES = 8
+
+// 生成中已等待秒数(批量期间每秒跳动,配合预计时间提示)
+const elapsed = ref(0)
+let elapsedTimer: number | null = null
+function startElapsed() {
+  elapsed.value = 0
+  stopElapsed()
+  elapsedTimer = window.setInterval(() => { elapsed.value++ }, 1000)
+}
+function stopElapsed() {
+  if (elapsedTimer !== null) {
+    window.clearInterval(elapsedTimer)
+    elapsedTimer = null
+  }
+}
 const IMAGE_MODEL_PATTERN = /(image|dall|flux|seedream|banana|diffusion)/i
 const FALLBACK_MODELS = ['gpt-image-2.5', 'gpt-image-2', 'gpt-image-1', 'dall-e-3']
 const CLARITY_BASE: Record<string, number> = { '1k': 1024, '2k': 2048, '4k': 4096 }
@@ -1229,6 +1241,7 @@ async function generateBatch() {
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   batch.value = []
   generating.value = true
+  startElapsed()
   let okCount = 0
   try {
     for (let i = 0; i < n; i++) {
@@ -1256,6 +1269,7 @@ async function generateBatch() {
     }
   } finally {
     generating.value = false
+    stopElapsed()
     const done = batch.value.filter(s => s.status === 'done' && s.blob)
     if (done.length) {
       const item: HistoryItem = {
