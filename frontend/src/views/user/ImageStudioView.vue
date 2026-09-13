@@ -232,11 +232,11 @@
                 <template v-if="slot.status === 'done' && slot.url">
                   <img
                     :src="slot.url"
-                    class="aspect-square w-full cursor-zoom-in object-cover"
+                    class="aspect-square w-full cursor-zoom-in select-none object-cover"
                     :alt="slot.prompt.slice(0, 30)"
-                    @click="openViewer(slot.url!, slot.prompt)"
-                    @dragstart="onImageDragStart($event, slot.blob)"
-                    @dragend="draggingImage = null"
+                    draggable="false"
+                    @pointerdown="onBatchImgPointerDown($event, slot)"
+                    @click="onBatchImgClick(slot)"
                   />
                 <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 gap-y-0.5 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
                   <a :href="slot.url" :download="`image-${slot.slotId}.${outputFormat}`" class="text-[10px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
@@ -351,6 +351,15 @@
           <button type="button" class="rounded-lg border border-red-200 px-2 py-1.5 text-xs text-red-500 transition-colors hover:bg-red-50 dark:border-red-900/50 dark:hover:bg-red-900/20" @click="clearAllHistory">{{ t('imageStudio.clearAll') }}</button>
         </div>
       </div>
+    </div>
+
+    <!-- 拖拽跟随光标的小图 -->
+    <div
+      v-if="pointerDrag?.active"
+      class="pointer-events-none fixed z-[120] h-24 w-24 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg border-2 border-white/70 opacity-90 shadow-2xl"
+      :style="{ left: `${pointerDrag.x}px`, top: `${pointerDrag.y}px` }"
+    >
+      <img :src="pointerDrag.url" class="h-full w-full object-cover" alt="" draggable="false" />
     </div>
 
     <!-- 图片放大预览 -->
@@ -487,37 +496,66 @@ function closeViewer() {
   viewer.value = null
 }
 
-// ===== 拖图变参考图 =====
-// 原生拖拽会让浏览器按原图全尺寸栅格化拖拽幻影(大图直接卡死主线程),
-// 这里改用 96px 缩略图作幻影;松手时把图加入参考图,不再走浏览器默认行为。
-const draggingImage = ref<{ blob: Blob; name: string } | null>(null)
-function onImageDragStart(event: DragEvent, blob?: Blob) {
-  if (!blob || !event.dataTransfer) return
-  draggingImage.value = { blob, name: `ref-${Date.now()}.${outputFormat.value}` }
-  event.dataTransfer.effectAllowed = 'copy'
-  event.dataTransfer.setData('application/x-image-studio', '1')
-  const img = event.target as HTMLImageElement
-  if (img.naturalWidth > 0) {
-    const canvas = document.createElement('canvas')
-    canvas.width = 96
-    canvas.height = 96
-    const ctx = canvas.getContext('2d')
-    if (ctx) {
-      ctx.drawImage(img, 0, 0, 96, 96)
-      try { event.dataTransfer.setDragImage(canvas, 48, 48) } catch { /* 不支持时退回默认幻影 */ }
-    }
+// ===== 拖图变参考图(Pointer Events 自实现) =====
+// 原生 HTML5 拖拽会进入 OS 拖拽循环,实测在本页面主线程反复阻塞(采样最大 1s+),
+// 因此完全弃用原生拖拽:Pointer Events 跟踪手势,小图 ghost 跟随光标,
+// 松手落 anywhere 即加入参考图;移动距离小于阈值视为点击(打开灯箱)。
+interface PointerDragState {
+  blob: Blob
+  url: string
+  name: string
+  active: boolean
+  startX: number
+  startY: number
+  x: number
+  y: number
+}
+const POINTER_DRAG_THRESHOLD = 6
+const pointerDrag = ref<PointerDragState | null>(null)
+let suppressNextImgClick = false
+
+function onBatchImgPointerDown(event: PointerEvent, slot: BatchSlot) {
+  if (event.pointerType !== 'mouse' || event.button !== 0 || !slot.blob || !slot.url) return
+  suppressNextImgClick = false
+  pointerDrag.value = {
+    blob: slot.blob,
+    url: slot.url,
+    name: `ref-${Date.now()}.${outputFormat.value}`,
+    active: false,
+    startX: event.clientX,
+    startY: event.clientY,
+    x: event.clientX,
+    y: event.clientY
+  }
+  window.addEventListener('pointermove', onBatchImgPointerMove)
+  window.addEventListener('pointerup', onBatchImgPointerUp)
+}
+function onBatchImgPointerMove(event: PointerEvent) {
+  const d = pointerDrag.value
+  if (!d) return
+  d.x = event.clientX
+  d.y = event.clientY
+  if (!d.active && Math.hypot(event.clientX - d.startX, event.clientY - d.startY) > POINTER_DRAG_THRESHOLD) {
+    d.active = true
   }
 }
-function onWindowDragOver(event: DragEvent) {
-  if (draggingImage.value) event.preventDefault()
-}
-function onWindowDrop(event: DragEvent) {
-  const dragging = draggingImage.value
-  if (!dragging) return
-  event.preventDefault()
-  draggingImage.value = null
-  addRefFiles([new File([dragging.blob], dragging.name, { type: dragging.blob.type || 'image/png' })])
+function onBatchImgPointerUp() {
+  window.removeEventListener('pointermove', onBatchImgPointerMove)
+  window.removeEventListener('pointerup', onBatchImgPointerUp)
+  const d = pointerDrag.value
+  pointerDrag.value = null
+  if (!d) return
+  if (!d.active) return
+  suppressNextImgClick = true
+  addRefFiles([new File([d.blob], d.name, { type: d.blob.type || 'image/png' })])
   appStore.showSuccess(t('imageStudio.refAdded'))
+}
+function onBatchImgClick(slot: BatchSlot) {
+  if (suppressNextImgClick) {
+    suppressNextImgClick = false
+    return
+  }
+  if (slot.url) openViewer(slot.url, slot.prompt)
 }
 
 const gatewayBase = computed(() => window.location.origin)
@@ -1079,14 +1117,12 @@ onMounted(() => {
   updateStorageMeter()
   window.addEventListener('paste', onPaste)
   window.addEventListener('keydown', onKeydown)
-  window.addEventListener('dragover', onWindowDragOver)
-  window.addEventListener('drop', onWindowDrop)
 })
 onUnmounted(() => {
   window.removeEventListener('paste', onPaste)
   window.removeEventListener('keydown', onKeydown)
-  window.removeEventListener('dragover', onWindowDragOver)
-  window.removeEventListener('drop', onWindowDrop)
+  window.removeEventListener('pointermove', onBatchImgPointerMove)
+  window.removeEventListener('pointerup', onBatchImgPointerUp)
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   clearRefItems()
   objectUrlCache.forEach(url => URL.revokeObjectURL(url))
