@@ -1,4 +1,26 @@
 export default {
+  imageStudio: {
+    title: 'Image Studio',
+    subtitle: 'Describe, generate in batches, pay per image',
+    apiKey: 'API key',
+    noKeys: 'No active API key,',
+    goCreateKey: 'create one first',
+    model: 'Model',
+    size: 'Size',
+    quantity: 'Quantity',
+    prompt: 'Prompt',
+    promptPlaceholder: 'Describe the subject, environment, lighting, composition and details…',
+    generate: 'Generate',
+    generating: 'Generating…',
+    generatingWait: 'Generating, usually 10-60 seconds, keep this page open',
+    generateFailed: 'Generation failed, try again later or contact the admin',
+    timeout: 'Generation timed out, please retry',
+    emptyResult: 'Generated images will appear here',
+    download: 'Download',
+    open: 'Open full size',
+    feeNote: 'Final fee is subject to usage records',
+    feeNote2: 'Fees are calculated on actual results'
+  },
   batchImageGuide: {
     title: 'Batch Image Generation',
     description: 'Submit multiple prompts in one job and download the generated images when complete'

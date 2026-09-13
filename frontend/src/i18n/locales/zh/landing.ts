@@ -1,4 +1,26 @@
 export default {
+  imageStudio: {
+    title: '生图工作台',
+    subtitle: '输入描述,批量生成图片,按张计费',
+    apiKey: '使用密钥',
+    noKeys: '还没有可用密钥,',
+    goCreateKey: '去创建一个',
+    model: '模型',
+    size: '画幅',
+    quantity: '数量',
+    prompt: '提示词',
+    promptPlaceholder: '描述画面主体、环境、光线、构图与细节…',
+    generate: '开始生成',
+    generating: '生成中…',
+    generatingWait: '图片生成中,通常需要 10-60 秒,请勿关闭页面',
+    generateFailed: '生成失败,请稍后重试或联系管理员',
+    timeout: '生成超时,请稍后重试',
+    emptyResult: '生成结果会显示在这里',
+    download: '下载',
+    open: '查看原图',
+    feeNote: '最终费用以使用记录为准',
+    feeNote2: '费用按实际生成结果计算'
+  },
   batchImageGuide: {
     title: '图片批量生成',
     description: '一次提交多条提示词，任务完成后可统一下载图片结果'
