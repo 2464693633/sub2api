@@ -11,7 +11,7 @@
 
     <div v-if="initError" class="card p-6 text-center text-sm text-red-500">{{ initError }}</div>
 
-    <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[270px_minmax(0,1fr)_330px]">
+    <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]">
       <!-- 左列:参数 -->
       <div class="card space-y-4 p-4 xl:h-full xl:overflow-y-auto">
         <!-- 模式 -->
@@ -128,11 +128,10 @@
         <p class="text-xs text-gray-400">{{ t('imageStudio.feeNote') }}</p>
       </div>
 
-      <!-- 中列:提示词框 + 当前批次 -->
-      <div class="flex min-h-0 flex-col gap-4">
-        <div class="card p-4">
-          <!-- 提示词框 tabs -->
-          <div class="mb-2 flex flex-wrap items-center gap-1.5">
+      <!-- 提示词列 -->
+      <div class="card flex flex-col gap-3 p-4 xl:h-full xl:overflow-y-auto">
+        <!-- 提示词框 tabs -->
+        <div class="flex flex-wrap items-center gap-1.5">
             <span class="text-xs text-gray-400">{{ t('imageStudio.currentEdit') }}</span>
             <button
               v-for="(box, idx) in promptBoxes"
@@ -237,11 +236,11 @@
             </button>
           </div>
           <p v-if="mode === 'i2i' && refItems.length === 0" class="mt-1 text-[11px] text-amber-500">{{ t('imageStudio.refEmptyHint') }}</p>
-        </div>
+      </div>
 
-        <!-- 当前批次 -->
-        <div class="card flex min-h-0 flex-col p-4 xl:flex-1">
-          <div class="mb-3 flex items-center justify-between">
+      <!-- 结果区:占满剩余宽度 -->
+      <div class="card flex min-h-0 flex-col p-4 xl:h-full">
+        <div class="mb-3 flex shrink-0 items-center justify-between">
             <span class="text-sm font-semibold">{{ t('imageStudio.currentBatch') }}</span>
             <button
               v-if="batch.some(s => s.status === 'failed')"
@@ -250,16 +249,16 @@
               @click="clearFailed"
             >{{ t('imageStudio.clearFailed') }}</button>
           </div>
-          <div class="min-h-0 flex-1 xl:overflow-y-auto">
-            <div v-if="batch.length === 0" class="flex min-h-64 items-center justify-center text-sm text-gray-400">
+          <div class="flex min-h-0 flex-1 flex-col xl:overflow-y-auto">
+            <div v-if="batch.length === 0" class="flex flex-1 items-center justify-center text-sm text-gray-400">
               {{ t('imageStudio.emptyResult') }}
             </div>
-            <div v-else class="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 dark:border-dark-700">
+            <div v-else class="grid grid-cols-[repeat(auto-fit,minmax(240px,1fr))] gap-3">
+              <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60">
                 <template v-if="slot.status === 'done' && slot.url">
                   <img
                     :src="slot.url"
-                    class="aspect-square w-full cursor-zoom-in select-none object-cover"
+                    class="aspect-square w-full cursor-zoom-in select-none object-contain"
                     :alt="slot.prompt.slice(0, 30)"
                     draggable="false"
                     @pointerdown="onBatchImgPointerDown($event, slot)"
@@ -293,7 +292,6 @@
             </div>
           </div>
         </div>
-      </div>
 
       <!-- 右列:本地历史 -->
       <div class="card flex flex-col space-y-3 p-4 xl:h-full xl:min-h-0">
