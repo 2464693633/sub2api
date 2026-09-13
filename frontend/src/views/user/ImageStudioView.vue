@@ -160,7 +160,7 @@
             rows="8"
             maxlength="4000"
             :placeholder="t('imageStudio.promptPlaceholder')"
-            class="w-full flex-1 min-h-[220px] max-h-[280px] resize-y rounded-lg border border-gray-300 bg-white p-3 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            class="w-full h-[280px] min-h-[160px] resize-y rounded-lg border border-gray-300 bg-white p-3 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
           ></textarea>
           <!-- AI 优化提示词:选择密钥与文本模型,一键改写当前提示词 -->
           <div class="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
