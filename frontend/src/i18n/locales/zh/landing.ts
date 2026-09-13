@@ -11,6 +11,8 @@ export default {
     outputFormat: '输出格式',
     advancedParams: '高级参数',
     clarity: '清晰度',
+    clarityNote: '为请求参数,实际尺寸以出图为准,取决于上游能力',
+    actualSizeNote: '实际分辨率',
     size: '画幅',
     quantity: '数量',
     estimate: '预计费用',

@@ -79,6 +79,7 @@
                   @click="clarity = c.value"
                 >{{ c.label }}</button>
               </div>
+              <p class="mt-1 text-[11px] text-gray-400">{{ t('imageStudio.clarityNote') }}</p>
             </div>
           </div>
         </details>
@@ -246,7 +247,8 @@
                   <button type="button" class="text-[10px] text-white" @click="removeSlot(slot.slotId)">✕</button>
                 </div>
                 <span class="absolute right-1 top-1 rounded bg-green-500/80 px-1 text-[10px] text-white">{{ t('imageStudio.doneTag') }}</span>
-                <span v-if="slot.ms" class="absolute bottom-1 left-1 rounded bg-black/50 px-1 text-[10px] text-white">{{ (slot.ms / 1000).toFixed(1) }}s</span>
+                <span v-if="slot.actualSize" class="absolute bottom-1 left-1 rounded bg-black/50 px-1 text-[10px] text-white" :title="t('imageStudio.actualSizeNote')">{{ slot.actualSize }}</span>
+                <span v-if="slot.ms" class="absolute bottom-1 left-1 translate-x-[calc(100%+2px)] rounded bg-black/50 px-1 text-[10px] text-white">{{ (slot.ms / 1000).toFixed(1) }}s</span>
               </template>
               <template v-else-if="slot.status === 'failed'">
                 <div class="flex aspect-square w-full flex-col items-center justify-center gap-1 bg-red-50 p-2 text-center dark:bg-red-900/20">
@@ -312,7 +314,7 @@
             <div class="min-w-0 flex-1">
               <div class="truncate text-xs">{{ item.prompt || t('imageStudio.prompt') }}</div>
               <div class="truncate text-[10px] text-gray-400">
-                {{ item.model }} · {{ item.size }} · {{ item.images.length }}p · {{ new Date(item.ts).toLocaleString() }}
+                {{ item.model }} · {{ item.actualSize || item.size }} · {{ item.images.length }}p · {{ new Date(item.ts).toLocaleString() }}
               </div>
             </div>
             <div class="flex shrink-0 flex-col items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
@@ -321,7 +323,7 @@
                 type="button"
                 class="text-xs text-gray-400 hover:text-primary-400"
                 :title="t('imageStudio.zoomIn')"
-                @click.stop="openViewer(objectUrlFor(item), item.prompt)"
+                @click.stop="openViewer(objectUrlFor(item), item.prompt, item.actualSize || item.size)"
               >⤢</button>
               <button type="button" class="text-xs" :class="item.starred ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'" :title="item.starred ? t('imageStudio.unstar') : t('imageStudio.star')" @click.stop="toggleHistoryStar(item)">★</button>
               <button type="button" class="text-xs text-gray-400 hover:text-red-500" @click.stop="deleteHistory(item.id)">✕</button>
@@ -381,8 +383,9 @@
         draggable="false"
         @click.stop
       />
-      <div v-if="viewer.prompt" class="absolute inset-x-0 bottom-5 mx-auto max-w-[80vw] truncate rounded-lg bg-black/60 px-4 py-2 text-center text-xs text-white/90">
-        {{ viewer.prompt }}
+      <div class="absolute inset-x-0 bottom-5 mx-auto max-w-[80vw] rounded-lg bg-black/60 px-4 py-2 text-center text-xs text-white/90">
+        <span class="block truncate">{{ viewer.prompt }}</span>
+        <span v-if="viewer.size" class="mt-0.5 block text-[10px] text-white/70">{{ t('imageStudio.actualSizeNote') }}: {{ viewer.size }}</span>
       </div>
     </div>
     </div>
@@ -435,6 +438,7 @@ interface BatchSlot {
   status: 'running' | 'done' | 'failed'
   prompt: string
   size: string
+  actualSize?: string
   blob?: Blob
   url?: string
   error?: string
@@ -448,6 +452,7 @@ interface HistoryItem {
   quality: string
   format: string
   size: string
+  actualSize?: string
   prompt: string
   mode: 't2i' | 'i2i'
   images: HistoryImage[]
@@ -488,12 +493,24 @@ const storageUsed = ref(0)
 const storageQuota = ref(0)
 
 // ===== 图片放大预览 =====
-const viewer = ref<{ url: string; prompt: string } | null>(null)
-function openViewer(url: string, promptText: string) {
-  viewer.value = { url, prompt: promptText }
+const viewer = ref<{ url: string; prompt: string; size: string } | null>(null)
+function openViewer(url: string, promptText: string, size = '') {
+  viewer.value = { url, prompt: promptText, size }
 }
 function closeViewer() {
   viewer.value = null
+}
+
+// 解码图片 Blob 的真实像素尺寸(请求的清晰度只是参数,实际以输出为准)
+async function imageSizeOf(blob: Blob): Promise<string> {
+  try {
+    const bmp = await createImageBitmap(blob)
+    const s = `${bmp.width}x${bmp.height}`
+    bmp.close()
+    return s
+  } catch {
+    return ''
+  }
 }
 
 // ===== 拖图变参考图(Pointer Events 自实现) =====
@@ -555,7 +572,7 @@ function onBatchImgClick(slot: BatchSlot) {
     suppressNextImgClick = false
     return
   }
-  if (slot.url) openViewer(slot.url, slot.prompt)
+  if (slot.url) openViewer(slot.url, slot.prompt, slot.actualSize || slot.size)
 }
 
 const gatewayBase = computed(() => window.location.origin)
@@ -565,7 +582,14 @@ const sessionAuthHeader = computed(() => {
 })
 
 const computedSize = computed(() => {
-  if (size.value === 'auto') return 'auto'
+  if (size.value === 'auto') {
+    // 画幅 auto 时清晰度也要生效:2K/4K 请求方形大图(1K 保持 auto 由上游默认)
+    if (clarity.value !== '1k') {
+      const base = CLARITY_BASE[clarity.value] || 1024
+      return `${base}x${base}`
+    }
+    return 'auto'
+  }
   const [wStr, hStr] = size.value.split(':')
   const w = Number(wStr)
   const h = Number(hStr)
@@ -816,6 +840,7 @@ function restoreHistory(item: HistoryItem) {
     status: (img.failed ? 'failed' : 'done') as BatchSlot['status'],
     prompt: item.prompt,
     size: item.size,
+    actualSize: img.failed ? undefined : item.actualSize,
     blob: img.failed ? undefined : img.blob,
     url: img.failed ? undefined : URL.createObjectURL(img.blob),
     error: img.failed ? t('imageStudio.generateFailed') : undefined
@@ -852,7 +877,7 @@ async function exportZip() {
     }
     metas.push({
       ts: item.ts, model: item.model, quality: item.quality, format: item.format,
-      size: item.size, prompt: item.prompt, mode: item.mode, starred: item.starred
+      size: item.size, actualSize: item.actualSize, prompt: item.prompt, mode: item.mode, starred: item.starred
     })
   }
   zip.file('meta.json', JSON.stringify(metas, null, 2))
@@ -900,6 +925,7 @@ async function onImportZipChange(event: Event) {
         quality: String(meta.quality || 'auto'),
         format: String(meta.format || 'png'),
         size: String(meta.size || '1024x1024'),
+        actualSize: meta.actualSize ? String(meta.actualSize) : undefined,
         prompt: String(meta.prompt || ''),
         mode: (meta.mode as 't2i' | 'i2i') || 't2i',
         images,
@@ -939,7 +965,7 @@ async function generateOne(promptText: string, refList: File[]): Promise<{ blob:
       const form = new FormData()
       form.append('model', model.value)
       form.append('prompt', promptText)
-      if (size.value !== 'auto') form.append('size', size.value)
+      if (computedSize.value !== 'auto') form.append('size', computedSize.value)
       if (quality.value !== 'auto') form.append('quality', quality.value)
       form.append('output_format', outputFormat.value)
       for (const f of refList) form.append('image', f)
@@ -959,7 +985,7 @@ async function generateOne(promptText: string, refList: File[]): Promise<{ blob:
         body: JSON.stringify({
           model: model.value,
           prompt: promptText,
-          size: size.value === 'auto' ? undefined : size.value,
+          size: computedSize.value === 'auto' ? undefined : computedSize.value,
           quality: quality.value === 'auto' ? undefined : quality.value,
           output_format: outputFormat.value,
           n: 1
@@ -1009,6 +1035,7 @@ function starSlot(slotId: number, blob?: Blob) {
     quality: quality.value,
     format: outputFormat.value,
     size: slot?.size || computedSize.value,
+    actualSize: slot?.actualSize,
     prompt: slot?.prompt || '',
     mode: mode.value,
     images: [{ blob: b, failed: false }],
@@ -1050,6 +1077,7 @@ async function retrySlot(slotId: number) {
   if (result.blob) {
     slot.blob = result.blob
     slot.url = URL.createObjectURL(result.blob)
+    slot.actualSize = await imageSizeOf(result.blob)
   }
   batch.value = [...batch.value]
 }
@@ -1075,6 +1103,7 @@ async function generateBatch() {
       if (result.blob) {
         slot.blob = result.blob
         slot.url = URL.createObjectURL(result.blob)
+        slot.actualSize = await imageSizeOf(result.blob)
         slot.status = 'done'
         okCount++
       } else {
@@ -1098,6 +1127,7 @@ async function generateBatch() {
         quality: quality.value,
         format: outputFormat.value,
         size: computedSize.value,
+        actualSize: done[0]?.actualSize,
         prompt: promptText,
         mode: mode.value,
         images: done.map(s => ({ blob: s.blob as Blob, failed: false })),

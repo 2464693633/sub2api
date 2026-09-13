@@ -11,6 +11,8 @@ export default {
     outputFormat: 'Output format',
     advancedParams: 'Advanced parameters',
     clarity: 'Resolution',
+    clarityNote: 'Requested value. Actual size depends on upstream capability.',
+    actualSizeNote: 'Actual size',
     size: 'Aspect ratio',
     quantity: 'Quantity',
     estimate: 'Estimated cost',
