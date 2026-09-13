@@ -28,6 +28,7 @@ func RegisterImageStudioRoutes(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
+	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
@@ -98,6 +99,9 @@ func RegisterImageStudioRoutes(
 	studio := r.Group("/api/v1/image-studio")
 	studio.Use(gin.HandlerFunc(jwtAuth))
 	studio.Use(middleware.BackendModeUserGuard(settingService))
+	// 面板级限流:防止单会话高频刷 models/EnsureImageStudioKey 的 DB 查询。
+	// 按密钥的配额与限流由下方重放的网关中间件链兜底。
+	studio.Use(panelRateLimiter.Global())
 	{
 		studio.GET("/models", relay("/v1/models", h.Gateway.Models))
 		studio.POST("/generations", relay(handler.EndpointImagesGenerations, imagesTarget))

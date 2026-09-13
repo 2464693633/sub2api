@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
@@ -15,12 +16,20 @@ const ImageStudioKeyName = "生图工作台"
 // ErrImageStudioNoImageGroup 用户没有开启生图权限的可用分组,无法自动创建工作台密钥。
 var ErrImageStudioNoImageGroup = errors.New("没有开启生图权限的可用分组,请联系管理员为分组开启生图")
 
+// studioKeyMu 按用户串行化 EnsureImageStudioKey,避免并发首请求创建重复密钥。
+var studioKeyMu sync.Map // map[int64]*sync.Mutex
+
 // EnsureImageStudioKey 返回用户的生图工作台密钥,不存在时自动创建。
 //
 // 查找规则:用户名下活跃密钥中名称等于 ImageStudioKeyName 且已绑定分组的最新一把。
 // 创建规则:在用户可绑定的分组里优先选开了生图权限(AllowImageGeneration)的,
 // 都没有则报 ErrImageStudioNoImageGroup,避免创建一把必然 403 的密钥。
 func (s *APIKeyService) EnsureImageStudioKey(ctx context.Context, userID int64) (*APIKey, error) {
+	muAny, _ := studioKeyMu.LoadOrStore(userID, &sync.Mutex{})
+	mu := muAny.(*sync.Mutex)
+	mu.Lock()
+	defer mu.Unlock()
+
 	keys, _, err := s.List(ctx, userID, pagination.PaginationParams{Page: 1, PageSize: 100}, APIKeyListFilters{Status: StatusAPIKeyActive})
 	if err != nil {
 		return nil, fmt.Errorf("list api keys: %w", err)

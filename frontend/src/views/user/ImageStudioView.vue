@@ -1,9 +1,17 @@
 <template>
   <AppLayout>
     <div class="flex w-full flex-col gap-4 text-gray-900 dark:text-gray-100">
-    <div v-if="initError" class="card p-6 text-center text-sm text-red-500">{{ initError }}</div>
+    <!-- 初始化失败降级:错误条 + 重试,不锁整页(历史仍可浏览) -->
+    <div v-if="initError" class="card flex flex-wrap items-center justify-between gap-3 border border-red-200 p-3 dark:border-red-900/50">
+      <span class="text-sm text-red-500">{{ initError }}</span>
+      <button
+        type="button"
+        class="rounded-md border border-red-200 px-3 py-1 text-xs font-medium text-red-500 transition-colors hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-900/20"
+        @click="retryInit"
+      >{{ t('imageStudio.retryInit') }}</button>
+    </div>
 
-    <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]">
+    <div class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]">
       <!-- 左列:参数 -->
       <div class="card space-y-4 p-4 xl:h-full xl:overflow-y-auto">
         <!-- 模式 -->
@@ -215,16 +223,25 @@
             <p class="mt-1 text-[11px] text-gray-400">{{ t('imageStudio.refFormats') }}</p>
           </div>
 
-          <!-- 生成按钮 -->
+          <!-- 生成/停止按钮 -->
           <div class="mt-3 flex items-center gap-3">
             <button
+              v-if="!generating"
               type="button"
               class="flex-1 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
-              :disabled="generating || !prompt.trim()"
+              :disabled="!!initError || !prompt.trim()"
               @click="generateBatch"
             >
-              <span v-if="generating" class="mr-1 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
-              {{ generating ? t('imageStudio.generating') : t('imageStudio.generateN', { n: quantity }) }}
+              {{ t('imageStudio.generateN', { n: quantity }) }}
+            </button>
+            <button
+              v-else
+              type="button"
+              class="flex-1 rounded-lg border border-red-300 bg-transparent px-4 py-2.5 text-sm font-semibold text-red-500 transition-colors hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-900/20"
+              :disabled="batchCancelRequested"
+              @click="cancelBatch"
+            >
+              {{ batchCancelRequested ? t('imageStudio.cancelling') : t('imageStudio.stopBatch') }}
             </button>
           </div>
           <p v-if="mode === 'i2i' && refItems.length === 0" class="mt-1 text-[11px] text-amber-500">{{ t('imageStudio.refEmptyHint') }}</p>
@@ -522,6 +539,11 @@ const refItems = ref<RefItem[]>([])
 
 const batch = ref<BatchSlot[]>([])
 let slotSeq = 0
+// 批量生成取消标志:仅阻止后续请求,正在跑的那张会跑完
+const batchCancelRequested = ref(false)
+function cancelBatch() {
+  if (generating.value) batchCancelRequested.value = true
+}
 
 const history = ref<HistoryItem[]>([])
 const historySearch = ref('')
@@ -739,10 +761,11 @@ function onBatchImgClick(slot: BatchSlot) {
 }
 
 const gatewayBase = computed(() => window.location.origin)
-const sessionAuthHeader = computed(() => {
+// 每次调用现读 localStorage:token 刷新后旧值不能被缓存(computed 会永久缓存导致 401)
+function sessionAuthHeader(): { Authorization: string } {
   const token = localStorage.getItem('auth_token') || ''
   return { Authorization: `Bearer ${token}` }
-})
+}
 
 const computedSize = computed(() => {
   if (size.value === 'auto') {
@@ -842,13 +865,17 @@ function onPaste(event: ClipboardEvent) {
 }
 
 // ===== 模型(会话直通,无需 API Key) =====
+function retryInit() {
+  initError.value = ''
+  void loadModels()
+}
 async function loadModels() {
   initError.value = ''
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
     const res = await fetch(`${gatewayBase.value}/api/v1/image-studio/models`, {
-      headers: sessionAuthHeader.value,
+      headers: sessionAuthHeader(),
       signal: controller.signal
     })
     window.clearTimeout(timer)
@@ -1014,14 +1041,6 @@ function restoreHistory(item: HistoryItem) {
 }
 
 // ===== ZIP 导出 / 导入 =====
-function blobToB64(blob: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result).split(',')[1] || '')
-    reader.onerror = () => reject(reader.error)
-    reader.readAsDataURL(blob)
-  })
-}
 async function exportZip() {
   if (!history.value.length) return
   const zip = new JSZip()
@@ -1035,7 +1054,7 @@ async function exportZip() {
       if (img.failed) {
         folder.file(`image-${i + 1}-failed.txt`, t('imageStudio.generateFailed'))
       } else {
-        folder.file(`image-${i + 1}.${ext}`, await blobToB64(img.blob), { base64: true })
+        folder.file(`image-${i + 1}.${ext}`, img.blob)
       }
     }
     metas.push({
@@ -1134,7 +1153,7 @@ async function generateOne(promptText: string, refList: File[]): Promise<{ blob:
       for (const f of refList) form.append('image', f)
       res = await fetch(`${gatewayBase.value}/api/v1/image-studio/edits`, {
         method: 'POST',
-        headers: sessionAuthHeader.value,
+        headers: sessionAuthHeader(),
         body: form,
         signal: controller.signal
       })
@@ -1142,7 +1161,7 @@ async function generateOne(promptText: string, refList: File[]): Promise<{ blob:
       res = await fetch(`${gatewayBase.value}/api/v1/image-studio/generations`, {
         method: 'POST',
         headers: {
-          ...sessionAuthHeader.value,
+          ...sessionAuthHeader(),
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1254,10 +1273,13 @@ async function generateBatch() {
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   batch.value = []
   generating.value = true
+  batchCancelRequested.value = false
   startElapsed()
   let okCount = 0
   try {
     for (let i = 0; i < n; i++) {
+      // 用户点击停止后不再发起新请求,已完成的图照常入库
+      if (batchCancelRequested.value) break
       const slotId = ++slotSeq
       const slot: BatchSlot = { slotId, status: 'running', prompt: promptText, size: computedSize.value }
       batch.value = [...batch.value, slot]
@@ -1276,7 +1298,9 @@ async function generateBatch() {
       }
       batch.value = [...batch.value]
     }
-    if (okCount > 0) {
+    if (batchCancelRequested.value) {
+      appStore.showSuccess(t('imageStudio.batchCancelled', { ok: okCount }))
+    } else if (okCount > 0) {
       box.status = 'done'
       appStore.showSuccess(t('imageStudio.batchDone', { ok: okCount, total: n }))
     }
@@ -1319,6 +1343,9 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('pointermove', onBatchImgPointerMove)
   window.removeEventListener('pointerup', onBatchImgPointerUp)
+  // 拖拽兜底监听与生成计时器一并清理,避免卸载后残留
+  finishPointerDrag(false)
+  stopElapsed()
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
   clearRefItems()
   objectUrlCache.forEach(url => URL.revokeObjectURL(url))
