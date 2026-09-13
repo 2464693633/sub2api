@@ -7,21 +7,9 @@
         <h1 class="text-xl font-bold">{{ t('imageStudio.title') }}</h1>
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('imageStudio.subtitle') }}</p>
       </div>
-      <div class="flex items-center gap-2">
-        <label class="text-xs text-gray-500">{{ t('imageStudio.apiKey') }}</label>
-        <select
-          v-model="selectedKeyId"
-          class="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
-        >
-          <option v-for="k in keys" :key="k.id" :value="k.id">{{ k.name }}</option>
-        </select>
-      </div>
     </div>
 
-    <div v-if="!selectedKey" class="card p-6 text-center text-sm text-gray-500">
-      {{ t('imageStudio.noKeys') }}
-      <router-link to="/user/keys" class="ml-1 text-primary-500 hover:underline">{{ t('imageStudio.goCreateKey') }}</router-link>
-    </div>
+    <div v-if="initError" class="card p-6 text-center text-sm text-red-500">{{ initError }}</div>
 
     <div v-else class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[270px_minmax(0,1fr)_330px]">
       <!-- 左列:参数 -->
@@ -390,11 +378,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import JSZip from 'jszip'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import { keysAPI } from '@/api/keys'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
@@ -456,11 +443,9 @@ interface HistoryItem {
 }
 
 // ===== 状态 =====
-interface KeyItem { id: number; name: string; key: string; status: string }
-const keys = ref<KeyItem[]>([])
-const selectedKeyId = ref<number | null>(null)
 const models = ref<string[]>([...FALLBACK_MODELS])
 const model = ref(FALLBACK_MODELS[0])
+const initError = ref('')
 const mode = ref<'t2i' | 'i2i'>('t2i')
 const quality = ref<'auto' | 'high' | 'medium' | 'low'>('auto')
 const outputFormat = ref<'png' | 'jpeg' | 'webp'>('png')
@@ -500,7 +485,10 @@ function closeViewer() {
 }
 
 const gatewayBase = computed(() => window.location.origin)
-const selectedKey = computed(() => keys.value.find(k => k.id === selectedKeyId.value) || null)
+const sessionAuthHeader = computed(() => {
+  const token = localStorage.getItem('auth_token') || ''
+  return { Authorization: `Bearer ${token}` }
+})
 
 const computedSize = computed(() => {
   if (size.value === 'auto') return 'auto'
@@ -592,39 +580,34 @@ function onPaste(event: ClipboardEvent) {
   addRefFiles(files)
 }
 
-// ===== 密钥 / 模型 =====
-async function loadKeys() {
-  try {
-    const res = await keysAPI.list(1, 100, { status: 'active' })
-    keys.value = (res.items || []).map(k => ({ id: k.id, name: k.name, key: k.key, status: k.status }))
-    const saved = Number(localStorage.getItem('image_studio_key_id'))
-    selectedKeyId.value = keys.value.some(k => k.id === saved) ? saved : (keys.value[0]?.id ?? null)
-  } catch {
-    keys.value = []
-  }
-}
-watch(selectedKeyId, v => {
-  if (v) localStorage.setItem('image_studio_key_id', String(v))
-  void loadModels()
-})
-
+// ===== 模型(会话直通,无需 API Key) =====
 async function loadModels() {
-  if (!selectedKey.value) return
+  initError.value = ''
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
-    const res = await fetch(`${gatewayBase.value}/v1/models`, {
-      headers: { Authorization: `Bearer ${selectedKey.value.key}` },
+    const res = await fetch(`${gatewayBase.value}/api/v1/image-studio/models`, {
+      headers: sessionAuthHeader.value,
       signal: controller.signal
     })
     window.clearTimeout(timer)
-    if (!res.ok) throw new Error(String(res.status))
-    const j = await res.json()
-    const ids: string[] = (j.data || []).map((m: { id: string }) => m.id)
+    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: Array<{ id: string }> } | null
+    if (!res.ok) {
+      throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
+    }
+    const ids: string[] = (body?.data || []).map((m) => m.id)
     const imageModels = ids.filter(id => IMAGE_MODEL_PATTERN.test(id))
-    models.value = imageModels.length ? imageModels : FALLBACK_MODELS
+    if (!imageModels.length) {
+      initError.value = t('imageStudio.noImageModels')
+      return
+    }
+    models.value = imageModels
     if (!models.value.includes(model.value)) model.value = models.value[0] || FALLBACK_MODELS[0]
-  } catch {
+  } catch (err: unknown) {
+    const msg = err instanceof DOMException && err.name === 'AbortError'
+      ? t('imageStudio.timeout')
+      : (err instanceof Error ? err.message : t('imageStudio.noKeys'))
+    initError.value = msg
     models.value = FALLBACK_MODELS
     model.value = FALLBACK_MODELS[0]
   }
@@ -874,7 +857,6 @@ async function blobFromUrl(url: string): Promise<Blob> {
 }
 
 async function generateOne(promptText: string, refList: File[]): Promise<{ blob: Blob | null; error?: string }> {
-  if (!selectedKey.value) return { blob: null, error: t('imageStudio.noKeys') }
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 300000)
   try {
@@ -887,17 +869,17 @@ async function generateOne(promptText: string, refList: File[]): Promise<{ blob:
       if (quality.value !== 'auto') form.append('quality', quality.value)
       form.append('output_format', outputFormat.value)
       for (const f of refList) form.append('image', f)
-      res = await fetch(`${gatewayBase.value}/v1/images/edits`, {
+      res = await fetch(`${gatewayBase.value}/api/v1/image-studio/edits`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${selectedKey.value.key}` },
+        headers: sessionAuthHeader.value,
         body: form,
         signal: controller.signal
       })
     } else {
-      res = await fetch(`${gatewayBase.value}/v1/images/generations`, {
+      res = await fetch(`${gatewayBase.value}/api/v1/image-studio/generations`, {
         method: 'POST',
         headers: {
-          Authorization: `Bearer ${selectedKey.value.key}`,
+          ...sessionAuthHeader.value,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
@@ -1000,7 +982,7 @@ async function retrySlot(slotId: number) {
 
 async function generateBatch() {
   const box = activeBox.value
-  if (!box || !selectedKey.value || !box.text.trim()) return
+  if (!box || initError.value || !box.text.trim()) return
   const n = quantity.value
   const promptText = box.text.trim()
   const refs = mode.value === 'i2i' ? refItems.value.map(r => r.file) : []
@@ -1056,7 +1038,7 @@ async function generateBatch() {
 
 // ===== 生命周期 =====
 onMounted(() => {
-  void loadKeys()
+  void loadModels()
   void loadHistory()
   updateStorageMeter()
   window.addEventListener('paste', onPaste)
