@@ -683,6 +683,8 @@ let suppressNextImgClick = false
 
 function onBatchImgPointerDown(event: PointerEvent, slot: BatchSlot) {
   if (event.pointerType !== 'mouse' || event.button !== 0 || !slot.blob || !slot.url) return
+  // 阻止默认的文本选择/原生拖拽接管,否则浏览器会改发 pointercancel 导致拖拽卡死
+  event.preventDefault()
   suppressNextImgClick = false
   pointerDrag.value = {
     blob: slot.blob,
@@ -694,8 +696,12 @@ function onBatchImgPointerDown(event: PointerEvent, slot: BatchSlot) {
     x: event.clientX,
     y: event.clientY
   }
+  // 指针捕获:光标移出元素甚至窗口也能保证收到 move/up 事件
+  try { (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) } catch { /* 捕获失败时退回 window 监听 */ }
   window.addEventListener('pointermove', onBatchImgPointerMove)
   window.addEventListener('pointerup', onBatchImgPointerUp)
+  window.addEventListener('pointercancel', onBatchImgPointerCancel)
+  window.addEventListener('blur', onBatchImgPointerCancel)
 }
 function onBatchImgPointerMove(event: PointerEvent) {
   const d = pointerDrag.value
@@ -707,12 +713,19 @@ function onBatchImgPointerMove(event: PointerEvent) {
   }
 }
 function onBatchImgPointerUp() {
+  finishPointerDrag(true)
+}
+function onBatchImgPointerCancel() {
+  finishPointerDrag(false)
+}
+function finishPointerDrag(commit: boolean) {
   window.removeEventListener('pointermove', onBatchImgPointerMove)
   window.removeEventListener('pointerup', onBatchImgPointerUp)
+  window.removeEventListener('pointercancel', onBatchImgPointerCancel)
+  window.removeEventListener('blur', onBatchImgPointerCancel)
   const d = pointerDrag.value
   pointerDrag.value = null
-  if (!d) return
-  if (!d.active) return
+  if (!d || !commit || !d.active) return
   suppressNextImgClick = true
   addRefFiles([new File([d.blob], d.name, { type: d.blob.type || 'image/png' })])
   appStore.showSuccess(t('imageStudio.refAdded'))
@@ -1313,7 +1326,13 @@ onUnmounted(() => {
 })
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && viewer.value) closeViewer()
+  if (e.key === 'Escape') {
+    if (pointerDrag.value) {
+      finishPointerDrag(false)
+      return
+    }
+    if (viewer.value) closeViewer()
+  }
 }
 </script>
 
