@@ -171,6 +171,32 @@
             :placeholder="t('imageStudio.promptPlaceholder')"
             class="w-full rounded-lg border border-gray-300 bg-white p-3 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
           ></textarea>
+          <!-- AI 优化提示词:选择密钥与文本模型,一键改写当前提示词 -->
+          <div class="mt-1.5 flex flex-wrap items-center justify-end gap-1.5">
+            <label class="text-[11px] text-gray-400">{{ t('imageStudio.optKeyLabel') }}</label>
+            <select
+              v-model="optKeyId"
+              class="max-w-[160px] rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            >
+              <option v-for="k in optKeys" :key="k.id" :value="k.id">{{ k.name }}</option>
+            </select>
+            <select
+              v-model="optModel"
+              class="max-w-[170px] rounded-md border border-gray-200 bg-white px-1.5 py-1 text-xs outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              :disabled="!optKeyId"
+            >
+              <option v-for="m in optModels" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button
+              type="button"
+              class="rounded-md border border-primary-200 px-2.5 py-1 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-primary-900/60 dark:hover:bg-primary-900/20"
+              :disabled="optimizing || !prompt.trim() || !optKeyId || !optModel"
+              @click="optimizePrompt"
+            >
+              <span v-if="optimizing" class="mr-1 inline-block h-3 w-3 animate-spin rounded-full border border-primary-300 border-t-primary-600"></span>
+              {{ optimizing ? t('imageStudio.aiOptimizing') : `✨ ${t('imageStudio.aiOptimize')}` }}
+            </button>
+          </div>
           <div class="mt-1 text-right text-[11px] text-gray-400">{{ 4000 - prompt.length }} / 4000</div>
 
           <!-- 参考图(图生图) -->
@@ -393,10 +419,11 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import JSZip from 'jszip'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import { keysAPI } from '@/api/keys'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
@@ -491,6 +518,119 @@ const historySearch = ref('')
 const objectUrlCache = new Map<number, string>()
 const storageUsed = ref(0)
 const storageQuota = ref(0)
+
+// ===== AI 优化提示词(选择密钥 → 该分组文本模型 → chat 改写) =====
+interface OptKeyItem { id: number; name: string; key: string }
+const optKeys = ref<OptKeyItem[]>([])
+const optKeyId = ref<number | null>(null)
+const optModels = ref<string[]>([])
+const optModel = ref('')
+const optimizing = ref(false)
+const OPT_MODEL_PREFERENCE = /(claude.*(sonnet|opus)|gpt-5|gpt-4o|o4-mini|gemini.*pro|deepseek.*(chat|v3|r1)|qwen.*max|glm-4)/i
+
+async function loadOptKeys() {
+  try {
+    const res = await keysAPI.list(1, 100, { status: 'active' })
+    optKeys.value = (res.items || []).map(k => ({ id: k.id, name: k.name, key: k.key }))
+    const saved = Number(localStorage.getItem('image_studio_opt_key_id'))
+    optKeyId.value = optKeys.value.some(k => k.id === saved) ? saved : (optKeys.value[0]?.id ?? null)
+  } catch {
+    optKeys.value = []
+  }
+}
+watch(optKeyId, v => {
+  if (v) localStorage.setItem('image_studio_opt_key_id', String(v))
+  void loadOptModels()
+})
+
+async function loadOptModels() {
+  const key = optKeys.value.find(k => k.id === optKeyId.value)
+  if (!key) {
+    optModels.value = []
+    optModel.value = ''
+    return
+  }
+  try {
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 15000)
+    const res = await fetch(`${gatewayBase.value}/v1/models`, {
+      headers: { Authorization: `Bearer ${key.key}` },
+      signal: controller.signal
+    })
+    window.clearTimeout(timer)
+    if (!res.ok) throw new Error(String(res.status))
+    const j = await res.json()
+    const ids: string[] = (j.data || []).map((m: { id: string }) => m.id)
+    // 文本模型(排除生图模型),优选对话能力强的
+    const textModels = ids.filter(id => !IMAGE_MODEL_PATTERN.test(id))
+    textModels.sort((a, b) => Number(OPT_MODEL_PREFERENCE.test(b)) - Number(OPT_MODEL_PREFERENCE.test(a)))
+    optModels.value = textModels
+    const savedModel = localStorage.getItem('image_studio_opt_model')
+    optModel.value = savedModel && textModels.includes(savedModel) ? savedModel : (textModels[0] ?? '')
+  } catch {
+    optModels.value = []
+    optModel.value = ''
+  }
+}
+watch(optModel, v => {
+  if (v) localStorage.setItem('image_studio_opt_model', v)
+})
+
+function sanitizeOptimizedPrompt(raw: string): string {
+  let out = raw.trim()
+  out = out.replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim()
+  out = out.replace(/^["'「『]+/, '').replace(/["'」』]+$/, '').trim()
+  return out
+}
+
+async function optimizePrompt() {
+  const key = optKeys.value.find(k => k.id === optKeyId.value)
+  const box = activeBox.value
+  if (!key || !box || !optModel.value || !box.text.trim() || optimizing.value) return
+  const original = box.text.trim()
+  optimizing.value = true
+  const controller = new AbortController()
+  const timer = window.setTimeout(() => controller.abort(), 120000)
+  try {
+    const res = await fetch(`${gatewayBase.value}/v1/chat/completions`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${key.key}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: optModel.value,
+        stream: false,
+        messages: [
+          {
+            role: 'system',
+            content: '你是专业的 AI 绘画提示词优化专家。把用户的生图提示词改写为细节丰富的画面描述:明确画面主体与外观、环境场景、光线氛围、构图视角、艺术风格与质感细节。忠实保留用户原意与关键要素,不新增用户未提及的主题。直接输出优化后的提示词正文,不要任何解释、前缀或引号。'
+          },
+          { role: 'user', content: original }
+        ]
+      }),
+      signal: controller.signal
+    })
+    const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string; choices?: Array<{ message?: { content?: string } }> } | null
+    if (!res.ok) {
+      throw new Error(body?.error?.message || body?.message || t('imageStudio.optFailed'))
+    }
+    const content = body?.choices?.[0]?.message?.content || ''
+    const optimized = sanitizeOptimizedPrompt(content)
+    if (!optimized) throw new Error(t('imageStudio.optFailed'))
+    box.text = optimized.slice(0, 4000)
+    appStore.showSuccess(t('imageStudio.optDone'))
+  } catch (err: unknown) {
+    const msg = err instanceof DOMException && err.name === 'AbortError'
+      ? t('imageStudio.timeout')
+      : (err instanceof Error ? err.message : t('imageStudio.optFailed'))
+    appStore.showError(msg)
+  } finally {
+    optimizing.value = false
+    window.clearTimeout(timer)
+  }
+}
+
 
 // ===== 图片放大预览 =====
 const viewer = ref<{ url: string; prompt: string; size: string } | null>(null)
@@ -1143,6 +1283,7 @@ async function generateBatch() {
 // ===== 生命周期 =====
 onMounted(() => {
   void loadModels()
+  void loadOptKeys()
   void loadHistory()
   updateStorageMeter()
   window.addEventListener('paste', onPaste)
