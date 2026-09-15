@@ -1,6 +1,24 @@
 <template>
-  <AppLayout>
-    <div class="flex w-full flex-col gap-4 text-gray-900 dark:text-gray-100">
+  <component :is="standalone ? 'div' : AppLayout" :class="standalone ? 'min-h-screen bg-gray-50 p-3 dark:bg-dark-950' : ''">
+    <div class="flex w-full flex-col gap-3 text-gray-900 dark:text-gray-100">
+    <!-- 独立窗口标题 / 主界面新窗口入口 -->
+    <div v-if="standalone" class="flex items-center justify-between px-1">
+      <span class="text-sm font-semibold">{{ t('imageStudio.title') }} <span class="ml-1 text-xs font-normal text-gray-400">{{ t('imageStudio.standaloneTag') }}</span></span>
+      <button
+        type="button"
+        class="text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+        @click="reloadStandalone"
+      >{{ t('imageStudio.reload') }}</button>
+    </div>
+    <div v-else class="flex justify-end">
+      <button
+        type="button"
+        class="flex items-center gap-1 rounded-md border border-gray-200 px-2 py-1 text-xs text-gray-500 transition-colors hover:border-primary-400 hover:text-primary-600 dark:border-dark-600"
+        :title="t('imageStudio.openStandaloneTip')"
+        @click="openStandalone"
+      >⧉ {{ t('imageStudio.openStandalone') }}</button>
+    </div>
+
     <!-- 初始化失败降级:错误条 + 重试,不锁整页(历史仍可浏览) -->
     <div v-if="initError" class="card flex flex-wrap items-center justify-between gap-3 border border-red-200 p-3 dark:border-red-900/50">
       <span class="text-sm text-red-500">{{ initError }}</span>
@@ -11,7 +29,7 @@
       >{{ t('imageStudio.retryInit') }}</button>
     </div>
 
-    <div class="grid grid-cols-1 gap-4 xl:h-[calc(100vh-8rem)] xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]">
+    <div class="grid grid-cols-1 gap-4 xl:grid-cols-[250px_minmax(0,300px)_minmax(0,1fr)_300px]" :class="standalone ? 'xl:h-[calc(100vh-5rem)]' : 'xl:h-[calc(100vh-9rem)]'">
       <!-- 左列:参数 -->
       <div class="card space-y-4 p-4 xl:h-full xl:overflow-y-auto">
         <!-- 模式 -->
@@ -427,129 +445,41 @@
       </div>
     </div>
     </div>
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import JSZip from 'jszip'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import { keysAPI } from '@/api/keys'
 import { useAppStore } from '@/stores/app'
+import {
+  MODES, QUALITIES, FORMATS, CLARITIES, RATIOS, QUANTITIES, IMAGE_MODEL_PATTERN,
+  models, model, initError, retryInit,
+  mode, quality, outputFormat, clarity, size, quantity, computedSize,
+  promptBoxes, activeBoxId, activeBox, prompt, addPromptBox, removePromptBox,
+  refItems, addRefFiles, removeRefItem,
+  batch, generating, elapsed, batchCancelRequested, generateBatch, cancelBatch,
+  clearFailed, removeSlot, retrySlot, starSlot, copySlotImage, setRefFromSlot,
+  history, historySearch, filteredHistory, starredItems, storageUsed, storageQuota, storagePercent,
+  objectUrlFor, fmtMB, toggleHistoryStar, deleteHistory, clearAllHistory, restoreHistory,
+  exportZip, onImportZipChange, loadHistory, updateStorageMeter,
+} from '@/composables/useImageStudioEngine'
 
 const { t } = useI18n()
+const route = useRoute()
 const appStore = useAppStore()
 
-// ===== 常量 =====
-const MODES = [
-  { value: 't2i' as const, label: 'imageStudio.modeText2Image' },
-  { value: 'i2i' as const, label: 'imageStudio.modeImage2Image' }
-]
-const QUALITIES = ['auto', 'high', 'medium', 'low'] as const
-const FORMATS = ['png', 'jpeg', 'webp'] as const
-const CLARITIES = [
-  { value: '1k' as const, label: '1K' },
-  { value: '2k' as const, label: '2K' },
-  { value: '4k' as const, label: '4K' }
-]
-const RATIOS = [
-  { value: '1:1', w: 1, h: 1 },
-  { value: '16:9', w: 16, h: 9 },
-  { value: '9:16', w: 9, h: 16 },
-  { value: '4:3', w: 4, h: 3 },
-  { value: '3:4', w: 3, h: 4 },
-  { value: '3:2', w: 3, h: 2 },
-  { value: '2:3', w: 2, h: 3 },
-  { value: '21:9', w: 21, h: 9 }
-]
-const QUANTITIES = [1, 4, 8, 16, 32, 50]
-const MAX_REFS = 8
-const MAX_PROMPT_BOXES = 8
-
-// 生成中已等待秒数(批量期间每秒跳动,配合预计时间提示)
-const elapsed = ref(0)
-let elapsedTimer: number | null = null
-function startElapsed() {
-  elapsed.value = 0
-  stopElapsed()
-  elapsedTimer = window.setInterval(() => { elapsed.value++ }, 1000)
+// ===== 独立窗口模式(?standalone=1 时脱离门户布局独立显示) =====
+const standalone = computed(() => route.query.standalone === '1')
+function openStandalone() {
+  window.open(`${window.location.origin}/image-studio?standalone=1`, 'lyozc-image-studio', 'width=1500,height=960')
 }
-function stopElapsed() {
-  if (elapsedTimer !== null) {
-    window.clearInterval(elapsedTimer)
-    elapsedTimer = null
-  }
+function reloadStandalone() {
+  window.location.reload()
 }
-const IMAGE_MODEL_PATTERN = /(image|dall|flux|seedream|banana|diffusion)/i
-const FALLBACK_MODELS = ['gpt-image-2.5', 'gpt-image-2', 'gpt-image-1', 'dall-e-3']
-const CLARITY_BASE: Record<string, number> = { '1k': 1024, '2k': 2048, '4k': 4096 }
-
-// ===== 类型 =====
-interface PromptBox { id: number; text: string; status: 'draft' | 'done' }
-interface BatchSlot {
-  slotId: number
-  status: 'running' | 'done' | 'failed'
-  prompt: string
-  size: string
-  actualSize?: string
-  blob?: Blob
-  url?: string
-  error?: string
-  ms?: number
-}
-interface HistoryImage { blob: Blob; failed: boolean }
-interface HistoryItem {
-  id: number
-  ts: number
-  model: string
-  quality: string
-  format: string
-  size: string
-  actualSize?: string
-  prompt: string
-  mode: 't2i' | 'i2i'
-  images: HistoryImage[]
-  starred: boolean
-}
-
-// ===== 状态 =====
-const models = ref<string[]>([...FALLBACK_MODELS])
-const model = ref(FALLBACK_MODELS[0])
-const initError = ref('')
-const mode = ref<'t2i' | 'i2i'>('t2i')
-const quality = ref<'auto' | 'high' | 'medium' | 'low'>('auto')
-const outputFormat = ref<'png' | 'jpeg' | 'webp'>('png')
-const clarity = ref<'1k' | '2k' | '4k'>('1k')
-const size = ref<string>('auto')
-const quantity = ref(1)
-const generating = ref(false)
-
-const promptBoxes = ref<PromptBox[]>([{ id: 1, text: '', status: 'draft' }])
-const activeBoxId = ref(1)
-let boxSeq = 1
-const activeBox = computed(() => promptBoxes.value.find(b => b.id === activeBoxId.value))
-const prompt = computed({
-  get: () => activeBox.value?.text ?? '',
-  set: (v: string) => { if (activeBox.value) activeBox.value.text = v }
-})
-
-interface RefItem { file: File; url: string }
-const refItems = ref<RefItem[]>([])
-
-const batch = ref<BatchSlot[]>([])
-let slotSeq = 0
-// 批量生成取消标志:仅阻止后续请求,正在跑的那张会跑完
-const batchCancelRequested = ref(false)
-function cancelBatch() {
-  if (generating.value) batchCancelRequested.value = true
-}
-
-const history = ref<HistoryItem[]>([])
-const historySearch = ref('')
-const objectUrlCache = new Map<number, string>()
-const storageUsed = ref(0)
-const storageQuota = ref(0)
 
 // ===== AI 优化提示词(选择密钥 → 该分组文本模型 → chat 改写) =====
 interface OptKeyItem { id: number; name: string; key: string }
@@ -585,7 +515,7 @@ async function loadOptModels() {
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
-    const res = await fetch(`${gatewayBase.value}/v1/models`, {
+    const res = await fetch(`${window.location.origin}/v1/models`, {
       headers: { Authorization: `Bearer ${key.key}` },
       signal: controller.signal
     })
@@ -624,7 +554,7 @@ async function optimizePrompt() {
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 120000)
   try {
-    const res = await fetch(`${gatewayBase.value}/v1/chat/completions`, {
+    const res = await fetch(`${window.location.origin}/v1/chat/completions`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${key.key}`,
@@ -663,7 +593,6 @@ async function optimizePrompt() {
   }
 }
 
-
 // ===== 图片放大预览 =====
 const viewer = ref<{ url: string; prompt: string; size: string } | null>(null)
 function openViewer(url: string, promptText: string, size = '') {
@@ -673,22 +602,10 @@ function closeViewer() {
   viewer.value = null
 }
 
-// 解码图片 Blob 的真实像素尺寸(请求的清晰度只是参数,实际以输出为准)
-async function imageSizeOf(blob: Blob): Promise<string> {
-  try {
-    const bmp = await createImageBitmap(blob)
-    const s = `${bmp.width}x${bmp.height}`
-    bmp.close()
-    return s
-  } catch {
-    return ''
-  }
-}
-
 // ===== 拖图变参考图(Pointer Events 自实现) =====
-// 原生 HTML5 拖拽会进入 OS 拖拽循环,实测在本页面主线程反复阻塞(采样最大 1s+),
-// 因此完全弃用原生拖拽:Pointer Events 跟踪手势,小图 ghost 跟随光标,
-// 松手落 anywhere 即加入参考图;移动距离小于阈值视为点击(打开灯箱)。
+// 原生 HTML5 拖拽会进入 OS 拖拽循环并冻结页面渲染,因此完全弃用原生拖拽:
+// Pointer Events 跟踪手势,小图 ghost 跟随光标,松手落 anywhere 即加入参考图;
+// 移动距离小于阈值视为点击(打开灯箱)。
 interface PointerDragState {
   blob: Blob
   url: string
@@ -703,7 +620,7 @@ const POINTER_DRAG_THRESHOLD = 6
 const pointerDrag = ref<PointerDragState | null>(null)
 let suppressNextImgClick = false
 
-function onBatchImgPointerDown(event: PointerEvent, slot: BatchSlot) {
+function onBatchImgPointerDown(event: PointerEvent, slot: import('@/composables/useImageStudioEngine').BatchSlot) {
   if (event.pointerType !== 'mouse' || event.button !== 0 || !slot.blob || !slot.url) return
   // 阻止默认的文本选择/原生拖拽接管,否则浏览器会改发 pointercancel 导致拖拽卡死
   event.preventDefault()
@@ -752,7 +669,7 @@ function finishPointerDrag(commit: boolean) {
   addRefFiles([new File([d.blob], d.name, { type: d.blob.type || 'image/png' })])
   appStore.showSuccess(t('imageStudio.refAdded'))
 }
-function onBatchImgClick(slot: BatchSlot) {
+function onBatchImgClick(slot: import('@/composables/useImageStudioEngine').BatchSlot) {
   if (suppressNextImgClick) {
     suppressNextImgClick = false
     return
@@ -760,86 +677,7 @@ function onBatchImgClick(slot: BatchSlot) {
   if (slot.url) openViewer(slot.url, slot.prompt, slot.actualSize || slot.size)
 }
 
-const gatewayBase = computed(() => window.location.origin)
-// 每次调用现读 localStorage:token 刷新后旧值不能被缓存(computed 会永久缓存导致 401)
-function sessionAuthHeader(): { Authorization: string } {
-  const token = localStorage.getItem('auth_token') || ''
-  return { Authorization: `Bearer ${token}` }
-}
-
-const computedSize = computed(() => {
-  if (size.value === 'auto') {
-    // 画幅 auto 时清晰度也要生效:2K/4K 请求方形大图(1K 保持 auto 由上游默认)
-    if (clarity.value !== '1k') {
-      const base = CLARITY_BASE[clarity.value] || 1024
-      return `${base}x${base}`
-    }
-    return 'auto'
-  }
-  const [wStr, hStr] = size.value.split(':')
-  const w = Number(wStr)
-  const h = Number(hStr)
-  if (!w || !h) return 'auto'
-  const base = CLARITY_BASE[clarity.value] || 1024
-  const ratio = w / h
-  let width = base
-  let height = base
-  if (ratio >= 1) height = Math.round(base / ratio)
-  else width = Math.round(base * ratio)
-  return `${width}x${height}`
-})
-
-const filteredHistory = computed(() => {
-  const kw = historySearch.value.trim().toLowerCase()
-  if (!kw) return history.value
-  return history.value.filter(it => it.prompt.toLowerCase().includes(kw) || it.model.toLowerCase().includes(kw))
-})
-const starredItems = computed(() => history.value.filter(it => it.starred))
-const storagePercent = computed(() => (storageQuota.value > 0 ? Math.min(100, (storageUsed.value / storageQuota.value) * 100) : 0))
-
-// ===== 提示词框 =====
-function addPromptBox() {
-  if (promptBoxes.value.length >= MAX_PROMPT_BOXES) return
-  const id = ++boxSeq
-  promptBoxes.value = [...promptBoxes.value, { id, text: '', status: 'draft' }]
-  activeBoxId.value = id
-}
-function removePromptBox(id: number) {
-  if (promptBoxes.value.length <= 1) return
-  const idx = promptBoxes.value.findIndex(b => b.id === id)
-  promptBoxes.value = promptBoxes.value.filter(b => b.id !== id)
-  if (activeBoxId.value === id) {
-    const next = promptBoxes.value[Math.max(0, idx - 1)]
-    activeBoxId.value = next ? next.id : promptBoxes.value[0]?.id ?? 1
-  }
-}
-
-// ===== 参考图 =====
-function addRefFiles(incoming: File[]) {
-  const images = incoming.filter(f => f.type.startsWith('image/'))
-  if (!images.length) return
-  const room = MAX_REFS - refItems.value.length
-  if (room <= 0) {
-    appStore.showError(t('imageStudio.maxRefs'))
-    return
-  }
-  const accepted = images.slice(0, room)
-  for (const f of accepted) {
-    refItems.value.push({ file: f, url: URL.createObjectURL(f) })
-  }
-  mode.value = 'i2i'
-  if (images.length > accepted.length) appStore.showError(t('imageStudio.maxRefs'))
-}
-function removeRefItem(idx: number) {
-  const item = refItems.value[idx]
-  if (!item) return
-  URL.revokeObjectURL(item.url)
-  refItems.value = refItems.value.filter((_, i) => i !== idx)
-}
-function clearRefItems() {
-  refItems.value.forEach(r => URL.revokeObjectURL(r.url))
-  refItems.value = []
-}
+// ===== 参考图事件薄封装 =====
 function onRefFilesChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (input.files?.length) addRefFiles(Array.from(input.files))
@@ -864,474 +702,11 @@ function onPaste(event: ClipboardEvent) {
   addRefFiles(files)
 }
 
-// ===== 模型(会话直通,无需 API Key) =====
-function retryInit() {
-  initError.value = ''
-  void loadModels()
-}
-async function loadModels() {
-  initError.value = ''
-  try {
-    const controller = new AbortController()
-    const timer = window.setTimeout(() => controller.abort(), 15000)
-    const res = await fetch(`${gatewayBase.value}/api/v1/image-studio/models`, {
-      headers: sessionAuthHeader(),
-      signal: controller.signal
-    })
-    window.clearTimeout(timer)
-    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: Array<{ id: string }> } | null
-    if (!res.ok) {
-      throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
-    }
-    const ids: string[] = (body?.data || []).map((m) => m.id)
-    const imageModels = ids.filter(id => IMAGE_MODEL_PATTERN.test(id))
-    if (!imageModels.length) {
-      initError.value = t('imageStudio.noImageModels')
-      return
-    }
-    models.value = imageModels
-    if (!models.value.includes(model.value)) model.value = models.value[0] || FALLBACK_MODELS[0]
-  } catch (err: unknown) {
-    const msg = err instanceof DOMException && err.name === 'AbortError'
-      ? t('imageStudio.timeout')
-      : (err instanceof Error ? err.message : t('imageStudio.noKeys'))
-    initError.value = msg
-    models.value = FALLBACK_MODELS
-    model.value = FALLBACK_MODELS[0]
-  }
-}
-
-// ===== IndexedDB =====
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('image-studio-db', 1)
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains('history')) {
-        req.result.createObjectStore('history', { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
-}
-async function idbPut(item: HistoryItem) {
-  const db = await openIdb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('history', 'readwrite')
-    tx.objectStore('history').put(item)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
-}
-async function idbPutMany(items: HistoryItem[]) {
-  const db = await openIdb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('history', 'readwrite')
-    const store = tx.objectStore('history')
-    for (const it of items) store.put(it)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
-}
-async function idbAll(): Promise<HistoryItem[]> {
-  const db = await openIdb()
-  const items = await new Promise<HistoryItem[]>((resolve, reject) => {
-    const req = db.transaction('history', 'readonly').objectStore('history').getAll()
-    req.onsuccess = () => resolve(req.result as HistoryItem[])
-    req.onerror = () => reject(req.error)
-  })
-  db.close()
-  return items
-}
-async function idbDelete(id: number) {
-  const db = await openIdb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('history', 'readwrite')
-    tx.objectStore('history').delete(id)
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
-}
-async function idbClear() {
-  const db = await openIdb()
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('history', 'readwrite')
-    tx.objectStore('history').clear()
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
-  db.close()
-}
-
-async function loadHistory() {
-  try {
-    const items = await idbAll()
-    // 过滤早期版本写入的不完整记录(缺少 images 数组会导致渲染崩溃)
-    history.value = items
-      .filter(it => it && Array.isArray(it.images))
-      .sort((a, b) => b.ts - a.ts)
-  } catch {
-    history.value = []
-  }
-}
-
-function updateStorageMeter() {
-  if (navigator.storage?.estimate) {
-    void navigator.storage.estimate().then(est => {
-      storageUsed.value = est.usage ?? 0
-      storageQuota.value = est.quota ?? 0
-    })
-  }
-}
-function fmtMB(n: number): string {
-  return `${(n / 1024 / 1024).toFixed(1)} MB`
-}
-
-function objectUrlFor(item: HistoryItem): string {
-  if (!item || !Array.isArray(item.images)) return ''
-  const cached = objectUrlCache.get(item.id)
-  if (cached) return cached
-  const first = item.images.find(img => img && !img.failed)
-  if (!first) return ''
-  const url = URL.createObjectURL(first.blob)
-  objectUrlCache.set(item.id, url)
-  return url
-}
-
-async function toggleHistoryStar(item: HistoryItem) {
-  item.starred = !item.starred
-  await idbPut(item).catch(() => undefined)
-}
-async function deleteHistory(id: number) {
-  const cached = objectUrlCache.get(id)
-  if (cached) {
-    URL.revokeObjectURL(cached)
-    objectUrlCache.delete(id)
-  }
-  history.value = history.value.filter(it => it.id !== id)
-  await idbDelete(id).catch(() => undefined)
-  updateStorageMeter()
-}
-async function clearAllHistory() {
-  if (!window.confirm(t('imageStudio.clearAllConfirm'))) return
-  objectUrlCache.forEach(url => URL.revokeObjectURL(url))
-  objectUrlCache.clear()
-  history.value = []
-  await idbClear().catch(() => undefined)
-  updateStorageMeter()
-}
-function restoreHistory(item: HistoryItem) {
-  batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
-  batch.value = item.images.map(img => ({
-    slotId: ++slotSeq,
-    status: (img.failed ? 'failed' : 'done') as BatchSlot['status'],
-    prompt: item.prompt,
-    size: item.size,
-    actualSize: img.failed ? undefined : item.actualSize,
-    blob: img.failed ? undefined : img.blob,
-    url: img.failed ? undefined : URL.createObjectURL(img.blob),
-    error: img.failed ? t('imageStudio.generateFailed') : undefined
-  }))
-  if (activeBox.value) activeBox.value.text = item.prompt
-  if (models.value.includes(item.model)) model.value = item.model
-  appStore.showSuccess(t('imageStudio.restored'))
-}
-
-// ===== ZIP 导出 / 导入 =====
-async function exportZip() {
-  if (!history.value.length) return
-  const zip = new JSZip()
-  const metas: Record<string, unknown>[] = []
-  for (const item of history.value) {
-    const folder = zip.folder(String(item.ts))
-    if (!folder) continue
-    for (let i = 0; i < item.images.length; i++) {
-      const img = item.images[i]
-      const ext = img.failed ? 'txt' : (item.format || 'png')
-      if (img.failed) {
-        folder.file(`image-${i + 1}-failed.txt`, t('imageStudio.generateFailed'))
-      } else {
-        folder.file(`image-${i + 1}.${ext}`, img.blob)
-      }
-    }
-    metas.push({
-      ts: item.ts, model: item.model, quality: item.quality, format: item.format,
-      size: item.size, actualSize: item.actualSize, prompt: item.prompt, mode: item.mode, starred: item.starred
-    })
-  }
-  zip.file('meta.json', JSON.stringify(metas, null, 2))
-  const blob = await zip.generateAsync({ type: 'blob' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = `image-studio-${Date.now()}.zip`
-  a.click()
-  window.setTimeout(() => URL.revokeObjectURL(url), 30000)
-}
-async function onImportZipChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  if (!input.files || !input.files[0]) return
-  try {
-    const zip = await JSZip.loadAsync(input.files[0])
-    let metas: Record<string, unknown>[] = []
-    const metaFile = zip.file('meta.json')
-    if (metaFile) {
-      try { metas = JSON.parse(await metaFile.async('string')) as Record<string, unknown>[] } catch { metas = [] }
-    }
-    const folders = new Set<string>()
-    Object.keys(zip.files).forEach(path => {
-      const seg = path.split('/')[0]
-      if (/^\d+$/.test(seg)) folders.add(seg)
-    })
-    const items: HistoryItem[] = []
-    for (const folder of folders) {
-      const meta = metas.find(m => String(m.ts) === folder) || {}
-      const images: HistoryImage[] = []
-      for (const path of Object.keys(zip.files)) {
-        if (!path.startsWith(`${folder}/image-`) || zip.files[path].dir) continue
-        if (path.endsWith('.txt')) {
-          images.push({ blob: new Blob([await zip.files[path].async('string')], { type: 'text/plain' }), failed: true })
-          continue
-        }
-        const blob = await zip.files[path].async('blob')
-        images.push({ blob, failed: path.includes('-failed') })
-      }
-      if (!images.length) continue
-      items.push({
-        id: Number(folder) || Date.now() + items.length,
-        ts: Number(meta.ts) || Date.now(),
-        model: String(meta.model || 'unknown'),
-        quality: String(meta.quality || 'auto'),
-        format: String(meta.format || 'png'),
-        size: String(meta.size || '1024x1024'),
-        actualSize: meta.actualSize ? String(meta.actualSize) : undefined,
-        prompt: String(meta.prompt || ''),
-        mode: (meta.mode as 't2i' | 'i2i') || 't2i',
-        images,
-        starred: Boolean(meta.starred)
-      })
-    }
-    if (items.length) {
-      await idbPutMany(items)
-      await loadHistory()
-      appStore.showSuccess(t('imageStudio.importDone', { n: items.length }))
-      updateStorageMeter()
-    }
-  } catch {
-    appStore.showError(t('imageStudio.importFailed'))
-  }
-  input.value = ''
-}
-
-// ===== 生成 =====
-function blobFromB64(b64: string): Blob {
-  const bin = atob(b64)
-  const bytes = new Uint8Array(bin.length)
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new Blob([bytes], { type: 'image/png' })
-}
-async function blobFromUrl(url: string): Promise<Blob> {
-  const res = await fetch(url)
-  return await res.blob()
-}
-
-async function generateOne(promptText: string, refList: File[]): Promise<{ blob: Blob | null; error?: string }> {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 300000)
-  try {
-    let res: Response
-    if (mode.value === 'i2i' && refList.length) {
-      const form = new FormData()
-      form.append('model', model.value)
-      form.append('prompt', promptText)
-      if (computedSize.value !== 'auto') form.append('size', computedSize.value)
-      if (quality.value !== 'auto') form.append('quality', quality.value)
-      form.append('output_format', outputFormat.value)
-      for (const f of refList) form.append('image', f)
-      res = await fetch(`${gatewayBase.value}/api/v1/image-studio/edits`, {
-        method: 'POST',
-        headers: sessionAuthHeader(),
-        body: form,
-        signal: controller.signal
-      })
-    } else {
-      res = await fetch(`${gatewayBase.value}/api/v1/image-studio/generations`, {
-        method: 'POST',
-        headers: {
-          ...sessionAuthHeader(),
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model: model.value,
-          prompt: promptText,
-          size: computedSize.value === 'auto' ? undefined : computedSize.value,
-          quality: quality.value === 'auto' ? undefined : quality.value,
-          output_format: outputFormat.value,
-          n: 1
-        }),
-        signal: controller.signal
-      })
-    }
-    const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string; data?: Array<{ b64_json?: string; url?: string }> } | null
-    if (!res.ok) {
-      const msg = body?.error?.message || body?.message || t('imageStudio.generateFailed')
-      return { blob: null, error: msg }
-    }
-    const data = body?.data || []
-    if (!data.length) return { blob: null, error: t('imageStudio.generateFailed') }
-    const first = data[0]
-    const blob = first?.b64_json
-      ? blobFromB64(first.b64_json)
-      : (first?.url ? await blobFromUrl(first.url) : null)
-    if (!blob) return { blob: null, error: t('imageStudio.generateFailed') }
-    return { blob }
-  } catch (err: unknown) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      return { blob: null, error: t('imageStudio.timeout') }
-    }
-    return { blob: null, error: err instanceof Error ? err.message : t('imageStudio.generateFailed') }
-  } finally {
-    window.clearTimeout(timer)
-  }
-}
-
-function clearFailed() {
-  batch.value = batch.value.filter(s => s.status !== 'failed')
-}
-function removeSlot(slotId: number) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  if (slot?.url) URL.revokeObjectURL(slot.url)
-  batch.value = batch.value.filter(s => s.slotId !== slotId)
-}
-function starSlot(slotId: number, blob?: Blob) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  const b = blob || slot?.blob
-  if (!b) return
-  const item: HistoryItem = {
-    id: Date.now(),
-    ts: Date.now(),
-    model: model.value,
-    quality: quality.value,
-    format: outputFormat.value,
-    size: slot?.size || computedSize.value,
-    actualSize: slot?.actualSize,
-    prompt: slot?.prompt || '',
-    mode: mode.value,
-    images: [{ blob: b, failed: false }],
-    starred: true
-  }
-  history.value = [item, ...history.value]
-  void idbPut(item)
-  updateStorageMeter()
-  appStore.showSuccess(t('imageStudio.starredSaved'))
-}
-async function copySlotImage(slotId: number) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot?.blob) return
-  try {
-    const type = slot.blob.type || 'image/png'
-    await navigator.clipboard.write([new ClipboardItem({ [type]: slot.blob })])
-    appStore.showSuccess(t('imageStudio.copied'))
-  } catch {
-    appStore.showError(t('imageStudio.copyFailed'))
-  }
-}
-function setRefFromSlot(slotId: number) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot?.blob) return
-  const file = new File([slot.blob], `ref-${slotId}.${outputFormat.value}`, { type: slot.blob.type || 'image/png' })
-  addRefFiles([file])
-  appStore.showSuccess(t('imageStudio.refAdded'))
-}
-async function retrySlot(slotId: number) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot || generating.value) return
-  slot.status = 'running'
-  const refs = mode.value === 'i2i' ? refItems.value.map(r => r.file) : []
-  const started = performance.now()
-  const result = await generateOne(slot.prompt, refs)
-  slot.ms = Math.round(performance.now() - started)
-  slot.status = result.blob ? 'done' : 'failed'
-  slot.error = result.error
-  if (result.blob) {
-    slot.blob = result.blob
-    slot.url = URL.createObjectURL(result.blob)
-    slot.actualSize = await imageSizeOf(result.blob)
-  }
-  batch.value = [...batch.value]
-}
-
-async function generateBatch() {
-  const box = activeBox.value
-  if (!box || initError.value || !box.text.trim()) return
-  const n = quantity.value
-  const promptText = box.text.trim()
-  const refs = mode.value === 'i2i' ? refItems.value.map(r => r.file) : []
-  batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
-  batch.value = []
-  generating.value = true
-  batchCancelRequested.value = false
-  startElapsed()
-  let okCount = 0
-  try {
-    for (let i = 0; i < n; i++) {
-      // 用户点击停止后不再发起新请求,已完成的图照常入库
-      if (batchCancelRequested.value) break
-      const slotId = ++slotSeq
-      const slot: BatchSlot = { slotId, status: 'running', prompt: promptText, size: computedSize.value }
-      batch.value = [...batch.value, slot]
-      const started = performance.now()
-      const result = await generateOne(promptText, refs)
-      slot.ms = Math.round(performance.now() - started)
-      if (result.blob) {
-        slot.blob = result.blob
-        slot.url = URL.createObjectURL(result.blob)
-        slot.actualSize = await imageSizeOf(result.blob)
-        slot.status = 'done'
-        okCount++
-      } else {
-        slot.status = 'failed'
-        slot.error = result.error
-      }
-      batch.value = [...batch.value]
-    }
-    if (batchCancelRequested.value) {
-      appStore.showSuccess(t('imageStudio.batchCancelled', { ok: okCount }))
-    } else if (okCount > 0) {
-      box.status = 'done'
-      appStore.showSuccess(t('imageStudio.batchDone', { ok: okCount, total: n }))
-    }
-  } finally {
-    generating.value = false
-    stopElapsed()
-    const done = batch.value.filter(s => s.status === 'done' && s.blob)
-    if (done.length) {
-      const item: HistoryItem = {
-        id: Date.now(),
-        ts: Date.now(),
-        model: model.value,
-        quality: quality.value,
-        format: outputFormat.value,
-        size: computedSize.value,
-        actualSize: done[0]?.actualSize,
-        prompt: promptText,
-        mode: mode.value,
-        images: done.map(s => ({ blob: s.blob as Blob, failed: false })),
-        starred: false
-      }
-      await idbPut(item).catch(() => undefined)
-      history.value = [item, ...history.value]
-      updateStorageMeter()
-    }
-  }
-}
-
 // ===== 生命周期 =====
+// 注意:引擎是模块级单例,生成任务/历史/草稿在路由切换后继续存活,
+// 这里只清理本组件自身的窗口监听与 UI 状态,不清理引擎资源。
 onMounted(() => {
-  void loadModels()
+  void retryInit()
   void loadOptKeys()
   void loadHistory()
   updateStorageMeter()
@@ -1343,13 +718,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   window.removeEventListener('pointermove', onBatchImgPointerMove)
   window.removeEventListener('pointerup', onBatchImgPointerUp)
-  // 拖拽兜底监听与生成计时器一并清理,避免卸载后残留
   finishPointerDrag(false)
-  stopElapsed()
-  batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
-  clearRefItems()
-  objectUrlCache.forEach(url => URL.revokeObjectURL(url))
-  objectUrlCache.clear()
 })
 
 function onKeydown(e: KeyboardEvent) {
@@ -1362,4 +731,3 @@ function onKeydown(e: KeyboardEvent) {
   }
 }
 </script>
-

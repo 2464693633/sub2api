@@ -2,6 +2,10 @@ export default {
   imageStudio: {
     title: 'Image Studio',
     subtitle: 'Describe, generate in batches, pay per image',
+    openStandalone: 'Open standalone window',
+    openStandaloneTip: 'Open the Image Studio in a standalone browser window to use alongside the main app',
+    standaloneTag: 'Standalone',
+    reload: 'Reload',
     apiKey: 'API key',
     noKeys: 'Image Studio init failed',
     noImageModels: 'No image models available in this group',

@@ -2,6 +2,10 @@ export default {
   imageStudio: {
     title: '生图工作台',
     subtitle: '输入描述,批量生成图片,按张计费',
+    openStandalone: '新窗口独立打开',
+    openStandaloneTip: '在独立浏览器窗口中打开生图工作台,可与主界面并行使用',
+    standaloneTag: '独立窗口',
+    reload: '刷新',
     apiKey: '使用密钥',
     noKeys: '工作台初始化失败',
     noImageModels: '当前分组没有可用的生图模型',
