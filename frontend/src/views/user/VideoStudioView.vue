@@ -124,7 +124,7 @@
               <button
                 type="button"
                 class="absolute right-0.5 top-0.5 hidden h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] text-white group-hover:flex"
-                @click="removeRefImage"
+                @click="removeRefImage(0)"
               >✕</button>
             </div>
             <label

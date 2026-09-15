@@ -142,22 +142,28 @@ export async function loadModels() {
   }
 }
 
-// ===== 参考图 =====
+// ===== 参考图(可拖入多张,最多 9 张;提交时取第一张作为视频首帧) =====
+const MAX_REF_IMAGES = 9
 export function addRefImages(incoming: File[]) {
   const images = incoming.filter(f => f.type.startsWith('image/'))
   if (!images.length) return
-  if (refImages.value.length >= 1) {
+  const room = MAX_REF_IMAGES - refImages.value.length
+  if (room <= 0) {
     appStore().showError(t('videoStudio.maxRefImages'))
     return
   }
-  refImages.value.push({ file: images[0], url: URL.createObjectURL(images[0]) })
+  const accepted = images.slice(0, room)
+  for (const f of accepted) {
+    refImages.value.push({ file: f, url: URL.createObjectURL(f) })
+  }
   mode.value = 'i2v'
+  if (images.length > accepted.length) appStore().showError(t('videoStudio.maxRefImages'))
 }
-export function removeRefImage() {
-  const item = refImages.value[0]
+export function removeRefImage(index = 0) {
+  const item = refImages.value[index]
   if (!item) return
   URL.revokeObjectURL(item.url)
-  refImages.value = []
+  refImages.value = refImages.value.filter((_, i) => i !== index)
 }
 
 // ===== 提交 / 轮询 / 内容 =====
