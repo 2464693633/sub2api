@@ -319,6 +319,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		OpenAIAdvancedSchedulerEnabled:                         settings.OpenAIAdvancedSchedulerEnabled,
 		OpenAIAdvancedSchedulerStickyWeightedEnabled:           settings.OpenAIAdvancedSchedulerStickyWeightedEnabled,
 		OpenAIAdvancedSchedulerSubscriptionPriorityEnabled:     settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
+		OpenAISessionStickyEnabled:                             settings.OpenAISessionStickyEnabled,
+		OpenAIPreviousResponseStickyEnabled:                    settings.OpenAIPreviousResponseStickyEnabled,
+		OpenAIStrictPriorityEnabled:                            settings.OpenAIStrictPriorityEnabled,
 		OpenAIAdvancedSchedulerLBTopK:                          settings.OpenAIAdvancedSchedulerLBTopK,
 		OpenAIAdvancedSchedulerWeightPriority:                  settings.OpenAIAdvancedSchedulerWeightPriority,
 		OpenAIAdvancedSchedulerWeightLoad:                      settings.OpenAIAdvancedSchedulerWeightLoad,
@@ -391,8 +394,9 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
-		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		AccountSchedulingThresholds:       settings.AccountSchedulingThresholds,
+		OpenAIAPIKeyHealthBreakerSettings: settings.OpenAIAPIKeyHealthBreakerSettings,
+		AllowUserViewErrorRequests:        settings.AllowUserViewErrorRequests,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

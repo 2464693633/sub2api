@@ -261,6 +261,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAIAdvancedSchedulerWeightUpstreamCost:          "",
 		SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse:      "",
 		SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky:         "",
+		SettingKeyOpenAISessionStickyEnabled:                         "true",
+		SettingKeyOpenAIPreviousResponseStickyEnabled:                "true",
+		SettingKeyOpenAIStrictPriorityEnabled:                        "false",
 
 		SettingKeyAllowUserViewErrorRequests: "false",
 	}
@@ -913,6 +916,11 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	result.OpenAIAdvancedSchedulerEnabled = settings[openAIAdvancedSchedulerSettingKey] == "true"
 	result.OpenAIAdvancedSchedulerStickyWeightedEnabled = settings[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] == "true"
 	result.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled = settings[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled] == "true"
+	// 粘性开关默认开启：存量部署的 settings 表没有这两个键，缺省必须视为开启，
+	// 否则升级后粘性会被静默关闭。
+	result.OpenAISessionStickyEnabled = !parseSettingExplicitlyFalse(settings[SettingKeyOpenAISessionStickyEnabled])
+	result.OpenAIPreviousResponseStickyEnabled = !parseSettingExplicitlyFalse(settings[SettingKeyOpenAIPreviousResponseStickyEnabled])
+	result.OpenAIStrictPriorityEnabled = settings[SettingKeyOpenAIStrictPriorityEnabled] == "true"
 	result.OpenAIAdvancedSchedulerLBTopK = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 	result.OpenAIAdvancedSchedulerWeightPriority = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightPriority])
 	result.OpenAIAdvancedSchedulerWeightLoad = strings.TrimSpace(settings[SettingKeyOpenAIAdvancedSchedulerWeightLoad])
@@ -969,6 +977,16 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 			slog.Warn("[Setting] parseSettings: unmarshal account_scheduling_thresholds failed", "error", err)
 		} else {
 			result.AccountSchedulingThresholds = thresholds
+		}
+	}
+
+	result.OpenAIAPIKeyHealthBreakerSettings = DefaultOpenAIAPIKeyHealthBreakerSettings()
+	if raw := strings.TrimSpace(settings[SettingKeyOpenAIAPIKeyHealthBreakerSettings]); raw != "" {
+		breaker := DefaultOpenAIAPIKeyHealthBreakerSettings()
+		if err := json.Unmarshal([]byte(raw), breaker); err != nil {
+			slog.Warn("[Setting] parseSettings: unmarshal openai_apikey_health_breaker_settings failed", "error", err)
+		} else {
+			result.OpenAIAPIKeyHealthBreakerSettings = normalizeOpenAIAPIKeyHealthBreakerSettings(breaker)
 		}
 	}
 
@@ -1132,6 +1150,12 @@ func parseOpenAIOAuthSchedulingRateMultiplier(raw string) float64 {
 		return defaultOpenAIOAuthSchedulingRateMultiplier
 	}
 	return value
+}
+
+// parseSettingExplicitlyFalse 解析「默认开启、显式关闭」的布尔设置：
+// 仅存储值明确为 false 时返回 true，缺省/空值/无法识别一律视为未关闭。
+func parseSettingExplicitlyFalse(raw string) bool {
+	return strings.EqualFold(strings.TrimSpace(raw), "false")
 }
 
 // resolveOpenAIAdvancedSchedulerWeight 返回覆盖值（已归一化的非空字符串），空则回退默认值。

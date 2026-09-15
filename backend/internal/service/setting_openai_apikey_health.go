@@ -36,6 +36,9 @@ func normalizeOpenAIAPIKeyHealthBreakerSettings(settings *OpenAIAPIKeyHealthBrea
 	} else if result.CooldownMinutes > 60 {
 		result.CooldownMinutes = 60
 	}
+	if result.Scope != OpenAIAPIKeyHealthBreakerScopeAll {
+		result.Scope = OpenAIAPIKeyHealthBreakerScopePool
+	}
 	return &result
 }
 

@@ -685,6 +685,18 @@ export interface SystemSettings {
   openai_advanced_scheduler_enabled?: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
   openai_advanced_scheduler_subscription_priority_enabled?: boolean;
+  openai_session_sticky_enabled?: boolean;
+  openai_previous_response_sticky_enabled?: boolean;
+  openai_strict_priority_enabled?: boolean;
+  openai_apikey_health_breaker_settings?: {
+    enabled: boolean;
+    window_minutes: number;
+    failure_threshold: number;
+    cooldown_minutes: number;
+    scope?: "pool" | "all";
+    count_timeouts?: boolean;
+    count_stream_errors?: boolean;
+  };
   openai_advanced_scheduler_lb_top_k?: string;
   openai_advanced_scheduler_weight_priority?: string;
   openai_advanced_scheduler_weight_load?: string;
@@ -999,6 +1011,18 @@ export interface UpdateSettingsRequest {
   openai_advanced_scheduler_enabled?: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled?: boolean;
   openai_advanced_scheduler_subscription_priority_enabled?: boolean;
+  openai_session_sticky_enabled?: boolean;
+  openai_previous_response_sticky_enabled?: boolean;
+  openai_strict_priority_enabled?: boolean;
+  openai_apikey_health_breaker_settings?: {
+    enabled: boolean;
+    window_minutes: number;
+    failure_threshold: number;
+    cooldown_minutes: number;
+    scope?: "pool" | "all";
+    count_timeouts?: boolean;
+    count_stream_errors?: boolean;
+  };
   openai_advanced_scheduler_lb_top_k?: string;
   openai_advanced_scheduler_weight_priority?: string;
   openai_advanced_scheduler_weight_load?: string;

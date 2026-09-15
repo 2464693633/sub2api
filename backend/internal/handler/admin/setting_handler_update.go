@@ -278,6 +278,9 @@ type UpdateSettingsRequest struct {
 	OpenAIAdvancedSchedulerEnabled                     *bool    `json:"openai_advanced_scheduler_enabled"`
 	OpenAIAdvancedSchedulerStickyWeightedEnabled       *bool    `json:"openai_advanced_scheduler_sticky_weighted_enabled"`
 	OpenAIAdvancedSchedulerSubscriptionPriorityEnabled *bool    `json:"openai_advanced_scheduler_subscription_priority_enabled"`
+	OpenAISessionStickyEnabled                         *bool    `json:"openai_session_sticky_enabled"`
+	OpenAIPreviousResponseStickyEnabled                *bool    `json:"openai_previous_response_sticky_enabled"`
+	OpenAIStrictPriorityEnabled                        *bool    `json:"openai_strict_priority_enabled"`
 	OpenAIAdvancedSchedulerLBTopK                      *string  `json:"openai_advanced_scheduler_lb_top_k"`
 	OpenAIAdvancedSchedulerWeightPriority              *string  `json:"openai_advanced_scheduler_weight_priority"`
 	OpenAIAdvancedSchedulerWeightLoad                  *string  `json:"openai_advanced_scheduler_weight_load"`
@@ -370,6 +373,9 @@ type UpdateSettingsRequest struct {
 
 	// 各平台账号自动停调阈值（整体替换语义：nil = 不修改，non-nil = 整体覆盖）。
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
+
+	// OpenAI 账号健康熔断器配置（nil = 不修改，non-nil = 整体覆盖）。
+	OpenAIAPIKeyHealthBreakerSettings *service.OpenAIAPIKeyHealthBreakerSettings `json:"openai_apikey_health_breaker_settings"`
 
 	// auth-source 层 platform quota 覆盖（override 语义：nil = 不修改，non-nil = 整体覆盖该 source 的 quota 配置）。
 	AuthSourceEmailPlatformQuotas    map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_email_platform_quotas"`
@@ -1497,8 +1503,9 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	settings := &service.SystemSettings{
 		// 系统全局 platform quota 默认值（整体替换语义）
-		DefaultPlatformQuotas:       req.DefaultPlatformQuotas,
-		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
+		DefaultPlatformQuotas:             req.DefaultPlatformQuotas,
+		AccountSchedulingThresholds:       req.AccountSchedulingThresholds,
+		OpenAIAPIKeyHealthBreakerSettings: req.OpenAIAPIKeyHealthBreakerSettings,
 
 		RegistrationEnabled:                 req.RegistrationEnabled,
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
@@ -1829,6 +1836,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled
 			}
 			return previousSettings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled
+		}(),
+		OpenAISessionStickyEnabled: func() bool {
+			if req.OpenAISessionStickyEnabled != nil {
+				return *req.OpenAISessionStickyEnabled
+			}
+			return previousSettings.OpenAISessionStickyEnabled
+		}(),
+		OpenAIPreviousResponseStickyEnabled: func() bool {
+			if req.OpenAIPreviousResponseStickyEnabled != nil {
+				return *req.OpenAIPreviousResponseStickyEnabled
+			}
+			return previousSettings.OpenAIPreviousResponseStickyEnabled
+		}(),
+		OpenAIStrictPriorityEnabled: func() bool {
+			if req.OpenAIStrictPriorityEnabled != nil {
+				return *req.OpenAIStrictPriorityEnabled
+			}
+			return previousSettings.OpenAIStrictPriorityEnabled
 		}(),
 		OpenAIAdvancedSchedulerLBTopK:                 stringSetting(req.OpenAIAdvancedSchedulerLBTopK, previousSettings.OpenAIAdvancedSchedulerLBTopK),
 		OpenAIAdvancedSchedulerWeightPriority:         stringSetting(req.OpenAIAdvancedSchedulerWeightPriority, previousSettings.OpenAIAdvancedSchedulerWeightPriority),
@@ -2388,11 +2413,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
-		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
-		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
-		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
-		AccountSchedulingThresholds: updatedSettings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:  updatedSettings.AllowUserViewErrorRequests,
+		RiskControlEnabled:                updatedSettings.RiskControlEnabled,
+		CyberSessionBlockEnabled:          updatedSettings.CyberSessionBlockEnabled,
+		CyberSessionBlockTTLSeconds:       updatedSettings.CyberSessionBlockTTLSeconds,
+		AccountSchedulingThresholds:       updatedSettings.AccountSchedulingThresholds,
+		OpenAIAPIKeyHealthBreakerSettings: updatedSettings.OpenAIAPIKeyHealthBreakerSettings,
+		AllowUserViewErrorRequests:        updatedSettings.AllowUserViewErrorRequests,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

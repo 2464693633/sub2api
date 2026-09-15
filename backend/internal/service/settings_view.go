@@ -266,6 +266,9 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEnabled                         bool
 	OpenAIAdvancedSchedulerStickyWeightedEnabled           bool
 	OpenAIAdvancedSchedulerSubscriptionPriorityEnabled     bool
+	OpenAISessionStickyEnabled                             bool
+	OpenAIPreviousResponseStickyEnabled                    bool
+	OpenAIStrictPriorityEnabled                            bool
 	OpenAIAdvancedSchedulerLBTopK                          string
 	OpenAIAdvancedSchedulerWeightPriority                  string
 	OpenAIAdvancedSchedulerWeightLoad                      string
@@ -306,6 +309,9 @@ type SystemSettings struct {
 
 	// 系统全局账号自动停调阈值（key = platform，100 = disabled）
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
+
+	// OpenAI 账号健康熔断器配置（nil = 未配置，走内置默认值）
+	OpenAIAPIKeyHealthBreakerSettings *OpenAIAPIKeyHealthBreakerSettings `json:"openai_apikey_health_breaker_settings,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool
@@ -584,7 +590,45 @@ type OpenAIAPIKeyHealthBreakerSettings struct {
 	WindowMinutes    int  `json:"window_minutes"`
 	FailureThreshold int  `json:"failure_threshold"`
 	CooldownMinutes  int  `json:"cooldown_minutes"`
+	// Scope 熔断适用范围："pool"（默认，仅池模式 API Key 账号，兼容旧行为）
+	// 或 "all"（OpenAI 平台全部账号，含 OAuth 类与普通 Key 账号）。
+	Scope string `json:"scope,omitempty"`
+	// CountTimeouts 上游无响应超时（DeadlineExceeded，且非客户端取消）计入失败窗口。
+	// 指针语义：存量配置缺省视为开启。
+	CountTimeouts *bool `json:"count_timeouts,omitempty"`
+	// CountStreamErrors 其余账号侧失败（流内/首 token 失败等非凭据、非请求态错误）计入失败窗口。
+	// 指针语义：存量配置缺省视为开启。
+	CountStreamErrors *bool `json:"count_stream_errors,omitempty"`
 }
+
+// CountTimeoutsEnabled 报告超时信号是否计入；缺省开启。
+func (s *OpenAIAPIKeyHealthBreakerSettings) CountTimeoutsEnabled() bool {
+	return s == nil || s.CountTimeouts == nil || *s.CountTimeouts
+}
+
+// CountStreamErrorsEnabled 报告流内/首 token 失败信号是否计入；缺省开启。
+func (s *OpenAIAPIKeyHealthBreakerSettings) CountStreamErrorsEnabled() bool {
+	return s == nil || s.CountStreamErrors == nil || *s.CountStreamErrors
+}
+
+// ScopeMatchesAccount 报告账号是否在熔断范围内。
+func (s *OpenAIAPIKeyHealthBreakerSettings) ScopeMatchesAccount(account *Account) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	if s.Scope == OpenAIAPIKeyHealthBreakerScopeAll {
+		// 放开到 OpenAI 平台全部账号（OAuth 类 + 普通 Key）；其他兼容平台维持原状。
+		return account.Platform == PlatformOpenAI
+	}
+	return isOpenAIAPIKeyHealthBreakerAccount(account)
+}
+
+const (
+	// OpenAIAPIKeyHealthBreakerScopePool 仅池模式 API Key 账号（旧行为）。
+	OpenAIAPIKeyHealthBreakerScopePool = "pool"
+	// OpenAIAPIKeyHealthBreakerScopeAll OpenAI 平台全部账号。
+	OpenAIAPIKeyHealthBreakerScopeAll = "all"
+)
 
 func DefaultOpenAIAPIKeyHealthBreakerSettings() *OpenAIAPIKeyHealthBreakerSettings {
 	return &OpenAIAPIKeyHealthBreakerSettings{
@@ -592,6 +636,7 @@ func DefaultOpenAIAPIKeyHealthBreakerSettings() *OpenAIAPIKeyHealthBreakerSettin
 		WindowMinutes:    2,
 		FailureThreshold: 10,
 		CooldownMinutes:  5,
+		Scope:            OpenAIAPIKeyHealthBreakerScopePool,
 	}
 }
 

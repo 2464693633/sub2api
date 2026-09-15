@@ -626,6 +626,17 @@ const (
 	SettingKeyOpenAIAdvancedSchedulerWeightPreviousResponse      = "openai_advanced_scheduler_weight_previous_response"
 	SettingKeyOpenAIAdvancedSchedulerWeightSessionSticky         = "openai_advanced_scheduler_weight_session_sticky"
 
+	// SettingKeyOpenAISessionStickyEnabled OpenAI 会话粘性总开关（默认开启）。
+	// 关闭后调度不再读取/写入 session→account 粘性绑定，选号完全按优先级/负载执行。
+	SettingKeyOpenAISessionStickyEnabled = "openai_session_sticky_enabled"
+	// SettingKeyOpenAIPreviousResponseStickyEnabled OpenAI 上一条响应粘性开关（默认开启）。
+	// 关闭后 sticky-weighted 打分不再解析/加权 previous_response_id 归属账号；
+	// 首包可重建上下文（previousResponseCanMove）时 previous_response_id 会被剥离重建。
+	SettingKeyOpenAIPreviousResponseStickyEnabled = "openai_previous_response_sticky_enabled"
+	// SettingKeyOpenAIStrictPriorityEnabled OpenAI 严格优先级模式（默认关闭）。
+	// 开启后高级调度跳过打分与加权随机，按（优先级 → 负载率 → 排队数 → LRU）确定性排序逐个尝试。
+	SettingKeyOpenAIStrictPriorityEnabled = "openai_strict_priority_enabled"
+
 	// SettingKeyBackendModeEnabled Backend 模式：禁用用户注册和自助服务，仅管理员可登录
 	SettingKeyBackendModeEnabled = "backend_mode_enabled"
 

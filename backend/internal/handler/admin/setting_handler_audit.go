@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"log/slog"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -518,6 +519,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled != after.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled {
 		changed = append(changed, "openai_advanced_scheduler_subscription_priority_enabled")
 	}
+	if before.OpenAISessionStickyEnabled != after.OpenAISessionStickyEnabled {
+		changed = append(changed, "openai_session_sticky_enabled")
+	}
+	if before.OpenAIPreviousResponseStickyEnabled != after.OpenAIPreviousResponseStickyEnabled {
+		changed = append(changed, "openai_previous_response_sticky_enabled")
+	}
+	if before.OpenAIStrictPriorityEnabled != after.OpenAIStrictPriorityEnabled {
+		changed = append(changed, "openai_strict_priority_enabled")
+	}
 	if before.OpenAIAdvancedSchedulerLBTopK != after.OpenAIAdvancedSchedulerLBTopK {
 		changed = append(changed, "openai_advanced_scheduler_lb_top_k")
 	}
@@ -607,8 +617,30 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !equalAccountSchedulingThresholds(before.AccountSchedulingThresholds, after.AccountSchedulingThresholds) {
 		changed = append(changed, service.SettingKeyAccountSchedulingThresholds)
 	}
+	if !equalOpenAIAPIKeyHealthBreakerSettings(before.OpenAIAPIKeyHealthBreakerSettings, after.OpenAIAPIKeyHealthBreakerSettings) {
+		changed = append(changed, service.SettingKeyOpenAIAPIKeyHealthBreakerSettings)
+	}
 	changed = appendAuthSourceDefaultChanges(changed, beforeAuthSourceDefaults, afterAuthSourceDefaults)
 	return changed
+}
+
+// equalOpenAIAPIKeyHealthBreakerSettings 以序列化结果比较熔断配置；nil 视为内置默认值。
+func equalOpenAIAPIKeyHealthBreakerSettings(before, after *service.OpenAIAPIKeyHealthBreakerSettings) bool {
+	if before == nil && after == nil {
+		return true
+	}
+	normalize := func(s *service.OpenAIAPIKeyHealthBreakerSettings) *service.OpenAIAPIKeyHealthBreakerSettings {
+		if s != nil {
+			return s
+		}
+		return service.DefaultOpenAIAPIKeyHealthBreakerSettings()
+	}
+	beforeJSON, beforeErr := json.Marshal(normalize(before))
+	afterJSON, afterErr := json.Marshal(normalize(after))
+	if beforeErr != nil || afterErr != nil {
+		return beforeErr == afterErr
+	}
+	return string(beforeJSON) == string(afterJSON)
 }
 
 func appendAuthSourceDefaultChanges(changed []string, before *service.AuthSourceDefaultSettings, after *service.AuthSourceDefaultSettings) []string {

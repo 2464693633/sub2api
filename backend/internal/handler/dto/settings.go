@@ -240,6 +240,9 @@ type SystemSettings struct {
 	OpenAIAdvancedSchedulerEnabled                         bool    `json:"openai_advanced_scheduler_enabled"`
 	OpenAIAdvancedSchedulerStickyWeightedEnabled           bool    `json:"openai_advanced_scheduler_sticky_weighted_enabled"`
 	OpenAIAdvancedSchedulerSubscriptionPriorityEnabled     bool    `json:"openai_advanced_scheduler_subscription_priority_enabled"`
+	OpenAISessionStickyEnabled                             bool    `json:"openai_session_sticky_enabled"`
+	OpenAIPreviousResponseStickyEnabled                    bool    `json:"openai_previous_response_sticky_enabled"`
+	OpenAIStrictPriorityEnabled                            bool    `json:"openai_strict_priority_enabled"`
 	OpenAIAdvancedSchedulerLBTopK                          string  `json:"openai_advanced_scheduler_lb_top_k"`
 	OpenAIAdvancedSchedulerWeightPriority                  string  `json:"openai_advanced_scheduler_weight_priority"`
 	OpenAIAdvancedSchedulerWeightLoad                      string  `json:"openai_advanced_scheduler_weight_load"`
@@ -341,6 +344,9 @@ type SystemSettings struct {
 
 	// 系统全局账号自动停调阈值（key = platform，100 = disabled）
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds,omitempty"`
+
+	// OpenAI 账号健康熔断器配置
+	OpenAIAPIKeyHealthBreakerSettings *service.OpenAIAPIKeyHealthBreakerSettings `json:"openai_apikey_health_breaker_settings,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`

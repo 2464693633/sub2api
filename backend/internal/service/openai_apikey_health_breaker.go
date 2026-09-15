@@ -19,9 +19,17 @@ func isOpenAIAPIKeyHealthBreakerAccount(account *Account) bool {
 	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && account.IsPoolMode()
 }
 
-func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+func classifyOpenAIAPIKeyHealthFailure(err error, settings *OpenAIAPIKeyHealthBreakerSettings) (int, []byte, bool) {
+	// 客户端主动离开永远不计：客户端断开曾是被误报成账号故障的来源
+	//（见 handler openAIWSIngressEndedByClient 注释），绝不能反算成账号问题。
+	if err == nil || errors.Is(err, context.Canceled) {
 		return 0, nil, false
+	}
+
+	// 上游无响应超时：客户端仍在线但上游迟迟不响应，属于账号侧信号。
+	// 是否计入由 count_timeouts 控制（缺省开启）。
+	if errors.Is(err, context.DeadlineExceeded) {
+		return 0, nil, settings.CountTimeoutsEnabled()
 	}
 
 	var failoverErr *UpstreamFailoverError
@@ -47,15 +55,14 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 			return imageErr.StatusCode, []byte(strings.TrimSpace(imageErr.Message)), true
 		}
 	}
-	return 0, nil, false
+
+	// 兜底：能走到上报链路的非客户端错误（如流已建立后的首 token 失败、
+	// 上游连接中断），由 count_stream_errors 控制是否计入（缺省开启）。
+	return 0, nil, settings.CountStreamErrorsEnabled()
 }
 
 func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context, account *Account, upstreamErr error) bool {
-	if s == nil || s.openAIAPIKeyHealth == nil || s.settingService == nil || s.accountRepo == nil || !isOpenAIAPIKeyHealthBreakerAccount(account) {
-		return false
-	}
-	statusCode, responseBody, eligible := classifyOpenAIAPIKeyHealthFailure(upstreamErr)
-	if !eligible {
+	if s == nil || s.openAIAPIKeyHealth == nil || s.settingService == nil || s.accountRepo == nil || account == nil {
 		return false
 	}
 	settings, err := s.settingService.GetOpenAIAPIKeyHealthBreakerSettings(ctx)
@@ -64,6 +71,14 @@ func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context,
 		return false
 	}
 	if settings == nil || !settings.Enabled {
+		return false
+	}
+	// 范围判定必须在设置加载之后：scope=all 时不再要求池模式 API Key 账号。
+	if !settings.ScopeMatchesAccount(account) {
+		return false
+	}
+	statusCode, responseBody, eligible := classifyOpenAIAPIKeyHealthFailure(upstreamErr, settings)
+	if !eligible {
 		return false
 	}
 

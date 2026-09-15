@@ -5082,6 +5082,218 @@
               </div>
 
               <div
+                class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+              >
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.sessionStickyTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t("admin.settings.openaiExperimentalScheduler.sessionStickyDescription")
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_session_sticky_enabled"
+                  data-testid="openai-session-sticky-toggle"
+                />
+              </div>
+
+              <div
+                class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+              >
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.previousStickyTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t("admin.settings.openaiExperimentalScheduler.previousStickyDescription")
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_previous_response_sticky_enabled"
+                  data-testid="openai-previous-sticky-toggle"
+                />
+              </div>
+
+              <div
+                v-if="form.openai_advanced_scheduler_enabled"
+                class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
+              >
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.strictPriorityTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{
+                      t("admin.settings.openaiExperimentalScheduler.strictPriorityDescription")
+                    }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_strict_priority_enabled"
+                  data-testid="openai-strict-priority-toggle"
+                />
+              </div>
+
+              <div
+                class="flex flex-col items-stretch gap-3 border-t border-gray-100 pt-5 sm:flex-row sm:items-start sm:justify-between sm:gap-6 dark:border-dark-700"
+              >
+                <div class="min-w-0">
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerTitle") }}
+                  </label>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerDescription") }}
+                  </p>
+                </div>
+                <Toggle
+                  v-model="form.openai_apikey_health_breaker_settings.enabled"
+                  data-testid="openai-health-breaker-toggle"
+                />
+              </div>
+
+              <div
+                v-if="form.openai_apikey_health_breaker_settings.enabled"
+                class="grid grid-cols-1 gap-4 border-t border-gray-100 pt-5 sm:grid-cols-2 dark:border-dark-700"
+              >
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-health-breaker-threshold"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerThreshold") }}
+                  </label>
+                  <input
+                    id="openai-health-breaker-threshold"
+                    v-model.number="
+                      form.openai_apikey_health_breaker_settings.failure_threshold
+                    "
+                    class="input mt-1"
+                    data-testid="openai-health-breaker-threshold"
+                    min="1"
+                    type="number"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-health-breaker-window"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerWindow") }}
+                  </label>
+                  <input
+                    id="openai-health-breaker-window"
+                    v-model.number="
+                      form.openai_apikey_health_breaker_settings.window_minutes
+                    "
+                    class="input mt-1"
+                    data-testid="openai-health-breaker-window"
+                    min="1"
+                    type="number"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-health-breaker-cooldown"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerCooldown") }}
+                  </label>
+                  <input
+                    id="openai-health-breaker-cooldown"
+                    v-model.number="
+                      form.openai_apikey_health_breaker_settings.cooldown_minutes
+                    "
+                    class="input mt-1"
+                    data-testid="openai-health-breaker-cooldown"
+                    min="1"
+                    type="number"
+                  />
+                </div>
+                <div>
+                  <label
+                    class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    for="openai-health-breaker-scope"
+                  >
+                    {{ t("admin.settings.openaiExperimentalScheduler.breakerScope") }}
+                  </label>
+                  <select
+                    id="openai-health-breaker-scope"
+                    v-model="
+                      form.openai_apikey_health_breaker_settings.scope
+                    "
+                    class="input mt-1"
+                    data-testid="openai-health-breaker-scope"
+                  >
+                    <option value="pool">
+                      {{ t("admin.settings.openaiExperimentalScheduler.breakerScopePool") }}
+                    </option>
+                    <option value="all">
+                      {{ t("admin.settings.openaiExperimentalScheduler.breakerScopeAll") }}
+                    </option>
+                  </select>
+                </div>
+                <div class="flex items-center justify-between sm:col-span-2">
+                  <div>
+                    <label
+                      class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{ t("admin.settings.openaiExperimentalScheduler.breakerTimeoutsTitle") }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.openaiExperimentalScheduler.breakerTimeoutsDescription"
+                        )
+                      }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="
+                      form.openai_apikey_health_breaker_settings.count_timeouts
+                    "
+                  />
+                </div>
+                <div class="flex items-center justify-between sm:col-span-2">
+                  <div>
+                    <label
+                      class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                    >
+                      {{
+                        t(
+                          "admin.settings.openaiExperimentalScheduler.breakerStreamErrorsTitle"
+                        )
+                      }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{
+                        t(
+                          "admin.settings.openaiExperimentalScheduler.breakerStreamErrorsDescription"
+                        )
+                      }}
+                    </p>
+                  </div>
+                  <Toggle
+                    v-model="
+                      form.openai_apikey_health_breaker_settings.count_stream_errors
+                    "
+                  />
+                </div>
+              </div>
+
+              <div
                 v-if="form.openai_advanced_scheduler_enabled"
                 class="flex items-center justify-between border-t border-gray-100 pt-5 dark:border-dark-700"
               >
@@ -9521,6 +9733,18 @@ type SettingsForm = Omit<
   openai_advanced_scheduler_enabled: boolean;
   openai_advanced_scheduler_sticky_weighted_enabled: boolean;
   openai_advanced_scheduler_subscription_priority_enabled: boolean;
+  openai_session_sticky_enabled: boolean;
+  openai_previous_response_sticky_enabled: boolean;
+  openai_strict_priority_enabled: boolean;
+  openai_apikey_health_breaker_settings: {
+    enabled: boolean;
+    window_minutes: number;
+    failure_threshold: number;
+    cooldown_minutes: number;
+    scope: "pool" | "all";
+    count_timeouts: boolean;
+    count_stream_errors: boolean;
+  };
   openai_advanced_scheduler_lb_top_k: string;
   openai_advanced_scheduler_weight_priority: string;
   openai_advanced_scheduler_weight_load: string;
@@ -9763,6 +9987,18 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_enabled: false,
   openai_advanced_scheduler_sticky_weighted_enabled: false,
   openai_advanced_scheduler_subscription_priority_enabled: false,
+  openai_session_sticky_enabled: true,
+  openai_previous_response_sticky_enabled: true,
+  openai_strict_priority_enabled: false,
+  openai_apikey_health_breaker_settings: {
+    enabled: false,
+    window_minutes: 2,
+    failure_threshold: 10,
+    cooldown_minutes: 5,
+    scope: "pool",
+    count_timeouts: true,
+    count_stream_errors: true,
+  },
   openai_advanced_scheduler_lb_top_k: "",
   openai_advanced_scheduler_weight_priority: "",
   openai_advanced_scheduler_weight_load: "",
@@ -10776,6 +11012,30 @@ const codexSyncedVersionLabel = computed(() => {
   });
 });
 
+// 熔断配置的指针布尔在响应里可能缺省（缺省=开启），归一化后再进表单。
+function normalizeBreakerSettingsForm(
+  raw: {
+    enabled?: boolean;
+    window_minutes?: number;
+    failure_threshold?: number;
+    cooldown_minutes?: number;
+    scope?: "pool" | "all";
+    count_timeouts?: boolean;
+    count_stream_errors?: boolean;
+  } | undefined
+): void {
+  if (!raw) return;
+  form.openai_apikey_health_breaker_settings = {
+    enabled: Boolean(raw.enabled),
+    window_minutes: raw.window_minutes ?? 2,
+    failure_threshold: raw.failure_threshold ?? 10,
+    cooldown_minutes: raw.cooldown_minutes ?? 5,
+    scope: raw.scope === "all" ? "all" : "pool",
+    count_timeouts: raw.count_timeouts !== false,
+    count_stream_errors: raw.count_stream_errors !== false,
+  };
+}
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -10789,6 +11049,7 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    normalizeBreakerSettingsForm(settings.openai_apikey_health_breaker_settings);
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11434,6 +11695,12 @@ async function saveSettings() {
         form.openai_advanced_scheduler_sticky_weighted_enabled,
       openai_advanced_scheduler_subscription_priority_enabled:
         form.openai_advanced_scheduler_subscription_priority_enabled,
+      openai_session_sticky_enabled: form.openai_session_sticky_enabled,
+      openai_previous_response_sticky_enabled:
+        form.openai_previous_response_sticky_enabled,
+      openai_strict_priority_enabled: form.openai_strict_priority_enabled,
+      openai_apikey_health_breaker_settings:
+        form.openai_apikey_health_breaker_settings,
       openai_advanced_scheduler_lb_top_k:
         form.openai_advanced_scheduler_lb_top_k.trim(),
       openai_advanced_scheduler_weight_priority:

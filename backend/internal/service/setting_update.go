@@ -500,6 +500,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[openAIAdvancedSchedulerSettingKey] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerStickyWeightedEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled] = strconv.FormatBool(settings.OpenAIAdvancedSchedulerSubscriptionPriorityEnabled)
+	updates[SettingKeyOpenAISessionStickyEnabled] = strconv.FormatBool(settings.OpenAISessionStickyEnabled)
+	updates[SettingKeyOpenAIPreviousResponseStickyEnabled] = strconv.FormatBool(settings.OpenAIPreviousResponseStickyEnabled)
+	updates[SettingKeyOpenAIStrictPriorityEnabled] = strconv.FormatBool(settings.OpenAIStrictPriorityEnabled)
 	updates[SettingKeyOpenAIAdvancedSchedulerLBTopK] = settings.OpenAIAdvancedSchedulerLBTopK
 	updates[SettingKeyOpenAIAdvancedSchedulerWeightPriority] = settings.OpenAIAdvancedSchedulerWeightPriority
 	updates[SettingKeyOpenAIAdvancedSchedulerWeightLoad] = settings.OpenAIAdvancedSchedulerWeightLoad
@@ -541,6 +544,14 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 			return nil, fmt.Errorf("marshal account scheduling thresholds: %w", err)
 		}
 		updates[SettingKeyAccountSchedulingThresholds] = string(blob)
+	}
+	if settings.OpenAIAPIKeyHealthBreakerSettings != nil {
+		normalized := normalizeOpenAIAPIKeyHealthBreakerSettings(settings.OpenAIAPIKeyHealthBreakerSettings)
+		blob, err := json.Marshal(normalized)
+		if err != nil {
+			return nil, fmt.Errorf("marshal openai apikey health breaker settings: %w", err)
+		}
+		updates[SettingKeyOpenAIAPIKeyHealthBreakerSettings] = string(blob)
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)

@@ -123,6 +123,10 @@ func (s *OpenAIGatewayService) getStickySessionAccountID(ctx context.Context, gr
 	if s == nil || s.cache == nil {
 		return 0, nil
 	}
+	// 会话粘性总开关关闭：不读绑定，所有调度路径视为无粘性命中。
+	if !s.isOpenAISessionStickyEnabled(ctx) {
+		return 0, nil
+	}
 
 	primaryKey := s.openAISessionCacheKey(sessionHash)
 	if primaryKey == "" {
@@ -155,6 +159,11 @@ func (s *OpenAIGatewayService) setStickySessionAccountID(ctx context.Context, gr
 	if s == nil || s.cache == nil || accountID <= 0 {
 		return nil
 	}
+	// 会话粘性总开关关闭：不写绑定，避免重开开关后命中陈旧绑定。
+	if !s.isOpenAISessionStickyEnabled(ctx) {
+		return nil
+	}
+
 	primaryKey := s.openAISessionCacheKey(sessionHash)
 	if primaryKey == "" {
 		return nil
@@ -180,6 +189,10 @@ func (s *OpenAIGatewayService) setStickySessionAccountID(ctx context.Context, gr
 
 func (s *OpenAIGatewayService) refreshStickySessionTTL(ctx context.Context, groupID *int64, sessionHash string, ttl time.Duration) error {
 	if s == nil || s.cache == nil {
+		return nil
+	}
+	// 与写路径同门控：粘性关闭时不续期旧绑定，让其按 TTL 自然过期。
+	if !s.isOpenAISessionStickyEnabled(ctx) {
 		return nil
 	}
 	primaryKey := s.openAISessionCacheKey(sessionHash)

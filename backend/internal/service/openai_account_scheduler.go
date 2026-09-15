@@ -49,6 +49,9 @@ type cachedOpenAIAdvancedSchedulerSetting struct {
 	enabled                        bool
 	stickyWeightedEnabled          bool
 	subscriptionPriorityEnabled    bool
+	sessionStickyEnabled           bool
+	previousResponseStickyEnabled  bool
+	strictPriorityEnabled          bool
 	lbTopKOverride                 int
 	weightOverrides                map[string]float64
 	expiresAt                      int64
@@ -60,8 +63,13 @@ type openAIAdvancedSchedulerRuntimeSettings struct {
 	enabled                        bool
 	stickyWeightedEnabled          bool
 	subscriptionPriorityEnabled    bool
-	lbTopKOverride                 int
-	weightOverrides                map[string]float64
+	// 粘性与严格优先级开关独立于 enabled 总开关：关闭高级调度器后
+	// 会话粘性/previous_response 粘性/严格优先级仍然生效。
+	sessionStickyEnabled          bool
+	previousResponseStickyEnabled bool
+	strictPriorityEnabled         bool
+	lbTopKOverride                int
+	weightOverrides               map[string]float64
 }
 
 var openAIAdvancedSchedulerSettingCache atomic.Value // *cachedOpenAIAdvancedSchedulerSetting
@@ -143,6 +151,9 @@ type openAIAccountLoadPlan struct {
 	topK                      int
 	loadSkew                  float64
 	includeOverflowFallback   bool
+	// strictPriority 严格优先级模式：跳过打分与加权随机，selectionOrder
+	// 按（优先级 → 负载率 → 排队数 → LRU）确定性排序且覆盖全部候选。
+	strictPriority bool
 }
 
 type openAIAccountLoadSelectionAttempt struct {
@@ -935,6 +946,14 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	plan.loadSkew = calcLoadSkewByMoments(loadRateSum, loadRateSumSquares, len(candidates))
 
 	weights := s.service.openAIWSSchedulerWeightsForRequest(ctx)
+	// 粘性开关关闭时把对应粘性权重归零：即使处于 sticky-weighted 模式，
+	// 会话/上一条响应也不再贡献打分（硬粘连由缓存层闸门负责拦截）。
+	if !s.service.isOpenAIPreviousResponseStickyEnabled(ctx) {
+		weights.Previous = 0
+	}
+	if !s.service.isOpenAISessionStickyEnabled(ctx) {
+		weights.SessionSticky = 0
+	}
 	now := time.Now()
 	upstreamCostFactors := map[int64]float64(nil)
 	if req.UseUpstreamTokenCost && weights.UpstreamCost > 0 {
@@ -977,64 +996,73 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 	}
 
-	for i := range candidates {
-		item := &candidates[i]
-		priorityFactor := 1.0
-		if maxPriority > minPriority {
-			priorityFactor = 1 - float64(item.priority-minPriority)/float64(maxPriority-minPriority)
-		}
-		loadFactor := 1 - clamp01(float64(item.loadInfo.LoadRate)/100.0)
-		queueFactor := 1 - clamp01(float64(item.loadInfo.WaitingCount)/float64(maxWaiting))
-		errorFactor := 1 - clamp01(item.errorRate)
-		ttftFactor := 0.5
-		if item.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
-			ttftFactor = 1 - clamp01((item.ttft-minTTFT)/(maxTTFT-minTTFT))
-		}
-		resetFactor := 0.0
-		if weights.Reset > 0 && hasResetSample {
-			if end := item.account.SessionWindowEnd; end != nil && now.Before(*end) {
-				if maxResetRemaining > minResetRemaining {
-					resetFactor = 1 - clamp01((end.Sub(now).Seconds()-minResetRemaining)/(maxResetRemaining-minResetRemaining))
-				} else {
-					// 所有有窗口的账号剩余时间相同：一律给满分，让其优于无窗口账号。
-					resetFactor = 1
+	plan.strictPriority = s.service.isOpenAIStrictPriorityEnabled(ctx)
+	if !plan.strictPriority {
+		for i := range candidates {
+			item := &candidates[i]
+			priorityFactor := 1.0
+			if maxPriority > minPriority {
+				priorityFactor = 1 - float64(item.priority-minPriority)/float64(maxPriority-minPriority)
+			}
+			loadFactor := 1 - clamp01(float64(item.loadInfo.LoadRate)/100.0)
+			queueFactor := 1 - clamp01(float64(item.loadInfo.WaitingCount)/float64(maxWaiting))
+			errorFactor := 1 - clamp01(item.errorRate)
+			ttftFactor := 0.5
+			if item.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
+				ttftFactor = 1 - clamp01((item.ttft-minTTFT)/(maxTTFT-minTTFT))
+			}
+			resetFactor := 0.0
+			if weights.Reset > 0 && hasResetSample {
+				if end := item.account.SessionWindowEnd; end != nil && now.Before(*end) {
+					if maxResetRemaining > minResetRemaining {
+						resetFactor = 1 - clamp01((end.Sub(now).Seconds()-minResetRemaining)/(maxResetRemaining-minResetRemaining))
+					} else {
+						// 所有有窗口的账号剩余时间相同：一律给满分，让其优于无窗口账号。
+						resetFactor = 1
+					}
 				}
 			}
-		}
-		quotaHeadroomFactor := 0.0
-		if weights.QuotaHeadroom > 0 {
-			quotaHeadroomFactor = openAIQuotaHeadroomFactor(item.account, now)
-		}
-		upstreamCostFactor := openAIUpstreamCostNeutralFactor
-		if factor, ok := upstreamCostFactors[item.account.ID]; ok {
-			upstreamCostFactor = factor
-		}
-
-		item.score = weights.Priority*priorityFactor +
-			weights.Load*loadFactor +
-			weights.Queue*queueFactor +
-			weights.ErrorRate*errorFactor +
-			weights.TTFT*ttftFactor +
-			weights.Reset*resetFactor +
-			weights.QuotaHeadroom*quotaHeadroomFactor +
-			weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
-		if req.StickyWeighted {
-			if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
-				item.score += weights.Previous
+			quotaHeadroomFactor := 0.0
+			if weights.QuotaHeadroom > 0 {
+				quotaHeadroomFactor = openAIQuotaHeadroomFactor(item.account, now)
 			}
-			if req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
-				item.score += weights.SessionSticky
+			upstreamCostFactor := openAIUpstreamCostNeutralFactor
+			if factor, ok := upstreamCostFactors[item.account.ID]; ok {
+				upstreamCostFactor = factor
+			}
+
+			item.score = weights.Priority*priorityFactor +
+				weights.Load*loadFactor +
+				weights.Queue*queueFactor +
+				weights.ErrorRate*errorFactor +
+				weights.TTFT*ttftFactor +
+				weights.Reset*resetFactor +
+				weights.QuotaHeadroom*quotaHeadroomFactor +
+				weights.UpstreamCost*(upstreamCostFactor-openAIUpstreamCostNeutralFactor)
+			if req.StickyWeighted {
+				if req.PreviousResponseCanMove && req.StickyPreviousAccountID > 0 && item.account.ID == req.StickyPreviousAccountID {
+					item.score += weights.Previous
+				}
+				if req.StickyAccountID > 0 && item.account.ID == req.StickyAccountID {
+					item.score += weights.SessionSticky
+				}
 			}
 		}
 	}
 	plan.candidates = candidates
 
-	plan.topK = s.service.openAIWSLBTopKForRequest(ctx)
-	if plan.topK > len(candidates) {
+	if plan.strictPriority {
+		// 严格优先级：全量候选进入确定性排序，topK 语义退化为「全部候选」，
+		// 逐个尝试由 tryAcquireOpenAISelectionOrder 的抢槽循环完成。
 		plan.topK = len(candidates)
-	}
-	if plan.topK <= 0 {
-		plan.topK = 1
+	} else {
+		plan.topK = s.service.openAIWSLBTopKForRequest(ctx)
+		if plan.topK > len(candidates) {
+			plan.topK = len(candidates)
+		}
+		if plan.topK <= 0 {
+			plan.topK = 1
+		}
 	}
 
 	plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
@@ -1053,9 +1081,18 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 		if groupTopK > len(pool) {
 			groupTopK = len(pool)
 		}
-		ranked := selectTopKOpenAICandidates(pool, groupTopK)
+		var ranked []openAIAccountCandidateScore
+		if plan.strictPriority {
+			// 严格优先级：不打分、不抽随机，全量候选确定性排序。
+			ranked = append([]openAIAccountCandidateScore(nil), pool...)
+			sortOpenAIAccountCandidatesByStrictPriority(ranked)
+		} else {
+			ranked = selectTopKOpenAICandidates(pool, groupTopK)
+		}
 		var primary []openAIAccountCandidateScore
 		if req.StickyWeighted {
+			// req.StickyPreviousAccountID / req.StickyAccountID 已在上游解析处按
+			// 粘性开关门控（关闭时恒为 0），此处无需重复判断开关。
 			for _, stickyID := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
 				if stickyID <= 0 {
 					continue
@@ -1073,7 +1110,11 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			}
 		}
 		if len(primary) == 0 {
-			primary = buildOpenAIWeightedSelectionOrder(ranked, req)
+			if plan.strictPriority {
+				primary = ranked
+			} else {
+				primary = buildOpenAIWeightedSelectionOrder(ranked, req)
+			}
 		}
 		if !plan.includeOverflowFallback || groupTopK >= len(pool) {
 			return primary
@@ -1116,6 +1157,38 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	}
 
 	return buildSelectionOrder(plan.candidates)
+}
+
+// sortOpenAIAccountCandidatesByStrictPriority 严格优先级模式的确定性排序：
+// 优先级数字小者在前；同优先级内依次比较负载率、排队数、最久未用（LRU）、
+// 账号 ID 兜底，保证同一输入下顺序完全可复现。
+func sortOpenAIAccountCandidatesByStrictPriority(pool []openAIAccountCandidateScore) {
+	sort.SliceStable(pool, func(i, j int) bool {
+		a, b := pool[i], pool[j]
+		if a.account == nil || b.account == nil {
+			return b.account != nil
+		}
+		if a.account.Priority != b.account.Priority {
+			return a.account.Priority < b.account.Priority
+		}
+		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
+			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
+		}
+		if a.loadInfo.WaitingCount != b.loadInfo.WaitingCount {
+			return a.loadInfo.WaitingCount < b.loadInfo.WaitingCount
+		}
+		switch {
+		case a.account.LastUsedAt == nil && b.account.LastUsedAt != nil:
+			return true
+		case a.account.LastUsedAt != nil && b.account.LastUsedAt == nil:
+			return false
+		case a.account.LastUsedAt != nil && b.account.LastUsedAt != nil:
+			if !a.account.LastUsedAt.Equal(*b.account.LastUsedAt) {
+				return a.account.LastUsedAt.Before(*b.account.LastUsedAt)
+			}
+		}
+		return a.account.ID < b.account.ID
+	})
 }
 
 func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
@@ -1876,6 +1949,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				enabled:                        cached.enabled,
 				stickyWeightedEnabled:          cached.stickyWeightedEnabled,
 				subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
+				sessionStickyEnabled:           cached.sessionStickyEnabled,
+				previousResponseStickyEnabled:  cached.previousResponseStickyEnabled,
+				strictPriorityEnabled:          cached.strictPriorityEnabled,
 				lbTopKOverride:                 cached.lbTopKOverride,
 				weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
 			}
@@ -1891,6 +1967,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 					enabled:                        cached.enabled,
 					stickyWeightedEnabled:          cached.stickyWeightedEnabled,
 					subscriptionPriorityEnabled:    cached.subscriptionPriorityEnabled,
+					sessionStickyEnabled:           cached.sessionStickyEnabled,
+					previousResponseStickyEnabled:  cached.previousResponseStickyEnabled,
+					strictPriorityEnabled:          cached.strictPriorityEnabled,
 					lbTopKOverride:                 cached.lbTopKOverride,
 					weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(cached.weightOverrides),
 				}, nil
@@ -1902,6 +1981,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 		enabled := false
 		stickyWeightedEnabled := false
 		subscriptionPriorityEnabled := false
+		sessionStickyEnabled := true
+		previousResponseStickyEnabled := true
+		strictPriorityEnabled := false
 		lbTopKOverride := 0
 		weightOverrides := map[string]float64{}
 		if repo := s.openAIAdvancedSchedulerSettingRepo(); repo != nil {
@@ -1914,6 +1996,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				enabled = strings.EqualFold(strings.TrimSpace(values[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
+				sessionStickyEnabled = !parseSettingExplicitlyFalse(values[SettingKeyOpenAISessionStickyEnabled])
+				previousResponseStickyEnabled = !parseSettingExplicitlyFalse(values[SettingKeyOpenAIPreviousResponseStickyEnabled])
+				strictPriorityEnabled = strings.EqualFold(strings.TrimSpace(values[SettingKeyOpenAIStrictPriorityEnabled]), "true")
 				lbTopKOverride = parsePositiveIntOverride(values[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(values)
 			} else {
@@ -1931,6 +2016,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 				enabled = strings.EqualFold(strings.TrimSpace(fallbackValues[openAIAdvancedSchedulerSettingKey]), "true")
 				stickyWeightedEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled]), "true")
 				subscriptionPriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled]), "true")
+				sessionStickyEnabled = !parseSettingExplicitlyFalse(fallbackValues[SettingKeyOpenAISessionStickyEnabled])
+				previousResponseStickyEnabled = !parseSettingExplicitlyFalse(fallbackValues[SettingKeyOpenAIPreviousResponseStickyEnabled])
+				strictPriorityEnabled = strings.EqualFold(strings.TrimSpace(fallbackValues[SettingKeyOpenAIStrictPriorityEnabled]), "true")
 				lbTopKOverride = parsePositiveIntOverride(fallbackValues[SettingKeyOpenAIAdvancedSchedulerLBTopK])
 				weightOverrides = parseOpenAIAdvancedSchedulerWeightOverrides(fallbackValues)
 			}
@@ -1942,6 +2030,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 			enabled:                        enabled,
 			stickyWeightedEnabled:          stickyWeightedEnabled,
 			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
+			sessionStickyEnabled:           sessionStickyEnabled,
+			previousResponseStickyEnabled:  previousResponseStickyEnabled,
+			strictPriorityEnabled:          strictPriorityEnabled,
 			lbTopKOverride:                 lbTopKOverride,
 			weightOverrides:                cloneOpenAIAdvancedSchedulerWeightOverrides(weightOverrides),
 			expiresAt:                      time.Now().Add(openAIAdvancedSchedulerSettingCacheTTL).UnixNano(),
@@ -1952,6 +2043,9 @@ func (s *OpenAIGatewayService) openAIAdvancedSchedulerRuntimeSettings(ctx contex
 			enabled:                        enabled,
 			stickyWeightedEnabled:          stickyWeightedEnabled,
 			subscriptionPriorityEnabled:    subscriptionPriorityEnabled,
+			sessionStickyEnabled:           sessionStickyEnabled,
+			previousResponseStickyEnabled:  previousResponseStickyEnabled,
+			strictPriorityEnabled:          strictPriorityEnabled,
 			lbTopKOverride:                 lbTopKOverride,
 			weightOverrides:                weightOverrides,
 		}, nil
@@ -1984,6 +2078,25 @@ func (s *OpenAIGatewayService) isOpenAIAdvancedSchedulerSubscriptionPriorityEnab
 	return settings.enabled && settings.subscriptionPriorityEnabled
 }
 
+// isOpenAISessionStickyEnabled 会话粘性开关：独立于高级调度器总开关，
+// 关闭后所有路径（高级调度/legacy 调度/WS）都不再读取或写入 session→account 绑定。
+func (s *OpenAIGatewayService) isOpenAISessionStickyEnabled(ctx context.Context) bool {
+	return s.openAIAdvancedSchedulerRuntimeSettings(ctx).sessionStickyEnabled
+}
+
+// isOpenAIPreviousResponseStickyEnabled 上一条响应粘性开关：独立于高级调度器总开关。
+// 关闭后 sticky-weighted 不再解析 previous_response_id 归属账号、其权重归零；
+// 可重建上下文的请求由 WS 层剥离 previous_response_id 后重建。
+func (s *OpenAIGatewayService) isOpenAIPreviousResponseStickyEnabled(ctx context.Context) bool {
+	return s.openAIAdvancedSchedulerRuntimeSettings(ctx).previousResponseStickyEnabled
+}
+
+// isOpenAIStrictPriorityEnabled 严格优先级模式：跳过打分与加权随机，
+// 候选按（优先级 → 负载率 → 排队数 → LRU）确定性排序逐个尝试。
+func (s *OpenAIGatewayService) isOpenAIStrictPriorityEnabled(ctx context.Context) bool {
+	return s.openAIAdvancedSchedulerRuntimeSettings(ctx).strictPriorityEnabled
+}
+
 func openAIAdvancedSchedulerRuntimeSettingKeys() []string {
 	keys := []string{
 		SettingKeyOpenAILowUpstreamRatePriorityEnabled,
@@ -1991,6 +2104,9 @@ func openAIAdvancedSchedulerRuntimeSettingKeys() []string {
 		openAIAdvancedSchedulerSettingKey,
 		SettingKeyOpenAIAdvancedSchedulerStickyWeightedEnabled,
 		SettingKeyOpenAIAdvancedSchedulerSubscriptionPriorityEnabled,
+		SettingKeyOpenAISessionStickyEnabled,
+		SettingKeyOpenAIPreviousResponseStickyEnabled,
+		SettingKeyOpenAIStrictPriorityEnabled,
 		SettingKeyOpenAIAdvancedSchedulerLBTopK,
 	}
 	for _, spec := range openAIAdvancedSchedulerWeightOverrideSpecs() {
@@ -2240,7 +2356,8 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	decision := OpenAIAccountScheduleDecision{}
 	preserveGuardianParentBinding := preserveOpenAIGuardianParentBinding(ctx, sessionHash)
 	guardianParentAccountID := int64(0)
-	if strings.TrimSpace(previousResponseID) == "" {
+	// 会话粘性关闭时母账号粘连一并停用：母账号本质也是会话级的账号钉死。
+	if strings.TrimSpace(previousResponseID) == "" && s.isOpenAISessionStickyEnabled(ctx) {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
 	scheduler := s.getOpenAIAccountScheduler(ctx)
@@ -2348,7 +2465,9 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	stickyWeighted := s.isOpenAIAdvancedSchedulerStickyWeightedEnabled(ctx)
 	subscriptionPriority := s.isOpenAIAdvancedSchedulerSubscriptionPriorityEnabled(ctx)
 	stickyPreviousAccountID := int64(0)
-	if stickyWeighted && previousResponseCanMove && strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
+	// previous_response 粘性关闭：不再解析归属账号；可重建上下文的请求由
+	// WS 层剥离 previous_response_id 重建，上下文不可重建时维持既有失败语义。
+	if stickyWeighted && s.isOpenAIPreviousResponseStickyEnabled(ctx) && previousResponseCanMove && strings.TrimSpace(previousResponseID) != "" && platform == PlatformOpenAI {
 		stickyPreviousAccountID = s.ResolveAccountIDByPreviousResponseIDForScheduler(ctx, groupID, previousResponseID, requestedModel, excludedIDs, requiredCapability, requireCompact)
 	}
 

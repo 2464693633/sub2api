@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -70,6 +71,7 @@ func openAIHealthPoolAccount() *Account {
 }
 
 func TestClassifyOpenAIAPIKeyHealthFailureExclusions(t *testing.T) {
+	settings := DefaultOpenAIAPIKeyHealthBreakerSettings()
 	tests := []struct {
 		name     string
 		err      error
@@ -84,10 +86,60 @@ func TestClassifyOpenAIAPIKeyHealthFailureExclusions(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, _, eligible := classifyOpenAIAPIKeyHealthFailure(tt.err)
+			_, _, eligible := classifyOpenAIAPIKeyHealthFailure(tt.err, settings)
 			require.Equal(t, tt.eligible, eligible)
 		})
 	}
+}
+
+func TestClassifyOpenAIAPIKeyHealthFailureTimeoutAndStreamSignals(t *testing.T) {
+	defaults := DefaultOpenAIAPIKeyHealthBreakerSettings()
+	allOff := &OpenAIAPIKeyHealthBreakerSettings{
+		Scope:             OpenAIAPIKeyHealthBreakerScopePool,
+		CountTimeouts:     boolPtr(false),
+		CountStreamErrors: boolPtr(false),
+	}
+	timeoutsOnlyOff := &OpenAIAPIKeyHealthBreakerSettings{CountTimeouts: boolPtr(false)}
+
+	// 超时：默认计入；显式关闭后不计。
+	_, _, eligible := classifyOpenAIAPIKeyHealthFailure(context.DeadlineExceeded, defaults)
+	require.True(t, eligible)
+	_, _, eligible = classifyOpenAIAPIKeyHealthFailure(context.DeadlineExceeded, allOff)
+	require.False(t, eligible)
+
+	// 流内/未知账号侧失败：默认计入；显式关闭后不计；仅关超时时仍计入。
+	_, _, eligible = classifyOpenAIAPIKeyHealthFailure(errors.New("stream read failed"), defaults)
+	require.True(t, eligible)
+	_, _, eligible = classifyOpenAIAPIKeyHealthFailure(errors.New("stream read failed"), allOff)
+	require.False(t, eligible)
+	_, _, eligible = classifyOpenAIAPIKeyHealthFailure(errors.New("stream read failed"), timeoutsOnlyOff)
+	require.True(t, eligible)
+
+	// 客户端取消：任何配置下都不计。
+	_, _, eligible = classifyOpenAIAPIKeyHealthFailure(context.Canceled, defaults)
+	require.False(t, eligible)
+}
+
+func TestOpenAIAPIKeyHealthBreakerScopeAllCoversNonPoolAccounts(t *testing.T) {
+	encoded, err := json.Marshal(OpenAIAPIKeyHealthBreakerSettings{
+		Enabled: true, WindowMinutes: 1, FailureThreshold: 3, CooldownMinutes: 5,
+		Scope: OpenAIAPIKeyHealthBreakerScopeAll,
+	})
+	require.NoError(t, err)
+	settings := NewSettingService(&openAIAPIKeyHealthSettingRepo{value: string(encoded)}, &config.Config{})
+	cache := &openAIAPIKeyHealthCacheStub{tripped: true}
+	repo := &openAIAPIKeyHealthAccountRepo{}
+	blocker := &openAIAPIKeyHealthRuntimeBlocker{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+	svc.SetSettingService(settings)
+	svc.SetOpenAIAPIKeyHealthCache(cache)
+	svc.SetAccountRuntimeBlocker(blocker)
+
+	// 非 pool 模式的普通 Key 账号在 scope=all 下同样纳入熔断。
+	plainKeyAccount := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	require.True(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), plainKeyAccount, &UpstreamFailoverError{StatusCode: http.StatusBadGateway}))
+	require.Equal(t, 1, cache.recordCalls)
+	require.Equal(t, 1, repo.setCalls)
 }
 
 func TestOpenAIAPIKeyHealthBreakerDefaultDisabled(t *testing.T) {
