@@ -2,6 +2,8 @@ package routes
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -56,6 +58,33 @@ func RegisterImageStudioRoutes(
 		}
 	}
 
+	// studioGroups 返回用户可用的生图分组(每分组将各有一把工作台密钥)。
+	studioGroups := func(c *gin.Context, userID int64) ([]service.Group, error) {
+		return apiKeyService.ImageStudioGroups(c.Request.Context(), userID)
+	}
+
+	// resolveStudioKey 按 X-Image-Studio-Group 头选定生图分组并确保对应工作台密钥;
+	// 未带头时回落到第一个生图分组。密钥按分组绑定(网关限制单密钥同平台),
+	// 因此 gpt/grok 生图模型同台时由前端按模型所属分组传该头。
+	resolveStudioKey := func(c *gin.Context, userID int64) (*service.APIKey, error) {
+		groups, err := studioGroups(c, userID)
+		if err != nil {
+			return nil, err
+		}
+		chosen := groups[0]
+		if idStr := strings.TrimSpace(c.GetHeader("X-Image-Studio-Group")); idStr != "" {
+			if gid, parseErr := strconv.ParseInt(idStr, 10, 64); parseErr == nil {
+				for _, g := range groups {
+					if g.ID == gid {
+						chosen = g
+						break
+					}
+				}
+			}
+		}
+		return apiKeyService.EnsureImageStudioKeyForGroup(c.Request.Context(), userID, chosen.ID)
+	}
+
 	// relay 把面板请求伪装成对应网关端点后按网关顺序执行中间件链。
 	// canonicalPath 同时用于 handler 内部的 endpoint 归一化(使用记录归类),
 	// 请求结束后恢复原始路径,避免影响 gin 的路由匹配上下文。
@@ -66,7 +95,7 @@ func RegisterImageStudioRoutes(
 				c.JSON(http.StatusUnauthorized, gin.H{"message": "User not authenticated"})
 				return
 			}
-			apiKey, err := apiKeyService.EnsureImageStudioKey(c.Request.Context(), subject.UserID)
+			apiKey, err := resolveStudioKey(c, subject.UserID)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 				return
@@ -103,7 +132,9 @@ func RegisterImageStudioRoutes(
 	// 按密钥的配额与限流由下方重放的网关中间件链兜底。
 	studio.Use(panelRateLimiter.Global())
 	{
-		studio.GET("/models", relay("/v1/models", h.Gateway.Models))
+		studio.GET("/models", relay("/v1/models", func(c *gin.Context) {
+			h.Gateway.ImageStudioModels(c, apiKeyService)
+		}))
 		studio.POST("/generations", relay(handler.EndpointImagesGenerations, imagesTarget))
 		studio.POST("/edits", relay(handler.EndpointImagesEdits, imagesTarget))
 	}

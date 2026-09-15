@@ -17,6 +17,7 @@ type ensureStudioAPIKeyRepo struct {
 	APIKeyRepository
 	list    func(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
 	created []*APIKey
+	deleted []int64
 }
 
 func (s *ensureStudioAPIKeyRepo) ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
@@ -28,6 +29,15 @@ func (s *ensureStudioAPIKeyRepo) Create(ctx context.Context, key *APIKey) error 
 	key.CreatedAt = time.Now()
 	s.created = append(s.created, key)
 	return nil
+}
+
+func (s *ensureStudioAPIKeyRepo) DeleteWithAudit(ctx context.Context, id int64) error {
+	s.deleted = append(s.deleted, id)
+	return nil
+}
+
+func (s *ensureStudioAPIKeyRepo) GetKeyAndOwnerID(ctx context.Context, id int64) (string, int64, error) {
+	return "sk-studio", 7, nil
 }
 
 func (s *ensureStudioAPIKeyRepo) ListKeysByUserID(ctx context.Context, userID int64) ([]string, error) {
@@ -82,7 +92,27 @@ func newEnsureStudioService(apiRepo *ensureStudioAPIKeyRepo, groups []Group) *AP
 	)
 }
 
-func TestEnsureImageStudioKey_ReusesExistingStudioKey(t *testing.T) {
+func TestImageStudioGroups_FiltersImageCapablePlatformGroups(t *testing.T) {
+	apiRepo := &ensureStudioAPIKeyRepo{
+		list: func(_ context.Context, _ int64, _ pagination.PaginationParams, _ APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+			return []APIKey{}, &pagination.PaginationResult{}, nil
+		},
+	}
+	svc := newEnsureStudioService(apiRepo, []Group{
+		{ID: 1, Name: "chat", Platform: PlatformOpenAI, Status: StatusActive},
+		{ID: 2, Name: "生图", Platform: PlatformOpenAI, Status: StatusActive, AllowImageGeneration: true},
+		{ID: 3, Name: "grok生图", Platform: PlatformGrok, Status: StatusActive, AllowImageGeneration: true},
+		{ID: 4, Name: "gemini生图", Platform: PlatformGemini, Status: StatusActive, AllowImageGeneration: true},
+	})
+
+	groups, err := svc.ImageStudioGroups(context.Background(), 7)
+	require.NoError(t, err)
+	require.Len(t, groups, 2, "只保留 openai/grok 平台的生图分组")
+	ids := []int64{groups[0].ID, groups[1].ID}
+	require.ElementsMatch(t, []int64{2, 3}, ids)
+}
+
+func TestEnsureImageStudioKeyForGroup_ReusesExisting(t *testing.T) {
 	groupID := int64(3434)
 	existing := APIKey{
 		ID:       11,
@@ -91,6 +121,7 @@ func TestEnsureImageStudioKey_ReusesExistingStudioKey(t *testing.T) {
 		Name:     ImageStudioKeyName,
 		Status:   StatusAPIKeyActive,
 		GroupID:  &groupID,
+		GroupIDs: []int64{groupID},
 		Group:    &Group{ID: groupID, Name: "生图", Platform: PlatformOpenAI},
 		CreatedAt: time.Now().Add(-time.Hour),
 	}
@@ -101,42 +132,31 @@ func TestEnsureImageStudioKey_ReusesExistingStudioKey(t *testing.T) {
 	}
 	svc := newEnsureStudioService(apiRepo, nil)
 
-	key, err := svc.EnsureImageStudioKey(context.Background(), 7)
+	key, err := svc.EnsureImageStudioKeyForGroup(context.Background(), 7, groupID)
 	require.NoError(t, err)
 	require.Equal(t, int64(11), key.ID)
-	require.Empty(t, apiRepo.created, "已存在的工作台密钥不应触发新建")
+	require.Empty(t, apiRepo.created, "同分组已有工作台密钥时不应新建")
 }
 
-func TestEnsureImageStudioKey_CreatesInImageCapableGroup(t *testing.T) {
+func TestEnsureImageStudioKeyForGroup_CreatesPerGroup(t *testing.T) {
 	apiRepo := &ensureStudioAPIKeyRepo{
 		list: func(_ context.Context, _ int64, _ pagination.PaginationParams, _ APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
 			return []APIKey{}, &pagination.PaginationResult{}, nil
 		},
 	}
+	openaiGroup := int64(2)
+	grokGroup := int64(9)
 	svc := newEnsureStudioService(apiRepo, []Group{
-		{ID: 1, Name: "chat", Platform: PlatformOpenAI, Status: StatusActive},
-		{ID: 2, Name: "生图", Platform: PlatformOpenAI, Status: StatusActive, AllowImageGeneration: true},
+		{ID: openaiGroup, Name: "生图", Platform: PlatformOpenAI, Status: StatusActive, AllowImageGeneration: true},
+		{ID: grokGroup, Name: "grok", Platform: PlatformGrok, Status: StatusActive, AllowImageGeneration: true},
 	})
 
-	key, err := svc.EnsureImageStudioKey(context.Background(), 7)
+	k1, err := svc.EnsureImageStudioKeyForGroup(context.Background(), 7, openaiGroup)
 	require.NoError(t, err)
-	require.Len(t, apiRepo.created, 1)
-	require.Equal(t, ImageStudioKeyName, key.Name)
-	require.NotNil(t, key.GroupID)
-	require.Equal(t, int64(2), *key.GroupID, "应优先选择开启生图权限的分组")
-}
-
-func TestEnsureImageStudioKey_NoImageCapableGroup(t *testing.T) {
-	apiRepo := &ensureStudioAPIKeyRepo{
-		list: func(_ context.Context, _ int64, _ pagination.PaginationParams, _ APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
-			return []APIKey{}, &pagination.PaginationResult{}, nil
-		},
-	}
-	svc := newEnsureStudioService(apiRepo, []Group{
-		{ID: 1, Name: "chat", Platform: PlatformOpenAI, Status: StatusActive},
-	})
-
-	_, err := svc.EnsureImageStudioKey(context.Background(), 7)
-	require.ErrorIs(t, err, ErrImageStudioNoImageGroup)
-	require.Empty(t, apiRepo.created)
+	require.Equal(t, ImageStudioKeyName, k1.Name)
+	k2, err := svc.EnsureImageStudioKeyForGroup(context.Background(), 7, grokGroup)
+	require.NoError(t, err)
+	require.Len(t, apiRepo.created, 2, "不同分组各建一把工作台密钥")
+	require.Equal(t, openaiGroup, *k1.GroupID)
+	require.Equal(t, grokGroup, *k2.GroupID)
 }

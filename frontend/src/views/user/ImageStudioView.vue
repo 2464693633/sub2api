@@ -51,7 +51,7 @@
             v-model="model"
             class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
           >
-            <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+            <option v-for="mo in models" :key="mo.id + ':' + mo.group_id" :value="mo.id">{{ mo.id }}{{ mo.group_name ? ' · ' + mo.group_name : '' }}</option>
           </select>
         </div>
 

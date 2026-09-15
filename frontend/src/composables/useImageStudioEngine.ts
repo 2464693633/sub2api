@@ -41,6 +41,14 @@ export const IMAGE_MODEL_PATTERN = /(image|dall|flux|seedream|banana|diffusion)/
 export const FALLBACK_MODELS = ['gpt-image-2.5', 'gpt-image-2', 'gpt-image-1', 'dall-e-3']
 const CLARITY_BASE: Record<string, number> = { '1k': 1024, '2k': 2048, '4k': 4096 }
 
+// 模型选项带所属分组:工作台密钥按分组各一把(gpt/grok 生图同台),
+// 生成时经 X-Image-Studio-Group 头路由到对应分组。
+export interface ImageModelOption { id: string; group_id: number; group_name: string }
+
+function toOptions(ids: string[]): ImageModelOption[] {
+  return ids.map(id => ({ id, group_id: 0, group_name: '' }))
+}
+
 // ===== 类型 =====
 export interface PromptBox { id: number; text: string; status: 'draft' | 'done' }
 export interface BatchSlot {
@@ -71,7 +79,7 @@ export interface HistoryItem {
 export interface RefItem { file: File; url: string }
 
 // ===== 设置状态 =====
-export const models = ref<string[]>([...FALLBACK_MODELS])
+export const models = ref<ImageModelOption[]>(toOptions(FALLBACK_MODELS))
 export const model = ref(FALLBACK_MODELS[0])
 export const initError = ref('')
 export const mode = ref<'t2i' | 'i2i'>('t2i')
@@ -114,7 +122,7 @@ function appStore() {
 }
 
 // 每次调用现读 localStorage:token 刷新后旧值不能被缓存(computed 会永久缓存导致 401)
-function sessionAuthHeader(): { Authorization: string } {
+function sessionAuthHeader(): Record<string, string> {
   const token = localStorage.getItem('auth_token') || ''
   return { Authorization: `Bearer ${token}` }
 }
@@ -220,24 +228,23 @@ export async function loadModels() {
       signal: controller.signal
     })
     window.clearTimeout(timer)
-    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: Array<{ id: string }> } | null
+    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: ImageModelOption[] } | null
     if (!res.ok) {
       throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
     }
-    const ids: string[] = (body?.data || []).map((m) => m.id)
-    const imageModels = ids.filter(id => IMAGE_MODEL_PATTERN.test(id))
-    if (!imageModels.length) {
+    const options = (body?.data || []).filter(o => o && o.id && IMAGE_MODEL_PATTERN.test(o.id))
+    if (!options.length) {
       initError.value = t('imageStudio.noImageModels')
       return
     }
-    models.value = imageModels
-    if (!models.value.includes(model.value)) model.value = models.value[0] || FALLBACK_MODELS[0]
+    models.value = options
+    if (!models.value.some(o => o.id === model.value)) model.value = models.value[0]?.id || FALLBACK_MODELS[0]
   } catch (err: unknown) {
     const msg = err instanceof DOMException && err.name === 'AbortError'
       ? t('imageStudio.timeout')
       : (err instanceof Error ? err.message : t('imageStudio.noKeys'))
     initError.value = msg
-    models.value = FALLBACK_MODELS
+    models.value = toOptions(FALLBACK_MODELS)
     model.value = FALLBACK_MODELS[0]
   }
 }
@@ -377,7 +384,7 @@ export function restoreHistory(item: HistoryItem) {
     error: img.failed ? t('imageStudio.generateFailed') : undefined
   }))
   if (activeBox.value) activeBox.value.text = item.prompt
-  if (models.value.includes(item.model)) model.value = item.model
+  if (models.value.some(o => o.id === item.model)) model.value = item.model
   appStore().showSuccess(t('imageStudio.restored'))
 }
 
@@ -492,6 +499,10 @@ async function imageSizeOf(blob: Blob): Promise<string> {
 }
 
 async function generateOne(spec: BatchSpec, promptText: string, refList: File[]): Promise<{ blob: Blob | null; error?: string }> {
+  // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
+  const headers = sessionAuthHeader()
+  const opt = models.value.find(o => o.id === spec.model)
+  if (opt && opt.group_id > 0) headers['X-Image-Studio-Group'] = String(opt.group_id)
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 300000)
   try {
@@ -506,7 +517,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
       for (const f of refList) form.append('image', f)
       res = await fetch(`${gatewayBase()}/api/v1/image-studio/edits`, {
         method: 'POST',
-        headers: sessionAuthHeader(),
+        headers,
         body: form,
         signal: controller.signal
       })
@@ -514,7 +525,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
       res = await fetch(`${gatewayBase()}/api/v1/image-studio/generations`, {
         method: 'POST',
         headers: {
-          ...sessionAuthHeader(),
+          ...headers,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
