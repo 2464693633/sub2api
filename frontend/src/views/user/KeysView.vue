@@ -22,6 +22,10 @@
               :options="statusFilterOptions"
               @update:model-value="onStatusFilterChange"
             />
+            <label class="flex cursor-pointer select-none items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+              <input v-model="showStudioKeys" type="checkbox" class="h-3.5 w-3.5 accent-primary-600" />
+              {{ t('keys.showStudioKeys') }}
+            </label>
           </div>
           <EndpointPopover
             v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
@@ -1091,7 +1095,7 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+	import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -1397,6 +1401,17 @@ const isAbortError = (error: unknown) => {
   return name === 'AbortError' || code === 'ERR_CANCELED'
 }
 
+// 工作台系统密钥(生图/视频工作台自动创建与管理),默认不在列表中显示
+const STUDIO_KEY_NAMES = new Set(['生图工作台', '视频工作台'])
+const showStudioKeys = ref(localStorage.getItem('keys_show_studio_keys') === '1')
+watch(showStudioKeys, (v) => {
+  localStorage.setItem('keys_show_studio_keys', v ? '1' : '0')
+  void loadApiKeys()
+})
+function isStudioKeyName(name: string): boolean {
+  return STUDIO_KEY_NAMES.has((name || '').trim())
+}
+
 const loadApiKeys = async () => {
   abortController?.abort()
   const controller = new AbortController()
@@ -1422,13 +1437,21 @@ const loadApiKeys = async () => {
       signal
     })
     if (signal.aborted) return
-    apiKeys.value = response.items
-    pagination.value.total = response.total
+    // 工作台系统密钥(生图/视频工作台自动创建)默认隐藏,可开关显示
+    let items = response.items
+    if (!showStudioKeys.value) {
+      const before = items.length
+      items = items.filter((k) => !isStudioKeyName(k.name))
+      pagination.value.total = Math.max(0, response.total - (before - items.length))
+    } else {
+      pagination.value.total = response.total
+    }
+    apiKeys.value = items
     pagination.value.pages = response.pages
 
     // Load usage stats for all API keys in the list
-    if (response.items.length > 0) {
-      const keyIds = response.items.map((k) => k.id)
+    if (items.length > 0) {
+      const keyIds = items.map((k) => k.id)
       try {
         const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
         if (signal.aborted) return
