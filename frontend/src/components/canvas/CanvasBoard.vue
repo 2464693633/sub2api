@@ -68,6 +68,7 @@
               class="h-full w-full resize-none rounded-md bg-transparent p-2 text-sm outline-none"
               :placeholder="t('canvas.textPlaceholder')"
               @pointerdown.stop
+              @input="scheduleSave"
             ></textarea>
           </template>
           <template v-else-if="node.type === 'image'">

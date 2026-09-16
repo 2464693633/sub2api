@@ -32,7 +32,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
   history as imageHistory, objectUrlFor as imageObjectUrl, deleteHistory as deleteImageHistory,
@@ -89,8 +89,15 @@ function toCanvas(item: AssetItem) {
   if (asset) void addImageToCurrentCanvas(asset)
 }
 
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && viewer.value) viewer.value = null
+}
 onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
   void loadImageHistory()
   void loadVideoHistory()
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
 })
 </script>

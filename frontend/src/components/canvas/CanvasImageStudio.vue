@@ -169,13 +169,18 @@
 
     <!-- 灯箱 -->
     <div v-if="viewer" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6" @click="viewer = null">
+      <button
+        type="button"
+        class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full bg-white/10 text-lg text-white hover:bg-white/20"
+        @click="viewer = null"
+      >✕</button>
       <img :src="viewer.url" class="max-h-[90vh] max-w-[92vw] rounded-lg object-contain" alt="" @click.stop />
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -300,7 +305,11 @@ import { deleteHistory as deleteHistoryById } from '@/composables/useImageStudio
 // 别名,size 已在上方 import
 void retryInit
 
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && viewer.value) viewer.value = null
+}
 onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
   void retryInit()
   void loadHistory()
   if (size.value === 'auto') {
@@ -314,4 +323,8 @@ onMounted(() => {
   }
 })
 void IMAGE_MODEL_PATTERN
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+})
 </script>
