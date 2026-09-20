@@ -31,6 +31,15 @@ const routes: RouteRecordRaw[] = [
 
   // ==================== Public Routes ====================
   {
+    path: '/vf-demo',
+    name: 'VueFlowDemo',
+    component: () => import('@/views/dev/VueFlowDemoView.vue'),
+    meta: {
+      requiresAuth: false,
+      title: 'Vue Flow Demo'
+    }
+  },
+  {
     path: '/home',
     name: 'Home',
     component: () => import('@/views/HomeView.vue'),
@@ -216,37 +225,13 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
-    path: '/image-studio',
-    name: 'ImageStudio',
-    component: () => import('@/views/user/ImageStudioView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Image Studio',
-      titleKey: 'imageStudio.title',
-      descriptionKey: 'imageStudio.subtitle'
-    }
-  },
-  {
-    path: '/video-studio',
-    name: 'VideoStudio',
-    component: () => import('@/views/user/VideoStudioView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Video Studio',
-      titleKey: 'videoStudio.title',
-      descriptionKey: 'videoStudio.subtitle'
-    }
-  },
-  {
-    path: '/infinite-canvas',
-    name: 'InfiniteCanvas',
+    path: '/studio',
+    name: 'CreationStudio',
     component: () => import('@/views/user/InfiniteCanvasView.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
-      title: 'Infinite Canvas',
+      title: 'Creation Studio',
       titleKey: 'canvas.appName'
     }
   },

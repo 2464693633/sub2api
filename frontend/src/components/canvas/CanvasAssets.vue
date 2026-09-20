@@ -6,7 +6,7 @@
     </div>
     <div class="min-h-0 flex-1 overflow-y-auto pr-1">
       <div v-if="items.length === 0" class="flex h-48 items-center justify-center text-sm text-gray-400">{{ t('canvas.noAssets') }}</div>
-      <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+      <div v-else class="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
         <div v-for="item in items" :key="item.kind + item.id" class="group relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60">
           <template v-if="item.kind === 'image'">
             <img :src="item.url" class="aspect-square w-full cursor-zoom-in select-none object-contain" draggable="false" alt="" @click="viewer = item.url" />
@@ -15,7 +15,7 @@
             <video :src="item.url" controls preload="metadata" class="aspect-video w-full bg-black object-contain"></video>
           </template>
           <div class="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-black/60 py-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <button v-if="item.kind === 'image'" type="button" class="text-[11px] text-white hover:underline" @click="toCanvas(item)">{{ t('canvas.toCanvas') }}</button>
+            <button type="button" class="text-[11px] text-white hover:underline" @click="toCanvas(item)">{{ t('canvas.toCanvas') }}</button>
             <a :href="item.url" :download="item.download" class="text-[11px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
             <button type="button" class="text-[11px] text-red-300 hover:underline" @click="item.remove()">{{ t('common.delete') }}</button>
           </div>
@@ -34,6 +34,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { addMediaToCurrentCanvas } from '@/composables/useInfiniteCanvas'
 import {
   history as imageHistory, objectUrlFor as imageObjectUrl, deleteHistory as deleteImageHistory,
   loadHistory as loadImageHistory,
@@ -42,7 +43,6 @@ import {
   history as videoHistory, historyVideoUrl, deleteHistory as deleteVideoHistory,
   loadHistory as loadVideoHistory,
 } from '@/composables/useVideoStudioEngine'
-import { addImageToCurrentCanvas } from '@/composables/useInfiniteCanvas'
 
 const { t } = useI18n()
 
@@ -82,11 +82,12 @@ const items = computed<AssetItem[]>(() => {
   return out.sort((a, b) => b.id - a.id)
 })
 
+
 function toCanvas(item: AssetItem) {
-  const asset = item.kind === 'image'
+  const blob = item.kind === 'image'
     ? imageHistory.value.find(i => i.id === item.id)?.images[0]?.blob
     : videoHistory.value.find(i => i.id === item.id)?.blob
-  if (asset) void addImageToCurrentCanvas(asset)
+  if (blob) void addMediaToCurrentCanvas(blob, item.kind)
 }
 
 function onKeydown(e: KeyboardEvent) {

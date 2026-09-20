@@ -1,7 +1,7 @@
 <template>
-  <div class="grid h-full min-h-0 grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,320px)_minmax(0,1fr)]">
-    <!-- 左列:生成记录 -->
-    <div class="card flex min-h-0 flex-col p-3 lg:h-full">
+  <div class="grid grid-cols-1 gap-3 lg:h-full lg:min-h-0 lg:grid-cols-[240px_minmax(0,320px)_minmax(0,1fr)]">
+    <!-- 左列:生成记录(移动端置于最下并限高) -->
+    <div class="card order-3 flex min-h-0 flex-col p-3 lg:order-none lg:h-full">
       <div class="mb-2 flex items-center justify-between">
         <span class="text-sm font-semibold">{{ t('canvas.genRecords') }}</span>
         <span class="text-xs text-gray-400">{{ history.length }}</span>
@@ -11,7 +11,7 @@
         <button type="button" class="rounded border border-gray-200 px-1.5 py-0.5 hover:border-primary-400 dark:border-dark-600" @click="toggleSelectAll">{{ selected.size ? t('canvas.deselectAll') : t('canvas.selectAll') }}</button>
         <button type="button" class="rounded border border-gray-200 px-1.5 py-0.5 text-gray-400 hover:border-red-300 hover:text-red-500 dark:border-dark-600" @click="deleteSelected">{{ t('canvas.deleteSelected') }}</button>
       </div>
-      <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+      <div class="max-h-44 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 lg:max-h-none">
         <div v-if="history.length === 0" class="flex h-40 items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700">{{ t('canvas.noRecords') }}</div>
         <div
           v-for="item in history"
@@ -20,7 +20,7 @@
           :class="selected.has(item.id) ? 'border-primary-400 bg-primary-50/50 dark:bg-primary-900/20' : 'border-gray-100 hover:border-primary-300 dark:border-dark-700'"
           @click="toggleSelect(item.id)"
         >
-          <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-14 w-14 shrink-0 rounded object-cover" draggable="false" alt="" />
+          <img v-if="objectUrlFor(item)" :src="objectUrlFor(item)" class="h-14 w-14 shrink-0 cursor-grab rounded object-cover" alt="" />
           <div class="min-w-0 flex-1">
             <div class="truncate text-[11px]">{{ item.prompt || t('imageStudio.prompt') }}</div>
             <div class="truncate text-[10px] text-gray-400">{{ item.model }} · {{ item.actualSize || item.size }}</div>
@@ -29,12 +29,23 @@
       </div>
     </div>
 
-    <!-- 中列:参数面板 -->
-    <div class="card flex min-h-0 flex-col gap-3 overflow-y-auto p-3 lg:h-full">
+    <!-- 中列:参数面板(移动端置于最前) -->
+    <div class="card order-1 flex min-h-0 flex-col gap-3 overflow-y-auto p-3 lg:order-none lg:h-full">
       <span class="text-sm font-semibold">{{ t('canvas.imageStudio') }}</span>
       <div>
-        <div class="mb-1 flex items-center justify-between">
-          <label class="text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
+        <div class="mb-1 flex items-center justify-between gap-1">
+          <label class="shrink-0 text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
+          <div class="flex min-w-0 items-center gap-1">
+            <select v-model="aiKeyId" :title="t('canvas.aiPickKey')" class="max-w-28 rounded border border-gray-300 bg-white px-1 py-0.5 text-[11px] outline-none dark:border-dark-600 dark:bg-dark-800" @change="onAIKeyChange">
+              <option v-if="aiKeys.length === 0" :value="null">{{ t('canvas.aiNoKeys') }}</option>
+              <option v-for="k in aiKeys" :key="k.id" :value="k.id">{{ k.name }}</option>
+            </select>
+            <select v-model="aiModel" :title="t('canvas.aiPickModel')" :disabled="aiModels.length === 0" class="max-w-36 rounded border border-gray-300 bg-white px-1 py-0.5 text-[11px] outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800" @change="rememberAIModel">
+              <option v-if="aiModels.length === 0" value="">{{ t('canvas.aiNoModels') }}</option>
+              <option v-for="m in aiModels" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button type="button" :disabled="aiLoading" class="shrink-0 rounded border border-primary-300 px-1.5 py-0.5 text-[11px] text-primary-600 hover:border-primary-500 hover:bg-primary-50 disabled:opacity-50 dark:border-primary-700 dark:text-primary-400 dark:hover:bg-primary-900/20" @click="onAIPrompt">{{ aiLoading ? t('canvas.aiPrompting') : '✨ ' + t('canvas.aiPrompt') }}</button>
+          </div>
         </div>
         <textarea
           v-model="prompt"
@@ -58,9 +69,9 @@
           </div>
         </div>
         <div
-          class="flex min-h-[72px] flex-wrap items-center gap-2 rounded-lg border border-dashed border-gray-300 p-2 dark:border-dark-600"
+          class="flex min-h-[72px] flex-wrap items-center gap-2 rounded-lg border border-dashed border-gray-300 p-2 transition-colors dark:border-dark-600"
           @dragover.prevent
-          @drop.prevent="e => { const f = e.dataTransfer?.files; if (f?.length) addRefFiles(Array.from(f)) }"
+          @drop.prevent="onRefDrop"
         >
           <div v-for="(r, i) in refItems" :key="r.url" class="group relative h-14 w-14 overflow-hidden rounded border border-gray-200 dark:border-dark-600">
             <img :src="r.url" class="h-full w-full object-cover" draggable="false" alt="" />
@@ -78,42 +89,51 @@
         </select>
       </div>
 
-      <!-- 质量 -->
-      <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.quality') }}</label>
-        <div class="grid grid-cols-4 gap-1">
-          <button v-for="q in QUALITIES" :key="q" type="button" class="rounded-md border px-1 py-1 text-xs transition-colors" :class="quality === q ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30' : 'border-gray-200 text-gray-500 hover:border-primary-300 dark:border-dark-600'" @click="quality = q">
-            {{ q === 'auto' ? t('canvas.qualityAuto') : q === 'high' ? t('canvas.qualityHigh') : q === 'medium' ? t('canvas.qualityMedium') : t('canvas.qualityLow') }}
-          </button>
-        </div>
-      </div>
+      <!-- 高级参数(质量/尺寸/宽高比) -->
+      <div class="rounded-lg border border-gray-200 dark:border-dark-600">
+        <button type="button" class="flex w-full items-center justify-between px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="toggleAdvanced">
+          <span>{{ t('canvas.advancedParams') }}<span v-if="!isAdvancedDefault" class="ml-1 text-[10px] text-primary-500">●</span></span>
+          <span class="transition-transform" :class="showAdvanced ? 'rotate-180' : ''">▾</span>
+        </button>
+        <div v-show="showAdvanced" class="space-y-3 px-2 pb-2">
+          <!-- 质量 -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.quality') }}</label>
+            <div class="grid grid-cols-4 gap-1">
+              <button v-for="q in QUALITIES" :key="q" type="button" class="rounded-md border px-1 py-1 text-xs transition-colors" :class="quality === q ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30' : 'border-gray-200 text-gray-500 hover:border-primary-300 dark:border-dark-600'" @click="quality = q">
+                {{ q === 'auto' ? t('canvas.qualityAuto') : q === 'high' ? t('canvas.qualityHigh') : q === 'medium' ? t('canvas.qualityMedium') : t('canvas.qualityLow') }}
+              </button>
+            </div>
+          </div>
 
-      <!-- 尺寸 W/H -->
-      <div>
-        <div class="mb-1 flex items-center justify-between">
-          <label class="text-xs font-medium text-gray-500">{{ t('videoStudio.videoSize') }}</label>
-          <label class="flex items-center gap-1 text-[11px] text-gray-500">
-            {{ t('canvas.align16') }}
-            <button type="button" class="relative h-4 w-7 rounded-full transition-colors" :class="align16 ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'" @click="align16 = !align16">
-              <span class="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all" :class="align16 ? 'left-3.5' : 'left-0.5'"></span>
-            </button>
-          </label>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <input v-model.number="widthInput" type="number" min="256" max="4096" step="16" class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800" @change="applySize" />
-          <span class="text-gray-400">↔</span>
-          <input v-model.number="heightInput" type="number" min="256" max="4096" step="16" class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800" @change="applySize" />
-        </div>
-      </div>
+          <!-- 尺寸 W/H -->
+          <div>
+            <div class="mb-1 flex items-center justify-between">
+              <label class="text-xs font-medium text-gray-500">{{ t('videoStudio.videoSize') }}</label>
+              <label class="flex items-center gap-1 text-[11px] text-gray-500">
+                {{ t('canvas.align16') }}
+                <button type="button" class="relative h-4 w-7 rounded-full transition-colors" :class="align16 ? 'bg-primary-500' : 'bg-gray-300 dark:bg-dark-600'" @click="align16 = !align16">
+                  <span class="absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all" :class="align16 ? 'left-3.5' : 'left-0.5'"></span>
+                </button>
+              </label>
+            </div>
+            <div class="flex items-center gap-1.5">
+              <input v-model.number="widthInput" type="number" min="256" max="4096" step="16" class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800" @change="applySize" />
+              <span class="text-gray-400">↔</span>
+              <input v-model.number="heightInput" type="number" min="256" max="4096" step="16" class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800" @change="applySize" />
+            </div>
+          </div>
 
-      <!-- 宽高比 -->
-      <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('canvas.aspectRatio') }}</label>
-        <div class="grid grid-cols-4 gap-1">
-          <button v-for="r in RATIO_PRESETS" :key="r.label" type="button" class="flex flex-col items-center gap-0.5 rounded-md border px-1 py-1.5 text-[10px] transition-colors" :class="ratioActive(r) ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30' : 'border-gray-200 text-gray-500 hover:border-primary-300 dark:border-dark-600'" @click="applyRatio(r)">
-            <span class="inline-block border border-current" :style="{ width: Math.min(20, 16 * r.w / Math.max(r.w, r.h)) + 'px', height: Math.min(20, 16 * r.h / Math.max(r.w, r.h)) + 'px' }"></span>
-            {{ r.label }}
-          </button>
+          <!-- 宽高比 -->
+          <div>
+            <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('canvas.aspectRatio') }}</label>
+            <div class="grid grid-cols-4 gap-1">
+              <button v-for="r in RATIO_PRESETS" :key="r.label" type="button" class="flex flex-col items-center gap-0.5 rounded-md border px-1 py-1.5 text-[10px] transition-colors" :class="ratioActive(r) ? 'border-primary-500 bg-primary-50 text-primary-600 dark:bg-primary-900/30' : 'border-gray-200 text-gray-500 hover:border-primary-300 dark:border-dark-600'" @click="applyRatio(r)">
+                <span class="inline-block border border-current" :style="{ width: Math.min(20, 16 * r.w / Math.max(r.w, r.h)) + 'px', height: Math.min(20, 16 * r.h / Math.max(r.w, r.h)) + 'px' }"></span>
+                {{ r.label }}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -128,8 +148,8 @@
       </button>
     </div>
 
-    <!-- 右列:生成结果 -->
-    <div class="card flex min-h-0 flex-col p-3 lg:h-full">
+    <!-- 右列:生成结果(移动端居中) -->
+    <div class="card order-2 flex min-h-0 flex-col p-3 lg:order-none lg:h-full">
       <div class="mb-2 flex shrink-0 items-center justify-between">
         <span class="text-sm font-semibold">{{ t('canvas.genResults') }}</span>
         <button v-if="batch.some(s => s.status === 'failed')" type="button" class="text-xs text-gray-400 hover:text-red-500" @click="clearFailed">{{ t('imageStudio.clearFailed') }}</button>
@@ -139,10 +159,10 @@
           <span class="text-3xl">🖼️</span>
           {{ t('canvas.noResults') }}
         </div>
-        <div v-else class="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+        <div v-else class="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
           <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60">
             <template v-if="slot.status === 'done' && slot.url">
-              <img :src="slot.url" class="aspect-square w-full cursor-zoom-in select-none object-contain" :alt="slot.prompt.slice(0, 30)" draggable="false" @click="viewer = { url: slot.url!, prompt: slot.prompt }" />
+              <img :src="slot.url" class="aspect-square w-full cursor-zoom-in select-none object-contain" :alt="slot.prompt.slice(0, 30)" @click="viewer = { url: slot.url!, prompt: slot.prompt }" />
               <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
                 <button type="button" class="text-xs text-white hover:underline" @click="sendToCanvas(slot.slotId)">{{ t('canvas.toCanvas') }}</button>
                 <a :href="slot.url" :download="`image-${slot.slotId}.png`" class="text-xs text-white hover:underline">{{ t('imageStudio.download') }}</a>
@@ -180,7 +200,7 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import {
@@ -192,6 +212,11 @@ import {
   history, objectUrlFor, loadHistory,
 } from '@/composables/useImageStudioEngine'
 import { addImageToCurrentCanvas } from '@/composables/useInfiniteCanvas'
+import {
+  aiEnhancePrompt,
+  aiKeys, aiKeyId, aiModels, aiModel,
+  initAIOptions, onAIKeyChange, rememberAIModel,
+} from '@/composables/useAIPrompt'
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -202,6 +227,54 @@ const selected = ref(new Set<number>())
 const align16 = ref(true)
 const widthInput = ref(1024)
 const heightInput = ref(1024)
+
+const aiLoading = ref(false)
+
+// 高级参数折叠(质量/尺寸/宽高比),默认收起,记忆上次展开状态
+const showAdvanced = ref(localStorage.getItem('image_studio_advanced') === '1')
+const isAdvancedDefault = computed(() => quality.value === 'auto' && widthInput.value === 1024 && heightInput.value === 1024)
+function toggleAdvanced() {
+  showAdvanced.value = !showAdvanced.value
+  localStorage.setItem('image_studio_advanced', showAdvanced.value ? '1' : '0')
+}
+
+// 参考图拖放:支持本机文件,以及页面内拖动生成结果/历史缩略图(原生 img 拖拽
+// 只携带 blob: 地址,不带 File,需要取回 blob 再转 File)
+async function onRefDrop(e: DragEvent) {
+  const dt = e.dataTransfer
+  if (!dt) return
+  if (dt.files?.length) {
+    addRefFiles(Array.from(dt.files))
+    return
+  }
+  const uri = dt.getData('text/uri-list') || dt.getData('text/plain') || ''
+  const url = uri.split('\n').map(s => s.trim()).find(u => u.startsWith('blob:') || u.startsWith(window.location.origin))
+  if (!url) return
+  try {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return
+    const ext = blob.type.split('/')[1] || 'png'
+    addRefFiles([new File([blob], `ref-${Date.now()}.${ext}`, { type: blob.type })])
+  } catch { /* 无效拖拽源,忽略 */ }
+}
+async function onAIPrompt() {
+  if (aiLoading.value) return
+  const text = prompt.value.trim()
+  if (!text) {
+    appStore.showError(t('canvas.aiPromptEmpty'))
+    return
+  }
+  aiLoading.value = true
+  try {
+    prompt.value = await aiEnhancePrompt('image', text, { keyId: aiKeyId.value ?? undefined, model: aiModel.value || undefined })
+    appStore.showSuccess(t('canvas.aiPromptDone'))
+  } catch (err) {
+    appStore.showError(err instanceof Error ? err.message : t('canvas.aiPromptFailed'))
+  } finally {
+    aiLoading.value = false
+  }
+}
 
 const RATIO_PRESETS = [
   { label: '1:1', w: 1, h: 1, base: 1024 },
@@ -271,6 +344,7 @@ async function onNewRecord() {
   selected.value = new Set()
   appStore.showSuccess(t('canvas.newRecordHint'))
 }
+
 function sendToCanvas(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
   if (!slot?.blob) return
@@ -321,6 +395,7 @@ onMounted(() => {
   if (!models.value.some(o => o.id === model.value) && model.value) {
     models.value = [{ id: model.value, group_id: 0, group_name: '' }, ...models.value]
   }
+  void initAIOptions()
 })
 void IMAGE_MODEL_PATTERN
 

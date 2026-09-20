@@ -1,5 +1,5 @@
 /**
- * 无限画布数据层(模块级单例)。
+ * 创作中心数据层(模块级单例)。
  *
  * IndexedDB `canvas-db`:
  *   - canvases: { id, name, nodes, edges, viewport, updatedAt }
@@ -51,7 +51,7 @@ export interface PromptItem {
 export const canvases = ref<CanvasDoc[]>([])
 export const currentCanvasId = ref<string | null>(null)
 export const currentCanvas = computed(() => canvases.value.find(c => c.id === currentCanvasId.value) || null)
-export const activeTab = ref<'board' | 'gallery' | 'image' | 'video' | 'prompts' | 'assets' | 'config'>('board')
+export const activeTab = ref<'board' | 'gallery' | 'image' | 'video' | 'prompts' | 'assets' | 'config'>('image')
 
 export const prompts = ref<PromptItem[]>([])
 
@@ -66,12 +66,13 @@ export function uid(): string {
 // ===== IndexedDB =====
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('canvas-db', 2)
+    const req = indexedDB.open('canvas-db', 3)
     req.onupgradeneeded = () => {
       const db = req.result
       if (!db.objectStoreNames.contains('canvases')) db.createObjectStore('canvases', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('assets')) db.createObjectStore('assets', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('prompts')) db.createObjectStore('prompts', { keyPath: 'id' })
+      if (!db.objectStoreNames.contains('online-prompts')) db.createObjectStore('online-prompts', { keyPath: 'id' })
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -162,8 +163,8 @@ export async function getAsset(id: string): Promise<Blob | undefined> {
   return rec?.blob
 }
 
-/** 把一张图加入当前画布(无画布时自动创建),返回是否成功 */
-export async function addImageToCurrentCanvas(blob: Blob): Promise<boolean> {
+/** 把一张图/一段视频加入当前画布(无画布时自动创建),返回是否成功 */
+export async function addMediaToCurrentCanvas(blob: Blob, kind: 'image' | 'video'): Promise<boolean> {
   if (!currentCanvasId.value) {
     const doc = await createCanvas(t('canvas.myCanvas'))
     currentCanvasId.value = doc.id
@@ -172,15 +173,28 @@ export async function addImageToCurrentCanvas(blob: Blob): Promise<boolean> {
   if (!doc) return false
   const assetId = uid()
   await putAsset(assetId, blob)
-  const bmp = await createImageBitmap(blob).catch(() => null)
-  const w = bmp ? Math.min(360, bmp.width) : 300
-  const h = bmp ? Math.round(w * bmp.height / bmp.width) : 300
-  bmp?.close()
+  let w = 320
+  let h = 320
+  if (kind === 'image') {
+    const bmp = await createImageBitmap(blob).catch(() => null)
+    if (bmp) {
+      w = Math.min(360, bmp.width)
+      h = Math.round(w * bmp.height / bmp.width)
+      bmp.close()
+    }
+  } else {
+    h = Math.round(w * 9 / 16)
+  }
   const count = doc.nodes.length
-  doc.nodes.push({ id: uid(), type: 'image', x: 80 + (count % 5) * 40, y: 80 + (count % 5) * 30, w, h, assetId })
+  doc.nodes.push({ id: uid(), type: kind, x: 80 + (count % 5) * 40, y: 80 + (count % 5) * 30, w, h, assetId })
   await saveCanvas(doc)
   appStore().showSuccess(t('canvas.addedToCanvas', { name: doc.name }))
   return true
+}
+
+/** 兼容旧调用:图片加入画布 */
+export async function addImageToCurrentCanvas(blob: Blob): Promise<boolean> {
+  return addMediaToCurrentCanvas(blob, 'image')
 }
 
 // ===== 导出 / 导入 =====

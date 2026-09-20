@@ -88,6 +88,8 @@ func RegisterImageStudioRoutes(
 	// relay 把面板请求伪装成对应网关端点后按网关顺序执行中间件链。
 	// canonicalPath 同时用于 handler 内部的 endpoint 归一化(使用记录归类),
 	// 请求结束后恢复原始路径,避免影响 gin 的路由匹配上下文。
+	// 缓冲 writer 装在 BillableUsageResponse 之外:grok 生图响应的 imgen.x.ai
+	// 图片 URL 会被内联下载并改写为 b64_json,前端无需再访问该 CDN。
 	relay := func(canonicalPath string, target gin.HandlerFunc) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -114,6 +116,8 @@ func RegisterImageStudioRoutes(
 			if c.IsAborted() {
 				return
 			}
+			assetBuffer := handler.InstallStudioAssetBuffer(c)
+			defer handler.FinalizeStudioAssetInline(c, assetBuffer)
 			billableUsageResponse(c)
 			groupModelAllowlist(c)
 			compositeTarget(c)
@@ -135,6 +139,10 @@ func RegisterImageStudioRoutes(
 		studio.GET("/models", relay("/v1/models", func(c *gin.Context) {
 			h.Gateway.ImageStudioModels(c, apiKeyService)
 		}))
+		// 代理下载上游图片 CDN(如 imgen.x.ai),规避浏览器 CORS;仅 JWT 鉴权,不走网关计费链
+		studio.GET("/asset", func(c *gin.Context) {
+			h.Gateway.ImageStudioAsset(c)
+		})
 		studio.POST("/generations", relay(handler.EndpointImagesGenerations, imagesTarget))
 		studio.POST("/edits", relay(handler.EndpointImagesEdits, imagesTarget))
 	}

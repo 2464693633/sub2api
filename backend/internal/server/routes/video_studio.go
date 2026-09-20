@@ -2,6 +2,8 @@ package routes
 
 import (
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
@@ -78,6 +80,28 @@ func RegisterVideoStudioRoutes(
 		})
 	}
 
+	// resolveStudioKey 按 X-Video-Studio-Group 头选定视频分组并确保对应工作台密钥;
+	// 未带头时回落到第一个视频分组。密钥按分组绑定(网关限制单密钥同平台),
+	// 因此多个视频分组同台时由前端按模型所属分组传该头。
+	resolveStudioKey := func(c *gin.Context, userID int64) (*service.APIKey, error) {
+		groups, err := apiKeyService.VideoStudioGroups(c.Request.Context(), userID)
+		if err != nil {
+			return nil, err
+		}
+		chosen := groups[0]
+		if idStr := strings.TrimSpace(c.GetHeader("X-Video-Studio-Group")); idStr != "" {
+			if gid, parseErr := strconv.ParseInt(idStr, 10, 64); parseErr == nil {
+				for _, g := range groups {
+					if g.ID == gid {
+						chosen = g
+						break
+					}
+				}
+			}
+		}
+		return apiKeyService.EnsureVideoStudioKeyForGroup(c.Request.Context(), userID, chosen.ID)
+	}
+
 	relay := func(canonicalPath string, pathSuffix string, target gin.HandlerFunc) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -85,7 +109,7 @@ func RegisterVideoStudioRoutes(
 				c.JSON(http.StatusUnauthorized, gin.H{"message": "User not authenticated"})
 				return
 			}
-			apiKey, err := apiKeyService.EnsureVideoStudioKey(c.Request.Context(), subject.UserID)
+			apiKey, err := resolveStudioKey(c, subject.UserID)
 			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 				return
@@ -126,7 +150,9 @@ func RegisterVideoStudioRoutes(
 	studio.Use(middleware.BackendModeUserGuard(settingService))
 	studio.Use(panelRateLimiter.Global())
 	{
-		studio.GET("/models", relay("/v1/models", "", h.Gateway.Models))
+		studio.GET("/models", relay("/v1/models", "", func(c *gin.Context) {
+			h.Gateway.VideoStudioModels(c, apiKeyService)
+		}))
 		studio.POST("/generations", relay(handler.EndpointVideos, "", videoTarget))
 		studio.GET("/tasks/:request_id", relay("/v1/videos", "", videoStatusTarget))
 		studio.GET("/tasks/:request_id/content", relay("/v1/videos", "/content", videoContentTarget))

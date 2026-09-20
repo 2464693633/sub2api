@@ -11,13 +11,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// imageStudioModelPattern 与生图工作台前端一致的生图模型识别规则。
-var imageStudioModelPattern = regexp.MustCompile(`(?i)(image|dall|flux|seedream|banana|diffusion)`)
+// videoStudioModelPattern 与视频工作台前端一致的视频模型识别规则。
+var videoStudioModelPattern = regexp.MustCompile(`(?i)(video|imagine|seedance|veo|sora|kling)`)
 
-// ImageStudioModels 聚合用户全部生图分组的生图模型,按分组标注返回
-// (gpt/grok 生图模型同台),供前端按模型所属分组路由生成请求。
+// VideoStudioModels 聚合用户全部视频分组的视频模型,按分组标注返回
+// (多个 grok/composite 视频分组同台),供前端按模型所属分组路由生成请求。
 // apiKeyService 由 routes 闭包注入(每分组一把工作台密钥已在 relay 中确保)。
-func (h *GatewayHandler) ImageStudioModels(c *gin.Context, apiKeyService *service.APIKeyService) {
+func (h *GatewayHandler) VideoStudioModels(c *gin.Context, apiKeyService *service.APIKeyService) {
 	if apiKeyService == nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"message": "api key service unavailable"}})
 		return
@@ -27,7 +27,7 @@ func (h *GatewayHandler) ImageStudioModels(c *gin.Context, apiKeyService *servic
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "User not authenticated"}})
 		return
 	}
-	groups, err := apiKeyService.ImageStudioGroups(c.Request.Context(), subject.UserID)
+	groups, err := apiKeyService.VideoStudioGroups(c.Request.Context(), subject.UserID)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": err.Error()}})
 		return
@@ -46,7 +46,8 @@ func (h *GatewayHandler) ImageStudioModels(c *gin.Context, apiKeyService *servic
 		ids := h.gatewayService.GetAvailableModels(c.Request.Context(), &g.ID, g.Platform)
 		for _, id := range ids {
 			id = strings.TrimSpace(id)
-			if id == "" || seen[id] || !imageStudioModelPattern.MatchString(id) {
+			// 排除含 image 的模型名(如 grok-imagine-image-*),避免图片模型混入视频列表
+			if id == "" || seen[id] || strings.Contains(strings.ToLower(id), "image") || !videoStudioModelPattern.MatchString(id) {
 				continue
 			}
 			seen[id] = true

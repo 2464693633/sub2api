@@ -167,7 +167,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, sessionSeed)
 	boundLookupAccountID := int64(0)
 	if endpoint.IsVideoLookupRequest() {
-		sessionHash = service.GrokMediaVideoRequestSessionHash(requestID, subject.UserID, apiKey.ID)
+		// V2 密钥无关哈希:任意密钥轮询同一任务都粘回创建时的账号槽位
+		sessionHash = service.GrokMediaVideoRequestSessionHashV2(requestID, subject.UserID)
 		boundLookupAccountID, err = h.gatewayService.ResolveGrokMediaVideoRequestAccount(
 			c.Request.Context(), apiKey.GroupID, requestID, subject.UserID, apiKey.ID,
 		)

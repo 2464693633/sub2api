@@ -174,6 +174,9 @@ func parseGrokMediaJSONRequest(body []byte, info *GrokMediaRequestInfo) {
 	appendJSONImageURLs(gjson.GetBytes(body, "image"))
 	appendJSONImageURLs(gjson.GetBytes(body, "images"))
 	appendJSONImageURLs(gjson.GetBytes(body, "reference_images"))
+	// 兼容 OneAPI/xAI 风格字段:视频工作台前端与部分客户端以 image_url 传参考图
+	appendJSONImageURLs(gjson.GetBytes(body, "image_url"))
+	appendJSONImageURLs(gjson.GetBytes(body, "image_urls"))
 	info.MaskImageURL = extractGrokMediaImageURL(gjson.GetBytes(body, "mask"))
 }
 
@@ -291,6 +294,19 @@ func GrokMediaVideoRequestSessionHash(requestID string, userID, apiKeyID int64) 
 	return "grok-video:" + DeriveSessionHashFromSeed(ownerSeed)
 }
 
+// GrokMediaVideoRequestSessionHashV2 密钥无关的任务归属哈希。
+// 旧版掺入 apiKeyID:多密钥/换密钥轮询(例如视频工作台为每个分组各托管一把密钥,
+// 或用户重建密钥)时哈希变化,导致状态/内容轮询解析不到创建时的账号绑定。
+// V2 只含 userID+requestID,同一任务在任何密钥下都解析到同一绑定。
+func GrokMediaVideoRequestSessionHashV2(requestID string, userID int64) string {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || userID <= 0 {
+		return ""
+	}
+	ownerSeed := fmt.Sprintf("%d:%s", userID, requestID)
+	return "grok-video:" + DeriveSessionHashFromSeed(ownerSeed)
+}
+
 func (s *OpenAIGatewayService) BindGrokMediaVideoRequestAccount(
 	ctx context.Context,
 	groupID *int64,
@@ -300,9 +316,10 @@ func (s *OpenAIGatewayService) BindGrokMediaVideoRequestAccount(
 	if s == nil || s.cache == nil {
 		return fmt.Errorf("grok video request binding cache is unavailable")
 	}
-	sessionHash := GrokMediaVideoRequestSessionHash(requestID, userID, apiKeyID)
-	cacheKey := s.openAISessionCacheKey(sessionHash)
-	if cacheKey == "" || accountID <= 0 {
+	v2Hash := GrokMediaVideoRequestSessionHashV2(requestID, userID)
+	legacyHash := GrokMediaVideoRequestSessionHash(requestID, userID, apiKeyID)
+	v2CacheKey := s.openAISessionCacheKey(v2Hash)
+	if v2CacheKey == "" || accountID <= 0 {
 		return fmt.Errorf("grok video request binding is invalid")
 	}
 	// Video jobs may complete well after WS sticky TTL (default 1h). Bind at least
@@ -313,7 +330,14 @@ func (s *OpenAIGatewayService) BindGrokMediaVideoRequestAccount(
 			ttl = sticky
 		}
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), cacheKey, accountID, ttl)
+	if err := s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), v2CacheKey, accountID, ttl); err != nil {
+		return err
+	}
+	// 兼容升级前创建任务的查询方:旧哈希(含 apiKeyID)写副本
+	if legacyHash != "" && legacyHash != v2Hash {
+		_ = s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), s.openAISessionCacheKey(legacyHash), accountID, ttl)
+	}
+	return nil
 }
 
 func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
@@ -325,11 +349,27 @@ func (s *OpenAIGatewayService) ResolveGrokMediaVideoRequestAccount(
 	if s == nil || s.cache == nil {
 		return 0, fmt.Errorf("grok video request binding cache is unavailable")
 	}
-	cacheKey := s.openAISessionCacheKey(GrokMediaVideoRequestSessionHash(requestID, userID, apiKeyID))
-	if cacheKey == "" {
+	v2Hash := GrokMediaVideoRequestSessionHashV2(requestID, userID)
+	legacyHash := GrokMediaVideoRequestSessionHash(requestID, userID, apiKeyID)
+	v2CacheKey := s.openAISessionCacheKey(v2Hash)
+	if v2CacheKey == "" {
 		return 0, fmt.Errorf("grok video request binding is invalid")
 	}
-	return s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), cacheKey)
+	accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), v2CacheKey)
+	if err == nil && accountID > 0 {
+		return accountID, nil
+	}
+	// 回落旧哈希:升级前创建的任务只有 apiKeyID 维度的绑定
+	if legacyHash != "" && legacyHash != v2Hash {
+		legacyID, legacyErr := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), s.openAISessionCacheKey(legacyHash))
+		if legacyErr == nil && legacyID > 0 {
+			return legacyID, nil
+		}
+	}
+	if err != nil {
+		return 0, err
+	}
+	return 0, fmt.Errorf("grok video request binding is invalid")
 }
 
 // GrokVideoPendingBilling is the create-time snapshot used when status polling

@@ -1,12 +1,12 @@
 <template>
-  <div class="grid h-full min-h-0 grid-cols-1 gap-3 lg:grid-cols-[240px_minmax(0,320px)_minmax(0,1fr)]">
-    <!-- 左列:生成记录 -->
-    <div class="card flex min-h-0 flex-col p-3 lg:h-full">
+  <div class="grid grid-cols-1 gap-3 lg:h-full lg:min-h-0 lg:grid-cols-[240px_minmax(0,320px)_minmax(0,1fr)]">
+    <!-- 左列:生成记录(移动端置于最下并限高) -->
+    <div class="card order-3 flex min-h-0 flex-col p-3 lg:order-none lg:h-full">
       <div class="mb-2 flex items-center justify-between">
         <span class="text-sm font-semibold">{{ t('canvas.genRecords') }}</span>
         <span class="text-xs text-gray-400">{{ history.length }}</span>
       </div>
-      <div class="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+      <div class="max-h-44 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 lg:max-h-none">
         <div v-if="history.length === 0" class="flex h-40 items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700">{{ t('canvas.noRecords') }}</div>
         <div
           v-for="item in history"
@@ -20,12 +20,25 @@
       </div>
     </div>
 
-    <!-- 中列:参数面板 -->
-    <div class="card flex min-h-0 flex-col gap-3 overflow-y-auto p-3 lg:h-full">
+    <!-- 中列:参数面板(移动端置于最前) -->
+    <div class="card order-1 flex min-h-0 flex-col gap-3 overflow-y-auto p-3 lg:order-none lg:h-full">
       <span class="text-sm font-semibold">{{ t('canvas.videoStudio') }}</span>
       <span class="rounded bg-amber-50 px-2 py-1 text-[11px] text-amber-600 dark:bg-amber-900/20 dark:text-amber-400">{{ t('videoStudio.timeHint') }}</span>
       <div>
-        <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
+        <div class="mb-1 flex items-center justify-between gap-1">
+          <label class="shrink-0 text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
+          <div class="flex min-w-0 items-center gap-1">
+            <select v-model="aiKeyId" :title="t('canvas.aiPickKey')" class="max-w-28 rounded border border-gray-300 bg-white px-1 py-0.5 text-[11px] outline-none dark:border-dark-600 dark:bg-dark-800" @change="onAIKeyChange">
+              <option v-if="aiKeys.length === 0" :value="null">{{ t('canvas.aiNoKeys') }}</option>
+              <option v-for="k in aiKeys" :key="k.id" :value="k.id">{{ k.name }}</option>
+            </select>
+            <select v-model="aiModel" :title="t('canvas.aiPickModel')" :disabled="aiModels.length === 0" class="max-w-36 rounded border border-gray-300 bg-white px-1 py-0.5 text-[11px] outline-none disabled:opacity-50 dark:border-dark-600 dark:bg-dark-800" @change="rememberAIModel">
+              <option v-if="aiModels.length === 0" value="">{{ t('canvas.aiNoModels') }}</option>
+              <option v-for="m in aiModels" :key="m" :value="m">{{ m }}</option>
+            </select>
+            <button type="button" :disabled="aiLoading" class="shrink-0 rounded border border-primary-300 px-1.5 py-0.5 text-[11px] text-primary-600 hover:border-primary-500 hover:bg-primary-50 disabled:opacity-50 dark:border-primary-700 dark:text-primary-400 dark:hover:bg-primary-900/20" @click="onAIPrompt">{{ aiLoading ? t('canvas.aiPrompting') : '✨ ' + t('canvas.aiPrompt') }}</button>
+          </div>
+        </div>
         <textarea
           v-model="prompt"
           rows="6"
@@ -40,6 +53,7 @@
         <div class="mb-1 flex items-center justify-between">
           <label class="text-xs font-medium text-gray-500">{{ t('canvas.refImages') }}</label>
           <div class="flex gap-1">
+            <button type="button" class="rounded border border-primary-300 px-1.5 py-0.5 text-[11px] text-primary-600 hover:border-primary-500 hover:bg-primary-50 dark:border-primary-700 dark:text-primary-400 dark:hover:bg-primary-900/20" @click="showPicker = true">{{ t('canvas.importFromImage') }}</button>
             <button type="button" class="rounded border border-gray-200 px-1.5 py-0.5 text-[11px] hover:border-primary-400 dark:border-dark-600" @click="pasteFromClipboard">{{ t('canvas.clipboard') }}</button>
             <label class="cursor-pointer rounded border border-gray-200 px-1.5 py-0.5 text-[11px] hover:border-primary-400 dark:border-dark-600">
               {{ t('canvas.upload') }}
@@ -47,10 +61,11 @@
             </label>
           </div>
         </div>
+        <p v-if="refImages.length" class="-mt-1 text-[10px] leading-relaxed text-amber-600 dark:text-amber-400">{{ t('canvas.refImageModelNote') }}</p>
         <div
           class="flex min-h-[72px] flex-wrap items-center gap-2 rounded-lg border border-dashed border-gray-300 p-2 dark:border-dark-600"
           @dragover.prevent
-          @drop.prevent="e => { const f = e.dataTransfer?.files; if (f?.length) addRefImages(Array.from(f)) }"
+          @drop.prevent="onRefDrop"
         >
           <div v-if="refImages.length" class="relative h-14 w-14 overflow-hidden rounded border border-gray-200 dark:border-dark-600">
             <img :src="refImages[0].url" class="h-full w-full object-cover" draggable="false" alt="" />
@@ -64,7 +79,7 @@
       <div>
         <label class="mb-1 block text-xs font-medium text-gray-500">{{ t('imageStudio.model') }}</label>
         <select v-model="model" class="w-full rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800">
-          <option v-for="m in models" :key="m" :value="m">{{ m }}</option>
+          <option v-for="mo in models" :key="mo.id + ':' + mo.group_id" :value="mo.id">{{ mo.id }}{{ mo.group_name ? ' · ' + mo.group_name : '' }}</option>
         </select>
       </div>
 
@@ -105,8 +120,8 @@
       </button>
     </div>
 
-    <!-- 右列:生成结果 -->
-    <div class="card flex min-h-0 flex-col p-3 lg:h-full">
+    <!-- 右列:生成结果(移动端居中) -->
+    <div class="card order-2 flex min-h-0 flex-col p-3 lg:order-none lg:h-full">
       <div class="mb-2 flex shrink-0 items-center justify-between">
         <span class="text-sm font-semibold">{{ t('canvas.genResults') }}</span>
         <button v-if="tasks.some(tk => tk.status === 'failed')" type="button" class="text-xs text-gray-400 hover:text-red-500" @click="clearFailed">{{ t('imageStudio.clearFailed') }}</button>
@@ -137,7 +152,9 @@
               <div class="flex aspect-video w-full flex-col items-center justify-center gap-2 bg-gray-50 px-3 text-center dark:bg-dark-800">
                 <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600"></span>
                 <span class="text-[11px] text-gray-500 dark:text-gray-300">{{ t('videoStudio.waiting', { n: Math.floor((Date.now() - task.submittedAt) / 1000) }) }}</span>
+                <button type="button" class="text-[10px] text-gray-400 underline hover:text-red-400" @click="stopWaiting(task.taskId)">{{ t('videoStudio.stopWaiting') }}</button>
               </div>
+              <button type="button" class="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-[10px] text-white" :title="t('videoStudio.stopWaiting')" @click="stopWaiting(task.taskId)">✕</button>
               <span class="absolute bottom-1 left-1/2 -translate-x-1/2 rounded bg-black/50 px-1.5 text-[10px] text-white">{{ task.status === 'processing' ? t('videoStudio.processing') : t('videoStudio.queued') }}</span>
             </template>
           </div>
@@ -149,6 +166,9 @@
     <div v-if="player" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-6" @click="player = null">
       <video :src="player.url" controls autoplay class="max-h-[90vh] max-w-[92vw] rounded-lg shadow-2xl" @click.stop></video>
     </div>
+
+    <!-- 从生图记录导入参考图 -->
+    <CanvasImagePicker v-if="showPicker" :max-select="9 - refImages.length" @close="showPicker = false" @import="onImportFromImage" />
   </div>
 </template>
 
@@ -161,21 +181,81 @@ import {
   models, model, initError, retryInit,
   resolution, videoSize, seconds, prompt,
   refImages, addRefImages, removeRefImage,
-  tasks, generating, submitBatch, retryTask, removeTask, clearFailed,
+  tasks, generating, submitBatch, retryTask, removeTask, clearFailed, stopWaiting,
   history, loadHistory, historyVideoUrl,
 } from '@/composables/useVideoStudioEngine'
-import { addImageToCurrentCanvas } from '@/composables/useInfiniteCanvas'
+import {
+  aiEnhancePrompt,
+  aiKeys, aiKeyId, aiModels, aiModel,
+  initAIOptions, onAIKeyChange, rememberAIModel,
+} from '@/composables/useAIPrompt'
+import { addMediaToCurrentCanvas } from '@/composables/useInfiniteCanvas'
+import CanvasImagePicker from '@/components/canvas/CanvasImagePicker.vue'
+import type { HistoryItem } from '@/composables/useImageStudioEngine'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 
 const player = ref<{ url: string; prompt: string } | null>(null)
 
+const aiLoading = ref(false)
+
 function sendToCanvas(taskId: number) {
   const task = tasks.value.find(tk => tk.taskId === taskId)
   if (!task?.blob) return
-  void addImageToCurrentCanvas(task.blob)
+  void addMediaToCurrentCanvas(task.blob, 'video')
 }
+
+// 从生图记录导入参考图
+const showPicker = ref(false)
+function onImportFromImage(items: HistoryItem[]) {
+  const files: File[] = []
+  for (const it of items) {
+    const blob = it.images[0]?.blob
+    if (!blob || (blob.type && !blob.type.startsWith('image/'))) continue
+    const ext = (blob.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+    files.push(new File([blob], `ref-${it.id}.${ext}`, { type: blob.type || 'image/png' }))
+  }
+  if (files.length) addRefImages(files)
+}
+
+// 参考图拖放:支持本机文件,以及页面内拖动生成结果/历史缩略图(blob: 地址需取回转 File)
+async function onRefDrop(e: DragEvent) {
+  const dt = e.dataTransfer
+  if (!dt) return
+  if (dt.files?.length) {
+    addRefImages(Array.from(dt.files))
+    return
+  }
+  const uri = dt.getData('text/uri-list') || dt.getData('text/plain') || ''
+  const url = uri.split('\n').map(s => s.trim()).find(u => u.startsWith('blob:') || u.startsWith(window.location.origin))
+  if (!url) return
+  try {
+    const res = await fetch(url)
+    const blob = await res.blob()
+    if (!blob.type.startsWith('image/')) return
+    const ext = blob.type.split('/')[1] || 'png'
+    addRefImages([new File([blob], `ref-${Date.now()}.${ext}`, { type: blob.type })])
+  } catch { /* 无效拖拽源,忽略 */ }
+}
+async function onAIPrompt() {
+  if (aiLoading.value) return
+  const text = prompt.value.trim()
+  if (!text) {
+    appStore.showError(t('canvas.aiPromptEmpty'))
+    return
+  }
+  aiLoading.value = true
+  try {
+    prompt.value = await aiEnhancePrompt('video', text, { keyId: aiKeyId.value ?? undefined, model: aiModel.value || undefined })
+    appStore.showSuccess(t('canvas.aiPromptDone'))
+  } catch (err) {
+    appStore.showError(err instanceof Error ? err.message : t('canvas.aiPromptFailed'))
+  } finally {
+    aiLoading.value = false
+  }
+}
+
 async function pasteFromClipboard() {
   try {
     const items = await navigator.clipboard.read()
@@ -203,6 +283,7 @@ let tickTimer: number | null = null
 onMounted(() => {
   void retryInit()
   void loadHistory()
+  void initAIOptions()
   tickTimer = window.setInterval(() => { tasks.value = [...tasks.value] }, 10000)
 })
 onUnmounted(() => {

@@ -43,7 +43,7 @@ const CLARITY_BASE: Record<string, number> = { '1k': 1024, '2k': 2048, '4k': 409
 
 // 模型选项带所属分组:工作台密钥按分组各一把(gpt/grok 生图同台),
 // 生成时经 X-Image-Studio-Group 头路由到对应分组。
-export interface ImageModelOption { id: string; group_id: number; group_name: string }
+export interface ImageModelOption { id: string; group_id: number; group_name: string; platform?: string }
 
 function toOptions(ids: string[]): ImageModelOption[] {
   return ids.map(id => ({ id, group_id: 0, group_name: '' }))
@@ -482,8 +482,16 @@ function blobFromB64(b64: string): Blob {
   return new Blob([bytes], { type: 'image/png' })
 }
 async function blobFromUrl(url: string): Promise<Blob> {
-  const res = await fetch(url)
-  return await res.blob()
+  // 优先直连;上游 CDN 无 CORS 头(如 imgen.x.ai)时走后端代理下载
+  try {
+    const res = await fetch(url)
+    if (res.ok) return await res.blob()
+  } catch { /* CORS/网络错误,走代理 */ }
+  const proxied = await fetch(`${gatewayBase()}/api/v1/image-studio/asset?u=${encodeURIComponent(url)}`, {
+    headers: sessionAuthHeader()
+  })
+  if (!proxied.ok) throw new Error(`asset proxy HTTP ${proxied.status}`)
+  return await proxied.blob()
 }
 
 // 解码图片 Blob 的真实像素尺寸(请求的清晰度只是参数,实际以输出为准)
@@ -503,6 +511,8 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
   const headers = sessionAuthHeader()
   const opt = models.value.find(o => o.id === spec.model)
   if (opt && opt.group_id > 0) headers['X-Image-Studio-Group'] = String(opt.group_id)
+  // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
+  const isGrok = opt?.platform ? opt.platform === 'grok' : /grok/i.test(spec.model)
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 300000)
   try {
@@ -511,9 +521,11 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
       const form = new FormData()
       form.append('model', spec.model)
       form.append('prompt', promptText)
-      if (spec.size !== 'auto') form.append('size', spec.size)
-      if (spec.quality !== 'auto') form.append('quality', spec.quality)
-      form.append('output_format', spec.format)
+      if (!isGrok) {
+        if (spec.size !== 'auto') form.append('size', spec.size)
+        if (spec.quality !== 'auto') form.append('quality', spec.quality)
+        form.append('output_format', spec.format)
+      }
       for (const f of refList) form.append('image', f)
       res = await fetch(`${gatewayBase()}/api/v1/image-studio/edits`, {
         method: 'POST',
@@ -522,20 +534,23 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
         signal: controller.signal
       })
     } else {
+      const payload: Record<string, unknown> = isGrok
+        ? { model: spec.model, prompt: promptText, n: 1 }
+        : {
+            model: spec.model,
+            prompt: promptText,
+            size: spec.size === 'auto' ? undefined : spec.size,
+            quality: spec.quality === 'auto' ? undefined : spec.quality,
+            output_format: spec.format,
+            n: 1
+          }
       res = await fetch(`${gatewayBase()}/api/v1/image-studio/generations`, {
         method: 'POST',
         headers: {
           ...headers,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-          model: spec.model,
-          prompt: promptText,
-          size: spec.size === 'auto' ? undefined : spec.size,
-          quality: spec.quality === 'auto' ? undefined : spec.quality,
-          output_format: spec.format,
-          n: 1
-        }),
+        body: JSON.stringify(payload),
         signal: controller.signal
       })
     }

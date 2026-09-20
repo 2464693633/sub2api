@@ -30,9 +30,21 @@ export const QUANTITIES = [1, 2, 3, 4]
 export const FALLBACK_VIDEO_MODELS = ['grok-imagine-video-1.5', 'grok-imagine-video']
 const VIDEO_MODEL_PATTERN = /(video|imagine|seedance|veo|sora|kling)/i
 const POLL_INTERVAL_MS = 5000
-const POLL_TIMEOUT_MS = 15 * 60 * 1000
+const POLL_TIMEOUT_MS = 8 * 60 * 1000
+// 无进展早停:状态与进度都无变化超过 3 分钟,判定上游卡死
+const NO_PROGRESS_TIMEOUT_MS = 3 * 60 * 1000
+// 连续轮询错误容忍次数(网络抖动不立即判死)
+const MAX_POLL_ERRORS = 3
 
 // ===== 类型 =====
+// 模型选项带所属分组:工作台密钥按分组各一把(多个 grok/composite 视频分组同台),
+// 生成时经 X-Video-Studio-Group 头路由到对应分组。
+export interface VideoModelOption { id: string; group_id: number; group_name: string }
+
+function toOptions(ids: string[]): VideoModelOption[] {
+  return ids.map(id => ({ id, group_id: 0, group_name: '' }))
+}
+
 export interface VideoTask {
   taskId: number
   remoteId: string
@@ -47,6 +59,8 @@ export interface VideoTask {
   blob?: Blob
   error?: string
   billingNote?: string
+  groupId?: number
+  upstreamDone?: boolean
 }
 export interface VideoHistoryItem {
   id: number
@@ -62,7 +76,7 @@ export interface VideoHistoryItem {
 export interface RefImage { file: File; url: string }
 
 // ===== 设置状态 =====
-export const models = ref<string[]>([...FALLBACK_VIDEO_MODELS])
+export const models = ref<VideoModelOption[]>(toOptions(FALLBACK_VIDEO_MODELS))
 export const model = ref(FALLBACK_VIDEO_MODELS[0])
 export const initError = ref('')
 export const mode = ref<'t2v' | 'i2v'>('t2v')
@@ -122,18 +136,13 @@ export async function loadModels() {
       signal: controller.signal
     })
     window.clearTimeout(timer)
-    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: Array<{ id: string }> } | null
+    const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: VideoModelOption[] } | null
     if (!res.ok) {
       throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
     }
-    const ids: string[] = (body?.data || []).map(m => m.id)
-    const videoModels = ids.filter(id => VIDEO_MODEL_PATTERN.test(id))
-    if (videoModels.length) {
-      models.value = videoModels
-    } else {
-      models.value = [...FALLBACK_VIDEO_MODELS]
-    }
-    if (!models.value.includes(model.value)) model.value = models.value[0] || FALLBACK_VIDEO_MODELS[0]
+    const options = (body?.data || []).filter(o => o && o.id && VIDEO_MODEL_PATTERN.test(o.id) && !/image/i.test(o.id))
+    models.value = options.length ? options : toOptions(FALLBACK_VIDEO_MODELS)
+    if (!models.value.some(o => o.id === model.value)) model.value = models.value[0]?.id || FALLBACK_VIDEO_MODELS[0]
   } catch (err: unknown) {
     const msg = err instanceof DOMException && err.name === 'AbortError'
       ? t('imageStudio.timeout')
@@ -189,10 +198,14 @@ async function submitTask(promptText: string): Promise<{ remoteId: string }> {
   }
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 120000)
+  // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
+  const headers: Record<string, string> = { ...sessionAuthHeader(), 'Content-Type': 'application/json' }
+  const opt = models.value.find(o => o.id === model.value)
+  if (opt && opt.group_id > 0) headers['X-Video-Studio-Group'] = String(opt.group_id)
   try {
     const res = await fetch(api('/api/v1/video-studio/generations'), {
       method: 'POST',
-      headers: { ...sessionAuthHeader(), 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(payload),
       signal: controller.signal
     })
@@ -212,6 +225,7 @@ async function submitTask(promptText: string): Promise<{ remoteId: string }> {
 interface TaskStatus {
   status?: string
   state?: string
+  progress?: number
   error?: string | { message?: string }
   video?: { url?: string }
 }
@@ -224,9 +238,14 @@ function taskPhase(st: TaskStatus): 'pending' | 'processing' | 'done' | 'failed'
   return 'pending'
 }
 
-async function pollTask(remoteId: string): Promise<{ phase: VideoTask['status']; statusRaw: TaskStatus }> {
-  const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(remoteId)}`), {
-    headers: sessionAuthHeader()
+function taskGroupHeaders(task: VideoTask): Record<string, string> {
+  // 多视频分组:状态/内容查询必须回到创建时的分组密钥,否则归属绑定解析失败
+  return task.groupId && task.groupId > 0 ? { 'X-Video-Studio-Group': String(task.groupId) } : {}
+}
+
+async function pollTask(task: VideoTask): Promise<{ phase: VideoTask['status']; statusRaw: TaskStatus }> {
+  const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(task.remoteId)}`), {
+    headers: { ...sessionAuthHeader(), ...taskGroupHeaders(task) }
   })
   const body = await res.json().catch(() => null) as (TaskStatus & { error?: { message?: string }; message?: string }) | null
   if (!res.ok) {
@@ -235,48 +254,78 @@ async function pollTask(remoteId: string): Promise<{ phase: VideoTask['status'];
   return { phase: taskPhase(body || {}), statusRaw: body || {} }
 }
 
-async function fetchVideoBlob(remoteId: string): Promise<Blob> {
-  const controller = new AbortController()
-  const timer = window.setTimeout(() => controller.abort(), 300000)
-  try {
-    const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(remoteId)}/content`), {
-      headers: sessionAuthHeader(),
-      signal: controller.signal
-    })
-    if (!res.ok) {
-      const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string } | null
-      throw new Error(body?.error?.message || body?.message || t('videoStudio.contentFailed'))
+async function fetchVideoBlob(task: VideoTask): Promise<Blob> {
+  // 大视频(15s/1080p 可达数十 MB)经网关转发较慢:单次 10 分钟,失败自动重试 3 次
+  let lastErr: unknown = new Error(t('videoStudio.contentFailed'))
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 10000))
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => controller.abort(), 600000)
+    try {
+      const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(task.remoteId)}/content`), {
+        headers: { ...sessionAuthHeader(), ...taskGroupHeaders(task) },
+        signal: controller.signal
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string } | null
+        throw new Error(body?.error?.message || body?.message || t('videoStudio.contentFailed'))
+      }
+      return await res.blob()
+    } catch (err) {
+      lastErr = err instanceof DOMException && err.name === 'AbortError'
+        ? new Error(t('videoStudio.downloadTimeout'))
+        : err
+    } finally {
+      window.clearTimeout(timer)
     }
-    return await res.blob()
-  } finally {
-    window.clearTimeout(timer)
   }
+  throw lastErr
 }
 
 function errText(e: unknown): string {
   return e instanceof Error ? e.message : t('videoStudio.submitFailed')
 }
 
+// 手动停止等待的任务:runTask 轮询中检测到即退出
+const stoppedTasks = new Set<number>()
+
 // runTask:提交 + 轮询 + 取内容 + 入库。独立 async,不阻塞批量循环。
 async function runTask(task: VideoTask) {
+  let lastSignature = ''
+  let lastProgressAt = Date.now()
+  let pollErrors = 0
   try {
     const { remoteId } = await submitTask(task.prompt)
     task.remoteId = remoteId
     tasks.value = [...tasks.value]
     const deadline = Date.now() + POLL_TIMEOUT_MS
     for (;;) {
+      if (stoppedTasks.has(task.taskId)) throw new Error(t('videoStudio.stoppedWaiting'))
       if (Date.now() > deadline) throw new Error(t('videoStudio.pollTimeout'))
+      if (Date.now() - lastProgressAt > NO_PROGRESS_TIMEOUT_MS) throw new Error(t('videoStudio.noProgress'))
       await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
-      const { phase, statusRaw } = await pollTask(remoteId)
+      if (stoppedTasks.has(task.taskId)) throw new Error(t('videoStudio.stoppedWaiting'))
+      let phase: VideoTask['status']
+      let statusRaw: TaskStatus
+      try {
+        ;({ phase, statusRaw } = await pollTask(task))
+        pollErrors = 0
+      } catch (pollErr) {
+        // 网络抖动容错:连续多次失败才判死
+        pollErrors++
+        if (pollErrors >= MAX_POLL_ERRORS) throw pollErr
+        continue
+      }
+      const signature = `${phase}:${String(statusRaw.progress ?? '')}:${String(statusRaw.status || '')}`
+      if (signature !== lastSignature) {
+        lastSignature = signature
+        lastProgressAt = Date.now()
+      }
       if (phase === 'done') {
-        const blob = await fetchVideoBlob(remoteId)
-        task.blob = blob
-        task.videoUrl = URL.createObjectURL(blob)
-        task.status = 'done'
-        task.finishedAt = Date.now()
-        if (statusRaw.video?.url) task.billingNote = ''
+        // 视频已生成并计费:下载失败只影响取片,不把上游任务整个判死
+        task.upstreamDone = true
         tasks.value = [...tasks.value]
-        await saveHistory(task)
+        await finishDownload(task)
         return
       }
       if (phase === 'failed') {
@@ -293,7 +342,16 @@ async function runTask(task: VideoTask) {
     task.status = 'failed'
     task.error = errText(e)
     tasks.value = [...tasks.value]
+  } finally {
+    stoppedTasks.delete(task.taskId)
   }
+}
+
+/** 手动停止等待:轮询循环在 5 秒内退出并把任务标记为失败 */
+export function stopWaiting(taskId: number) {
+  const task = tasks.value.find(tk => tk.taskId === taskId)
+  if (!task || (task.status !== 'pending' && task.status !== 'processing')) return
+  stoppedTasks.add(taskId)
 }
 
 export function cancelPending() {
@@ -313,6 +371,7 @@ export function submitBatch() {
   const n = quantity.value
   generating.value = true
   const created: VideoTask[] = []
+  const selectedOption = models.value.find(o => o.id === model.value)
   for (let i = 0; i < n; i++) {
     const task: VideoTask = {
       taskId: ++taskSeq,
@@ -322,7 +381,8 @@ export function submitBatch() {
       model: model.value,
       seconds: seconds.value,
       resolution: resolution.value,
-      submittedAt: Date.now()
+      submittedAt: Date.now(),
+      groupId: selectedOption && selectedOption.group_id > 0 ? selectedOption.group_id : undefined
     }
     created.push(task)
   }
@@ -335,9 +395,34 @@ export function submitBatch() {
   })
 }
 
+/** 上游已完成任务的下载+入库;下载失败仅标记失败,不影响已计费的生成结果 */
+async function finishDownload(task: VideoTask) {
+  try {
+    const blob = await fetchVideoBlob(task)
+    task.blob = blob
+    task.videoUrl = URL.createObjectURL(blob)
+    task.status = 'done'
+    task.finishedAt = Date.now()
+    tasks.value = [...tasks.value]
+    await saveHistory(task)
+  } catch (e) {
+    task.status = 'failed'
+    task.error = errText(e)
+    tasks.value = [...tasks.value]
+  }
+}
+
 export function retryTask(taskId: number) {
   const task = tasks.value.find(tk => tk.taskId === taskId)
   if (!task || task.status !== 'failed') return
+  // 上游已生成(已计费)的任务:重试仅重新下载,不会重复提交计费
+  if (task.upstreamDone && task.remoteId) {
+    task.status = 'processing'
+    task.error = undefined
+    tasks.value = [...tasks.value]
+    void finishDownload(task)
+    return
+  }
   task.status = 'pending'
   task.error = undefined
   tasks.value = [...tasks.value]
@@ -345,8 +430,10 @@ export function retryTask(taskId: number) {
 }
 
 export function removeTask(taskId: number) {
-  const task = tasks.value.find(tk => tk.taskId === taskId)
+  const task = tasks.value.find(tk => tk.taskId !== undefined && tk.taskId === taskId)
   if (task?.videoUrl) URL.revokeObjectURL(task.videoUrl)
+  // 未完成任务被移除时同步停止其后台轮询
+  if (task && (task.status === 'pending' || task.status === 'processing')) stoppedTasks.add(taskId)
   tasks.value = tasks.value.filter(tk => tk.taskId !== taskId)
 }
 

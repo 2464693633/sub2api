@@ -1,28 +1,30 @@
 <template>
   <component :is="standalone ? 'div' : AppLayout" :class="standalone ? 'min-h-screen bg-gray-50 p-3 dark:bg-dark-950' : ''">
-    <div class="flex h-[calc(100vh-9rem)] min-h-[560px] flex-col overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-900" :class="standalone ? 'h-[calc(100vh-1.5rem)]' : ''">
-      <!-- 顶部 tab 栏 -->
-      <div class="flex flex-wrap items-center gap-1 border-b border-gray-200 px-3 py-2 dark:border-dark-700">
-        <span class="mr-2 flex items-center gap-1 text-sm font-bold"><span class="text-primary-500">▲</span> {{ t('canvas.appName') }}</span>
+    <div class="flex flex-col lg:h-[calc(100vh-9rem)] lg:min-h-[560px] lg:overflow-hidden rounded-xl border border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-900" :class="standalone ? 'lg:h-[calc(100vh-1.5rem)]' : ''">
+      <!-- 顶部 tab 栏(移动端横向滑动) -->
+      <div class="flex items-center gap-1 overflow-x-auto border-b border-gray-200 px-3 py-2 dark:border-dark-700">
+        <span class="mr-2 flex shrink-0 items-center gap-1 text-sm font-bold"><span class="text-primary-500">▲</span> {{ t('canvas.appName') }}</span>
         <button
           v-for="tab in TABS"
           :key="tab.value"
           type="button"
-          class="rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
+          class="shrink-0 whitespace-nowrap rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
           :class="activeTab === tab.value ? 'bg-gray-200/70 text-gray-900 dark:bg-dark-700 dark:text-white' : 'text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'"
           @click="switchTab(tab.value)"
         >{{ t(tab.label) }}</button>
         <button
           type="button"
-          class="ml-auto rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200"
+          class="ml-auto hidden shrink-0 rounded-md bg-gray-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-700 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200 sm:block"
           @click="openStandalone"
         >⧉ {{ t('imageStudio.openStandalone') }}</button>
       </div>
 
       <!-- 内容区 -->
-      <div class="min-h-0 flex-1 p-3">
-        <CanvasBoard v-if="activeTab === 'board' && currentCanvas" :doc="currentCanvas" />
-        <div v-else-if="activeTab === 'board'" class="flex h-full items-center justify-center text-sm text-gray-400">{{ t('canvas.noCanvases') }}</div>
+      <div class="min-h-0 flex-1 p-2 sm:p-3">
+        <div v-if="activeTab === 'board'" class="h-full">
+          <CanvasBoard v-if="currentCanvas" :doc="currentCanvas" />
+          <div v-else class="flex h-full items-center justify-center text-sm text-gray-400">{{ t('canvas.noCanvases') }}</div>
+        </div>
         <CanvasGallery v-else-if="activeTab === 'gallery'" />
         <CanvasImageStudio v-else-if="activeTab === 'image'" class="h-full" />
         <CanvasVideoStudio v-else-if="activeTab === 'video'" class="h-full" />
@@ -55,7 +57,7 @@ const route = useRoute()
 
 const standalone = computed(() => route.query.standalone === '1')
 function openStandalone() {
-  window.open(`${window.location.origin}/infinite-canvas?standalone=1`, 'lyozc-canvas', 'width=1560,height=960')
+  window.open(`${window.location.origin}/studio?standalone=1`, 'lyozc-canvas', 'width=1560,height=960')
 }
 
 const TABS = [

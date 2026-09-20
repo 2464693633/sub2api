@@ -724,9 +724,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-    { path: '/infinite-canvas', label: t('nav.infiniteCanvas'), icon: VideoIcon, hideInSimpleMode: true },
-    { path: '/image-studio', label: t('nav.imageStudio'), icon: BatchImageIcon, hideInSimpleMode: true },
-    { path: '/video-studio', label: t('nav.videoStudio'), icon: VideoIcon, hideInSimpleMode: true },
+    { path: '/studio', label: t('nav.creationStudio'), icon: VideoIcon, hideInSimpleMode: true },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
