@@ -1,7 +1,23 @@
 <template>
-  <div class="flex h-full min-h-0 flex-col gap-2">
+  <div class="flex h-full min-h-0 gap-2">
+    <!-- 左侧面板(画布元素/资产/提示词库) -->
+    <CanvasLeftPanel
+      :nodes="doc.nodes"
+      :selection="selection"
+      :hovered-node-id="hoveredNodeId"
+      :node-urls="nodeUrls"
+      :open="panelOpen"
+      @update:open="panelOpen = $event"
+      @select-node="onPanelSelectNode"
+      @hover-node="hoveredNodeId = $event"
+      @delete-node="removeNodes([$event])"
+      @insert-media="onPanelInsertMedia"
+      @insert-text="onPanelInsertText"
+    />
+    <div class="flex min-h-0 flex-1 flex-col gap-2">
     <!-- 工具栏 -->
     <div class="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-dark-700 dark:bg-dark-800">
+      <button type="button" class="rounded-md border border-gray-200 px-2 py-1 hover:border-primary-400 hover:text-primary-600 dark:border-dark-600" :title="t('canvas.sidePanel.elements')" @click="panelOpen = !panelOpen">☰</button>
       <button type="button" class="rounded-md border border-gray-200 px-2 py-1 hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-dark-600" :disabled="!canUndo" :title="t('canvas.undo') + ' (Ctrl+Z)'" @click="undo">↶ {{ t('canvas.undo') }}</button>
       <button type="button" class="rounded-md border border-gray-200 px-2 py-1 hover:border-primary-400 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-40 dark:border-dark-600" :disabled="!canRedo" :title="t('canvas.redo') + ' (Ctrl+Shift+Z)'" @click="redo">↷ {{ t('canvas.redo') }}</button>
       <span class="mx-1 h-4 w-px bg-gray-200 dark:bg-dark-600"></span>
@@ -112,27 +128,10 @@
         :style="marqueeStyle"
       ></div>
 
-      <!-- 节点缩略图侧栏:点击定位到节点 -->
-      <div v-if="doc.nodes.length" class="absolute bottom-2 left-2 top-2 z-10 hidden w-[68px] flex-col gap-1.5 overflow-y-auto rounded-lg border border-gray-200/80 bg-white/85 p-1.5 backdrop-blur dark:border-dark-700/80 dark:bg-dark-800/85 sm:flex">
-        <button
-          v-for="node in doc.nodes"
-          :key="'thumb-' + node.id"
-          type="button"
-          class="relative h-14 w-full shrink-0 overflow-hidden rounded-md border bg-gray-100 dark:bg-dark-700"
-          :class="selection.has(node.id) ? 'border-primary-500' : 'border-gray-200 dark:border-dark-600'"
-          :title="node.type === 'text' ? (node.text || '').slice(0, 40) : t('canvas.nodeLocate')"
-          @click="centerOnNode(node)"
-        >
-          <img v-if="node.type === 'image' && nodeSrc(node)" :src="nodeSrc(node)!" class="h-full w-full object-cover" alt="" />
-          <video v-else-if="node.type === 'video' && nodeSrc(node)" :src="nodeSrc(node)!" class="h-full w-full object-cover" preload="metadata" muted></video>
-          <div v-else-if="node.type === 'text'" class="flex h-full w-full items-center justify-center overflow-hidden p-1 text-center text-[9px] leading-tight text-gray-500">{{ (node.text || '···').slice(0, 26) }}</div>
-          <span class="absolute bottom-0 left-0 rounded-tr bg-black/55 px-1 text-[8px] text-white">{{ node.type === 'image' ? '图' : node.type === 'video' ? '视' : '文' }}</span>
-        </button>
-      </div>
-
       <div v-if="doc.nodes.length === 0" class="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-gray-400">
         {{ t('canvas.emptyBoard') }}
       </div>
+    </div>
     </div>
 
     <!-- 快捷键面板 -->
@@ -158,6 +157,7 @@ import {
   type CanvasDoc, type CanvasNode, type CanvasEdge, putAsset, saveCanvas, getAsset, uid,
 } from '@/composables/useInfiniteCanvas'
 import { useAppStore } from '@/stores/app'
+import CanvasLeftPanel from '@/components/canvas/CanvasLeftPanel.vue'
 import { useI18n } from 'vue-i18n'
 
 const props = defineProps<{ doc: CanvasDoc }>()
@@ -165,6 +165,35 @@ const { t } = useI18n()
 const appStore = useAppStore()
 
 const viewportEl = ref<HTMLElement | null>(null)
+const panelOpen = ref(true)
+const hoveredNodeId = ref<string | null>(null)
+
+function onPanelSelectNode(node: CanvasNode) {
+  selection.value = new Set([node.id])
+  centerOnNode(node)
+}
+function onPanelInsertMedia(blob: Blob, kind: 'image' | 'video') {
+  pushUndo()
+  const assetId = uid()
+  void putAsset(assetId, blob)
+  const count = props.doc.nodes.length
+  const w = kind === 'video' ? 420 : 300
+  const h = kind === 'video' ? 260 : 225
+  props.doc.nodes.push({ id: uid(), type: kind, x: 100 + (count % 4) * 30, y: 100 + (count % 3) * 24, w, h, assetId })
+  selection.value = new Set([props.doc.nodes[props.doc.nodes.length - 1].id])
+  scheduleSave()
+  appStore.showSuccess(t('canvas.addedToCanvas', { name: props.doc.name }))
+}
+function onPanelInsertText(text: string) {
+  pushUndo()
+  const rect = viewportEl.value?.getBoundingClientRect()
+  const cx = ((rect?.width || 800) / 2 - viewport.x) / viewport.scale
+  const cy = ((rect?.height || 600) / 2 - viewport.y) / viewport.scale
+  props.doc.nodes.push({ id: uid(), type: 'text', x: cx - 110, y: cy - 70, w: 220, h: 140, text: text.slice(0, 4000) })
+  selection.value = new Set([props.doc.nodes[props.doc.nodes.length - 1].id])
+  scheduleSave()
+  appStore.showSuccess(t('canvas.addedToCanvas', { name: props.doc.name }))
+}
 const viewport = reactive({ ...props.doc.viewport })
 const nodeUrls = new Map<string, string>()
 
