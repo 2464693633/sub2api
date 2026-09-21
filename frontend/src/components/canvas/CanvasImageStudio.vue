@@ -164,7 +164,6 @@
             <template v-if="slot.status === 'done' && slot.url">
               <img :src="slot.url" class="aspect-square w-full cursor-zoom-in select-none object-contain" :alt="slot.prompt.slice(0, 30)" @click="viewer = { url: slot.url!, prompt: slot.prompt }" />
               <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <button type="button" class="text-xs text-white hover:underline" @click="sendToCanvas(slot.slotId)">{{ t('canvas.toCanvas') }}</button>
                 <a :href="slot.url" :download="`image-${slot.slotId}.png`" class="text-xs text-white hover:underline">{{ t('imageStudio.download') }}</a>
                 <button type="button" class="text-xs text-white" @click="removeSlot(slot.slotId)">✕</button>
               </div>
@@ -211,7 +210,6 @@ import {
   batch, generating, elapsed, generateBatch, clearFailed, removeSlot, retrySlot,
   history, objectUrlFor, loadHistory,
 } from '@/composables/useImageStudioEngine'
-import { addImageToCurrentCanvas } from '@/composables/useInfiniteCanvas'
 import {
   aiEnhancePrompt,
   aiKeys, aiKeyId, aiModels, aiModel,
@@ -343,12 +341,6 @@ function deleteSelected() {
 async function onNewRecord() {
   selected.value = new Set()
   appStore.showSuccess(t('canvas.newRecordHint'))
-}
-
-function sendToCanvas(slotId: number) {
-  const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot?.blob) return
-  void addImageToCurrentCanvas(slot.blob)
 }
 
 // 剪切板粘贴参考图

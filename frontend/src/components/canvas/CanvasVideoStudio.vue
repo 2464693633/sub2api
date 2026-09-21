@@ -136,7 +136,6 @@
             <template v-if="task.status === 'done' && task.videoUrl">
               <video :src="task.videoUrl" controls preload="metadata" class="aspect-video w-full bg-black object-contain"></video>
               <div class="absolute inset-x-0 top-0 flex items-center justify-center gap-2 bg-black/60 py-1 opacity-0 transition-opacity group-hover:opacity-100">
-                <button type="button" class="text-xs text-white hover:underline" @click="sendToCanvas(task.taskId)">{{ t('canvas.toCanvas') }}</button>
                 <a :href="task.videoUrl" :download="`video-${task.taskId}.mp4`" class="text-xs text-white hover:underline">{{ t('imageStudio.download') }}</a>
                 <button type="button" class="text-xs text-white" @click="removeTask(task.taskId)">✕</button>
               </div>
@@ -189,7 +188,6 @@ import {
   aiKeys, aiKeyId, aiModels, aiModel,
   initAIOptions, onAIKeyChange, rememberAIModel,
 } from '@/composables/useAIPrompt'
-import { addMediaToCurrentCanvas } from '@/composables/useInfiniteCanvas'
 import CanvasImagePicker from '@/components/canvas/CanvasImagePicker.vue'
 import type { HistoryItem } from '@/composables/useImageStudioEngine'
 
@@ -199,12 +197,6 @@ const appStore = useAppStore()
 const player = ref<{ url: string; prompt: string } | null>(null)
 
 const aiLoading = ref(false)
-
-function sendToCanvas(taskId: number) {
-  const task = tasks.value.find(tk => tk.taskId === taskId)
-  if (!task?.blob) return
-  void addMediaToCurrentCanvas(task.blob, 'video')
-}
 
 // 从生图记录导入参考图
 const showPicker = ref(false)

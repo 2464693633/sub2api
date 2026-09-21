@@ -21,12 +21,7 @@
 
       <!-- 内容区 -->
       <div class="min-h-0 flex-1 p-2 sm:p-3">
-        <div v-if="activeTab === 'board'" class="h-full">
-          <CanvasBoard v-if="currentCanvas" :doc="currentCanvas" />
-          <div v-else class="flex h-full items-center justify-center text-sm text-gray-400">{{ t('canvas.noCanvases') }}</div>
-        </div>
-        <CanvasGallery v-else-if="activeTab === 'gallery'" />
-        <CanvasImageStudio v-else-if="activeTab === 'image'" class="h-full" />
+        <CanvasImageStudio v-if="activeTab === 'image'" class="h-full" />
         <CanvasVideoStudio v-else-if="activeTab === 'video'" class="h-full" />
         <CanvasPromptLibrary v-else-if="activeTab === 'prompts'" class="h-full" />
         <CanvasAssets v-else-if="activeTab === 'assets'" class="h-full" />
@@ -37,20 +32,16 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
-import CanvasBoard from '@/components/canvas/CanvasBoard.vue'
-import CanvasGallery from '@/components/canvas/CanvasGallery.vue'
 import CanvasImageStudio from '@/components/canvas/CanvasImageStudio.vue'
 import CanvasVideoStudio from '@/components/canvas/CanvasVideoStudio.vue'
 import CanvasPromptLibrary from '@/components/canvas/CanvasPromptLibrary.vue'
 import CanvasAssets from '@/components/canvas/CanvasAssets.vue'
 import CanvasConfig from '@/components/canvas/CanvasConfig.vue'
-import {
-  activeTab, canvases, currentCanvas, createCanvas, loadCanvases,
-} from '@/composables/useInfiniteCanvas'
+import { activeTab } from '@/composables/useInfiniteCanvas'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -61,8 +52,6 @@ function openStandalone() {
 }
 
 const TABS = [
-  { value: 'board' as const, label: 'canvas.tabBoard' },
-  { value: 'gallery' as const, label: 'canvas.tabGallery' },
   { value: 'image' as const, label: 'canvas.tabImage' },
   { value: 'video' as const, label: 'canvas.tabVideo' },
   { value: 'prompts' as const, label: 'canvas.tabPrompts' },
@@ -74,9 +63,5 @@ function switchTab(v: typeof activeTab.value) {
   activeTab.value = v
 }
 
-onMounted(async () => {
-  await loadCanvases()
-  // 完全没有画布时才自动创建(避免每次进入生成重复画布)
-  if (canvases.value.length === 0) await createCanvas()
-})
+
 </script>

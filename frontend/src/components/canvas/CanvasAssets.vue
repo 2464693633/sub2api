@@ -15,7 +15,6 @@
             <video :src="item.url" controls preload="metadata" class="aspect-video w-full bg-black object-contain"></video>
           </template>
           <div class="absolute inset-x-0 bottom-0 flex items-center justify-center gap-2 bg-black/60 py-1 opacity-0 transition-opacity group-hover:opacity-100">
-            <button type="button" class="text-[11px] text-white hover:underline" @click="toCanvas(item)">{{ t('canvas.toCanvas') }}</button>
             <a :href="item.url" :download="item.download" class="text-[11px] text-white hover:underline">{{ t('imageStudio.download') }}</a>
             <button type="button" class="text-[11px] text-red-300 hover:underline" @click="item.remove()">{{ t('common.delete') }}</button>
           </div>
@@ -34,7 +33,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { addMediaToCurrentCanvas } from '@/composables/useInfiniteCanvas'
 import {
   history as imageHistory, objectUrlFor as imageObjectUrl, deleteHistory as deleteImageHistory,
   loadHistory as loadImageHistory,
@@ -82,13 +80,6 @@ const items = computed<AssetItem[]>(() => {
   return out.sort((a, b) => b.id - a.id)
 })
 
-
-function toCanvas(item: AssetItem) {
-  const blob = item.kind === 'image'
-    ? imageHistory.value.find(i => i.id === item.id)?.images[0]?.blob
-    : videoHistory.value.find(i => i.id === item.id)?.blob
-  if (blob) void addMediaToCurrentCanvas(blob, item.kind)
-}
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && viewer.value) viewer.value = null
