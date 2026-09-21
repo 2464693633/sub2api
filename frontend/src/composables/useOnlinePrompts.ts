@@ -97,6 +97,16 @@ async function cacheSet(key: string, items: OnlinePrompt[], at: number) {
   } catch { /* 缓存失败不影响功能 */ }
 }
 
+// 封面外链白名单:仅放行 https 且限定 GitHub 系静态 CDN 域,避免模板源注入任意外链
+function allowedCover(u: unknown): string {
+  if (typeof u !== 'string' || !u.startsWith('https://')) return ''
+  try {
+    const h = new URL(u).hostname
+    if (h === 'raw.githubusercontent.com' || h === 'cdn.jsdelivr.net' || h === 'avatars.githubusercontent.com' || h.endsWith('.githubusercontent.com')) return u
+  } catch { /* 无效 URL */ }
+  return ''
+}
+
 /** 加载一个源(带 7 天缓存);带 force 时强制刷新 */
 export async function loadSource(id: string, force = false) {
   const src = sources.value.find(s => s.id === id)
@@ -122,7 +132,7 @@ export async function loadSource(id: string, force = false) {
     const data = await res.json() as Array<Partial<OnlinePrompt>>
     src.items = (data || [])
       .filter(p => p && p.title && p.prompt)
-      .map(p => ({ id: p.id || `${id}:${p.title}`, sourceId: id, title: p.title!, prompt: p.prompt!, coverUrl: p.coverUrl || '' }))
+      .map(p => ({ id: p.id || `${id}:${p.title}`, sourceId: id, title: p.title!, prompt: p.prompt!, coverUrl: allowedCover(p.coverUrl) }))
     src.loadedAt = Date.now()
     activeSourceId.value = id
     void cacheSet(`online:${id}`, src.items, src.loadedAt)

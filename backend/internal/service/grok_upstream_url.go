@@ -1,6 +1,7 @@
 package service
 
 import (
+	"path"
 	"context"
 	"errors"
 	"fmt"
@@ -128,10 +129,12 @@ func buildGrokMediaURL(account *Account, cfg *config.Config, endpoint GrokMediaE
 		// video_create_path(如 "/v1/videos")可覆盖创建路径,host 仍走统一
 		// URL 安全校验;未配置时保持 xAI 原生路径不变。
 		if override := strings.TrimSpace(account.GetCredential("video_create_path")); override != "" {
-			if parsed, perr := url.Parse(baseURL); perr == nil && parsed.Scheme != "" && parsed.Host != "" {
-				origin := parsed.Scheme + "://" + parsed.Host
-				if _, valErr := validator(origin); valErr == nil {
-					return origin + "/" + strings.TrimPrefix(override, "/"), nil
+			if cleaned := path.Clean("/" + strings.TrimPrefix(override, "/")); cleaned != "/" && !strings.Contains(cleaned[1:], "..") {
+				if parsed, perr := url.Parse(baseURL); perr == nil && parsed.Scheme != "" && parsed.Host != "" {
+					origin := parsed.Scheme + "://" + parsed.Host
+					if _, valErr := validator(origin); valErr == nil {
+						return origin + cleaned, nil
+					}
 				}
 			}
 		}

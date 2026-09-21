@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -14,7 +15,9 @@ import (
 
 type mapGatewayCache struct {
 	GatewayCache
-	data map[string]int64
+	data    map[string]int64
+	pending map[string][]byte
+	claimed map[string]bool
 }
 
 func (c *mapGatewayCache) GetSessionAccountID(_ context.Context, groupID int64, sessionHash string) (int64, error) {
@@ -30,7 +33,28 @@ func (c *mapGatewayCache) SetSessionAccountID(_ context.Context, groupID int64, 
 }
 
 func newVideoBindingTestService() *OpenAIGatewayService {
-	return &OpenAIGatewayService{cfg: &config.Config{}, cache: &mapGatewayCache{data: map[string]int64{}}}
+	return &OpenAIGatewayService{cfg: &config.Config{}, cache: &mapGatewayCache{
+		data: map[string]int64{}, pending: map[string][]byte{}, claimed: map[string]bool{},
+	}}
+}
+
+func (c *mapGatewayCache) SetGrokVideoPendingBilling(_ context.Context, key string, payload []byte, _ time.Duration) error {
+	c.pending[key] = payload
+	return nil
+}
+func (c *mapGatewayCache) GetGrokVideoPendingBilling(_ context.Context, key string) ([]byte, error) {
+	return c.pending[key], nil
+}
+func (c *mapGatewayCache) ClaimGrokVideoBilled(_ context.Context, key string, _ time.Duration) (bool, error) {
+	if c.claimed[key] {
+		return false, nil
+	}
+	c.claimed[key] = true
+	return true, nil
+}
+func (c *mapGatewayCache) ReleaseGrokVideoBilled(_ context.Context, key string) error {
+	delete(c.claimed, key)
+	return nil
 }
 
 func TestBindGrokMediaVideoRequest_ResolvesAcrossApiKeys(t *testing.T) {
@@ -67,4 +91,52 @@ func TestResolveGrokMediaVideoRequest_MissingBinding(t *testing.T) {
 	id, err := svc.ResolveGrokMediaVideoRequestAccount(context.Background(), &group, "task-none", 1, 7)
 	require.Error(t, err)
 	require.Equal(t, int64(0), id)
+}
+
+func TestGrokVideoBilling_StableAcrossApiKeys(t *testing.T) {
+	svc := newVideoBindingTestService()
+	pending := GrokVideoPendingBilling{Model: "grok-imagine-video-1.5", VideoResolution: "1080p", VideoDurationSeconds: 15}
+
+	// 密钥 A 创建
+	require.NoError(t, svc.StoreGrokVideoPendingBilling(context.Background(), "task-b1", 1, 7, pending))
+
+	// 跨密钥读取:密钥 B 应能读到同一快照(旧实现这里 miss → 按默认价漏计)
+	got, err := svc.LoadGrokVideoPendingBilling(context.Background(), "task-b1", 1, 9)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "1080p", got.VideoResolution)
+
+	// 跨密钥幂等:密钥 B claim 成功后,密钥 A 再 claim 必须失败(旧实现会重复计费)
+	claimedB, err := svc.ClaimGrokVideoBilling(context.Background(), "task-b1", 1, 9)
+	require.NoError(t, err)
+	require.True(t, claimedB, "密钥 B 首次 claim 应成功")
+	claimedA, err := svc.ClaimGrokVideoBilling(context.Background(), "task-b1", 1, 7)
+	require.NoError(t, err)
+	require.False(t, claimedA, "换密钥重复 claim 必须被拒绝")
+
+	// release 后可重试(计费失败回滚场景)
+	require.NoError(t, svc.ReleaseGrokVideoBilling(context.Background(), "task-b1", 1, 7))
+	again, err := svc.ClaimGrokVideoBilling(context.Background(), "task-b1", 1, 7)
+	require.NoError(t, err)
+	require.True(t, again)
+}
+
+func TestGrokVideoBilling_LegacyPendingFallbackAndNoDoubleBill(t *testing.T) {
+	svc := newVideoBindingTestService()
+	// 模拟升级前创建的任务:快照与 claim 都在旧键下,且已计费
+	legacyKey := grokVideoPendingBillingKey("task-old", 1, 7)
+	payload, _ := json.Marshal(GrokVideoPendingBilling{Model: "grok-imagine-video-1.5", VideoResolution: "720p"})
+	svc.cache.(*mapGatewayCache).pending[legacyKey] = payload
+	svc.cache.(*mapGatewayCache).claimed[legacyKey] = true
+
+	// 旧任务读取回退旧键
+	got, err := svc.LoadGrokVideoPendingBilling(context.Background(), "task-old", 1, 7)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "720p", got.VideoResolution)
+
+	// 旧任务已计费:V2 claim 不得再次放行(迁移期防重复)
+	claimed, err := svc.ClaimGrokVideoBilling(context.Background(), "task-old", 1, 7)
+	require.NoError(t, err)
+	require.False(t, claimed, "升级前已计费的任务不得被 V2 claim 重复计费")
 }

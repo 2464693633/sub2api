@@ -429,6 +429,18 @@ func grokVideoPendingBillingKey(requestID string, userID, apiKeyID int64) string
 	return fmt.Sprintf("%d:%d:%s", userID, apiKeyID, requestID)
 }
 
+// grokVideoPendingBillingKeyV2 密钥无关的计费快照/claim 键。
+// 旧键掺入 apiKeyID:任务归属已升级为 V2(跨密钥轮询合法)后,换密钥轮询会
+// 读不到快照(按默认价漏计)且 claim 键不同导致可重复计费。V2 与归属绑定
+// 一致只含 userID+requestID;旧键仅作迁移期读取回退。
+func grokVideoPendingBillingKeyV2(requestID string, userID int64) string {
+	requestID = strings.TrimSpace(requestID)
+	if requestID == "" || userID <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("v2:%d:%s", userID, requestID)
+}
+
 func grokVideoPendingBillingTTL(cfg *config.Config) time.Duration {
 	// Video generation can take several minutes; keep create-time pricing for a day.
 	_ = cfg
@@ -450,7 +462,8 @@ func (s *OpenAIGatewayService) StoreGrokVideoPendingBilling(
 	if s == nil || s.cache == nil {
 		return fmt.Errorf("grok video pending billing cache is unavailable")
 	}
-	key := grokVideoPendingBillingKey(requestID, userID, apiKeyID)
+	key := grokVideoPendingBillingKeyV2(requestID, userID)
+	legacyKey := grokVideoPendingBillingKey(requestID, userID, apiKeyID)
 	if key == "" {
 		return fmt.Errorf("grok video pending billing key is invalid")
 	}
@@ -474,7 +487,14 @@ func (s *OpenAIGatewayService) StoreGrokVideoPendingBilling(
 	if err != nil {
 		return err
 	}
-	return s.cache.SetGrokVideoPendingBilling(ctx, key, payload, grokVideoPendingBillingTTL(s.cfg))
+	if err := s.cache.SetGrokVideoPendingBilling(ctx, key, payload, grokVideoPendingBillingTTL(s.cfg)); err != nil {
+		return err
+	}
+	// 迁移期兼容:升级前的轮询方仍按旧键读取
+	if legacyKey != "" && legacyKey != key {
+		_ = s.cache.SetGrokVideoPendingBilling(ctx, legacyKey, payload, grokVideoPendingBillingTTL(s.cfg))
+	}
+	return nil
 }
 
 // LoadGrokVideoPendingBilling returns the create-time snapshot (may be nil on miss).
@@ -486,13 +506,24 @@ func (s *OpenAIGatewayService) LoadGrokVideoPendingBilling(
 	if s == nil || s.cache == nil {
 		return nil, fmt.Errorf("grok video pending billing cache is unavailable")
 	}
-	key := grokVideoPendingBillingKey(requestID, userID, apiKeyID)
+	key := grokVideoPendingBillingKeyV2(requestID, userID)
 	if key == "" {
 		return nil, fmt.Errorf("grok video pending billing key is invalid")
 	}
 	payload, err := s.cache.GetGrokVideoPendingBilling(ctx, key)
-	if err != nil || len(payload) == 0 {
+	if err != nil {
 		return nil, err
+	}
+	if len(payload) == 0 {
+		// 回退旧键:升级前创建的任务只有 apiKeyID 维度的快照
+		if legacyKey := grokVideoPendingBillingKey(requestID, userID, apiKeyID); legacyKey != "" && legacyKey != key {
+			payload, err = s.cache.GetGrokVideoPendingBilling(ctx, legacyKey)
+			if err != nil || len(payload) == 0 {
+				return nil, err
+			}
+		} else {
+			return nil, nil
+		}
 	}
 	var pending GrokVideoPendingBilling
 	if err := json.Unmarshal(payload, &pending); err != nil {
@@ -511,11 +542,24 @@ func (s *OpenAIGatewayService) ClaimGrokVideoBilling(
 	if s == nil || s.cache == nil {
 		return false, fmt.Errorf("grok video billing claim cache is unavailable")
 	}
-	key := grokVideoPendingBillingKey(requestID, userID, apiKeyID)
+	key := grokVideoPendingBillingKeyV2(requestID, userID)
 	if key == "" {
 		return false, fmt.Errorf("grok video billing claim key is invalid")
 	}
-	return s.cache.ClaimGrokVideoBilled(ctx, key, grokVideoBilledClaimTTL(s.cfg))
+	claimed, err := s.cache.ClaimGrokVideoBilled(ctx, key, grokVideoBilledClaimTTL(s.cfg))
+	if err != nil || !claimed {
+		return claimed, err
+	}
+	// 迁移期防重复:升级前创建的任务可能已用旧键计过费。旧键 claim 失败
+	// 说明已计费 → 回滚 V2 claim 并视为已计。
+	if legacyKey := grokVideoPendingBillingKey(requestID, userID, apiKeyID); legacyKey != "" && legacyKey != key {
+		legacyClaimed, legacyErr := s.cache.ClaimGrokVideoBilled(ctx, legacyKey, grokVideoBilledClaimTTL(s.cfg))
+		if legacyErr == nil && !legacyClaimed {
+			_ = s.cache.ReleaseGrokVideoBilled(ctx, key)
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // ReleaseGrokVideoBilling clears a claim after a failed durable RecordUsage so a
@@ -528,9 +572,13 @@ func (s *OpenAIGatewayService) ReleaseGrokVideoBilling(
 	if s == nil || s.cache == nil {
 		return fmt.Errorf("grok video billing claim cache is unavailable")
 	}
-	key := grokVideoPendingBillingKey(requestID, userID, apiKeyID)
+	// V2 为主;旧键一并释放,保证迁移期两侧一致
+	key := grokVideoPendingBillingKeyV2(requestID, userID)
 	if key == "" {
 		return fmt.Errorf("grok video billing claim key is invalid")
+	}
+	if legacyKey := grokVideoPendingBillingKey(requestID, userID, apiKeyID); legacyKey != "" {
+		_ = s.cache.ReleaseGrokVideoBilled(ctx, legacyKey)
 	}
 	return s.cache.ReleaseGrokVideoBilled(ctx, key)
 }

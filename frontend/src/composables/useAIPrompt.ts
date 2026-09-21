@@ -66,7 +66,9 @@ export async function initAIOptions(force = false) {
     aiKeyId.value = (found || aiKeys.value[0])?.id ?? null
     const selected = aiKeys.value.find(k => k.id === aiKeyId.value)
     if (selected) {
-      aiModels.value = await listChatModelsForKey(selected.key)
+      const seq = ++modelReqSeq
+      const models = await listChatModelsForKey(selected.key)
+      if (seq === modelReqSeq) aiModels.value = models
     }
     const savedModel = localStorage.getItem(LS_MODEL) || ''
     if (savedModel && aiModels.value.includes(savedModel)) {
@@ -81,6 +83,10 @@ export async function initAIOptions(force = false) {
   }
 }
 
+// 模型列表请求序号:快速切换密钥时丢弃过期响应,防止旧密钥的慢响应
+// 覆盖新密钥的状态(导致提交错配的 key/model 组合)
+let modelReqSeq = 0
+
 /** 切换密钥后重载该密钥可用的对话模型 */
 export async function onAIKeyChange() {
   localStorage.setItem(LS_KEY_ID, String(aiKeyId.value || ''))
@@ -88,13 +94,16 @@ export async function onAIKeyChange() {
   aiModels.value = []
   aiModel.value = ''
   if (!selected) return
+  const seq = ++modelReqSeq
   try {
-    aiModels.value = await listChatModelsForKey(selected.key)
+    const models = await listChatModelsForKey(selected.key)
+    if (seq !== modelReqSeq) return // 已切换到其他密钥,丢弃
+    aiModels.value = models
     const savedModel = localStorage.getItem(LS_MODEL) || ''
-    aiModel.value = savedModel && aiModels.value.includes(savedModel) ? savedModel : (aiModels.value[0] || '')
+    aiModel.value = savedModel && models.includes(savedModel) ? savedModel : (models[0] || '')
     if (aiModel.value) localStorage.setItem(LS_MODEL, aiModel.value)
   } catch {
-    aiModels.value = []
+    if (seq === modelReqSeq) aiModels.value = []
   }
 }
 

@@ -352,6 +352,16 @@ export function stopWaiting(taskId: number) {
   const task = tasks.value.find(tk => tk.taskId === taskId)
   if (!task || (task.status !== 'pending' && task.status !== 'processing')) return
   stoppedTasks.add(taskId)
+  pruneStoppedTasks()
+}
+
+/** 修剪 stoppedTasks 中已不在任务列表里的 id,防长期驻留泄漏 */
+function pruneStoppedTasks() {
+  if (stoppedTasks.size < 64) return
+  const alive = new Set(tasks.value.map(tk => tk.taskId))
+  for (const id of stoppedTasks) {
+    if (!alive.has(id)) stoppedTasks.delete(id)
+  }
 }
 
 export function cancelPending() {

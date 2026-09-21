@@ -26,8 +26,9 @@ const studioAssetBufferLimit = 32 << 20
 // StudioAssetBuffer 拦截 gin 响应写入,延迟落盘。
 type StudioAssetBuffer struct {
 	gin.ResponseWriter
-	buf    bytes.Buffer
-	status int
+	buf        bytes.Buffer
+	status     int
+	passthrough bool
 }
 
 // InstallStudioAssetBuffer 用缓冲 writer 替换 c.Writer,返回缓冲供 Finalize 使用。
@@ -40,7 +41,7 @@ func InstallStudioAssetBuffer(c *gin.Context) *StudioAssetBuffer {
 // FinalizeStudioAssetInline 恢复原 writer,必要时内联图片后写出最终响应。
 func FinalizeStudioAssetInline(c *gin.Context, buf *StudioAssetBuffer) {
 	c.Writer = buf.ResponseWriter
-	if buf.buf.Len() == 0 {
+	if buf.passthrough || buf.buf.Len() == 0 {
 		return
 	}
 	body := buf.buf.Bytes()
@@ -85,8 +86,17 @@ func (b *StudioAssetBuffer) Written() bool {
 func (b *StudioAssetBuffer) Flush() {}
 
 func (b *StudioAssetBuffer) Write(data []byte) (int, error) {
+	if b.passthrough {
+		return b.ResponseWriter.Write(data)
+	}
 	if b.buf.Len()+len(data) > studioAssetBufferLimit {
-		// 超限保护:直接透传到底层,放弃内联改写
+		// 超限保护:先把已缓冲内容按原序写出,再切换纯透传,放弃内联改写。
+		// (直接写底层而留旧缓冲会造成 finalize 时前后段乱序——Codex 审核 P1)
+		if _, err := b.ResponseWriter.Write(b.buf.Bytes()); err != nil {
+			return 0, err
+		}
+		b.buf.Reset()
+		b.passthrough = true
 		return b.ResponseWriter.Write(data)
 	}
 	return b.buf.Write(data)

@@ -18,8 +18,13 @@ import (
 
 // studioAssetClient 供代理端点与内联取图共用的受控 HTTP 客户端:
 // 仅访问受信图片 CDN,并在拨号层拒绝解析到回环/私网/链路本地地址的域名,防 SSRF。
+// 禁用自动重定向:入口的域名白名单只校验初始 URL,跟随 30x 会绕过白名单
+// 让后端代取任意公网资源(Codex 审核 P1)。
 var studioAssetClient = &http.Client{
 	Timeout: 90 * time.Second,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
 	Transport: &http.Transport{
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			hp, _, splitErr := net.SplitHostPort(addr)
@@ -40,6 +45,9 @@ var studioAssetClient = &http.Client{
 		},
 	},
 }
+
+// studioAssetMaxBytes 单个上游图片的最大字节数。
+const studioAssetMaxBytes = 32 << 20
 
 // studioAssetHostAllowed 仅允许 xAI 图片 CDN 域名。
 func studioAssetHostAllowed(raw string) (string, bool) {
@@ -81,10 +89,14 @@ func fetchStudioAssetBytes(ctx context.Context, raw string) ([]byte, error) {
 		}
 		ct := resp.Header.Get("Content-Type")
 		if resp.StatusCode == http.StatusOK && strings.HasPrefix(ct, "image/") {
-			data, readErr := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
+			// 读 limit+1 以区分"恰好等于上限"与"超限截断":超限视为失败而非静默截断
+			data, readErr := io.ReadAll(io.LimitReader(resp.Body, studioAssetMaxBytes+1))
 			_ = resp.Body.Close()
 			if readErr != nil {
 				continue
+			}
+			if len(data) > studioAssetMaxBytes {
+				return nil, errors.New("upstream asset exceeds size limit")
 			}
 			return data, nil
 		}
