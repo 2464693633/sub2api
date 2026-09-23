@@ -182,23 +182,21 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	Name                         string                        `json:"name" binding:"required"`
-	Description                  string                        `json:"description"`
-	Platform                     string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax composite"`
-	RateMultiplier               float64                       `json:"rate_multiplier"`
+	Name                      string                        `json:"name" binding:"required"`
+	Description               string                        `json:"description"`
+	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go composite"`
+	RateMultiplier            float64                       `json:"rate_multiplier"`
+	IsExclusive               bool                          `json:"is_exclusive"`
+	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD             optionalLimitField            `json:"daily_limit_usd"`
+	WeeklyLimitUSD            optionalLimitField            `json:"weekly_limit_usd"`
+	MonthlyLimitUSD           optionalLimitField            `json:"monthly_limit_usd"`
+	LongContextPricingEnabled bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing              []service.ChannelModelPricing `json:"model_pricing"`
 	InputTokenMultiplier         *float64                      `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	OutputTokenMultiplier        *float64                      `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	CacheCreationTokenMultiplier *float64                      `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheReadTokenMultiplier     *float64                      `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	ReturnBillableUsage          bool                          `json:"return_billable_usage"`
-	IsExclusive                  bool                          `json:"is_exclusive"`
-	SubscriptionType             string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD                optionalLimitField            `json:"daily_limit_usd"`
-	WeeklyLimitUSD               optionalLimitField            `json:"weekly_limit_usd"`
-	MonthlyLimitUSD              optionalLimitField            `json:"monthly_limit_usd"`
-	LongContextPricingEnabled    bool                          `json:"long_context_pricing_enabled"`
-	ModelPricing                 []service.ChannelModelPricing `json:"model_pricing"`
-	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	CacheReadTokenMultiplier     *float64                      `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
@@ -261,24 +259,22 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	Name                         string                         `json:"name"`
-	Description                  *string                        `json:"description"`
-	Platform                     string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax composite"`
-	RateMultiplier               *float64                       `json:"rate_multiplier"`
+	Name                      string                         `json:"name"`
+	Description               *string                        `json:"description"`
+	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go composite"`
+	RateMultiplier            *float64                       `json:"rate_multiplier"`
+	IsExclusive               *bool                          `json:"is_exclusive"`
+	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
+	SubscriptionType          string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD             optionalLimitField             `json:"daily_limit_usd"`
+	WeeklyLimitUSD            optionalLimitField             `json:"weekly_limit_usd"`
+	MonthlyLimitUSD           optionalLimitField             `json:"monthly_limit_usd"`
+	LongContextPricingEnabled *bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing              *[]service.ChannelModelPricing `json:"model_pricing"`
 	InputTokenMultiplier         *float64                       `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	OutputTokenMultiplier        *float64                       `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	CacheCreationTokenMultiplier *float64                       `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheReadTokenMultiplier     *float64                       `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	ReturnBillableUsage          *bool                          `json:"return_billable_usage"`
-	IsExclusive                  *bool                          `json:"is_exclusive"`
-	Status                       string                         `json:"status" binding:"omitempty,oneof=active inactive"`
-	SubscriptionType             string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD                optionalLimitField             `json:"daily_limit_usd"`
-	WeeklyLimitUSD               optionalLimitField             `json:"weekly_limit_usd"`
-	MonthlyLimitUSD              optionalLimitField             `json:"monthly_limit_usd"`
-	LongContextPricingEnabled    *bool                          `json:"long_context_pricing_enabled"`
-	ModelPricing                 *[]service.ChannelModelPricing `json:"model_pricing"`
-	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
+	CacheReadTokenMultiplier     *float64                       `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool                         `json:"allow_image_generation"`
 	AllowBatchImageGeneration       *bool                         `json:"allow_batch_image_generation"`
 	ImageRateIndependent            *bool                         `json:"image_rate_independent"`
@@ -342,7 +338,7 @@ type UpdateGroupRequest struct {
 type CompositeRouteRequest struct {
 	PublicModel    string `json:"public_model" binding:"required"`
 	MatchType      string `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax"`
+	TargetPlatform string `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go"`
 	UpstreamModel  string `json:"upstream_model"`
 	Endpoint       string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
 	Priority       int    `json:"priority"`
