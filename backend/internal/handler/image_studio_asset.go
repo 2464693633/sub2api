@@ -56,7 +56,8 @@ func studioAssetHostAllowed(raw string) (string, bool) {
 		return "", false
 	}
 	host := u.Hostname()
-	if host != "imgen.x.ai" && !strings.HasSuffix(host, ".x.ai") {
+	// xAI 图片 CDN + Cloudflare R2 公开桶(部分 OneAPI 中转把生成图存 R2 后回传 URL)
+	if host != "imgen.x.ai" && !strings.HasSuffix(host, ".x.ai") && !strings.HasSuffix(host, ".r2.dev") {
 		return "", false
 	}
 	return host, true

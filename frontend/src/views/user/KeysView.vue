@@ -1432,12 +1432,36 @@ const groupFilterOptions = computed(() => [
   ...groups.value.map((g) => ({ value: g.id, label: g.name }))
 ])
 
+// 平台筛选 chips(上游 v0.2.8):创建时先选平台,再在多分组选择器里选组
+const createProvider = ref<KeyGroupProvider>('anthropic')
+const createProviderOptions = computed(() => KEY_GROUP_PROVIDERS.map((value) => ({
+  value,
+  label: t(`keys.providers.${value}`),
+  count: groups.value.filter((group) => getKeyGroupProvider(group.platform) === value).length
+})))
+const selectCreateProvider = (provider: KeyGroupProvider) => {
+  if (createProvider.value === provider) return
+  createProvider.value = provider
+  formData.value.group_ids = []
+}
+watch([showCreateModal, createProviderOptions], ([isOpen, providers], [wasOpen]) => {
+  if (!isOpen) return
+  if (!wasOpen || !providers.some((provider) => provider.value === createProvider.value && provider.count > 0)) {
+    selectCreateProvider(providers.find((provider) => provider.count > 0)?.value ?? 'anthropic')
+  }
+})
+
 const formGroups = computed(() => {
   const merged = new Map<number, Group>()
   for (const group of selectedKey.value?.groups ?? []) merged.set(group.id, group)
   if (selectedKey.value?.group) merged.set(selectedKey.value.group.id, selectedKey.value.group)
   for (const group of groups.value) merged.set(group.id, group)
-  return [...merged.values()]
+  let list = [...merged.values()]
+  // 创建模式按所选平台过滤,与顶部 provider chips 联动
+  if (!showEditModal.value) {
+    list = list.filter((group) => getKeyGroupProvider(group.platform) === createProvider.value)
+  }
+  return list
 })
 
 const getKeyGroups = (key: ApiKey): Group[] => {

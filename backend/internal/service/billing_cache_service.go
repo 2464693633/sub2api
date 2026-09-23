@@ -843,6 +843,9 @@ func (s *BillingCacheService) CheckBillingEligibilityForGroupFailover(ctx contex
 		if count > group.RPMLimit {
 			return ErrGroupRPMExceeded
 		}
+	}
+	return nil
+}
 
 // checkSimpleModeAPIKeyRateLimits is deliberately DB-authoritative. Redis
 // updates are asynchronous and can be dropped or missed after a committed
@@ -870,7 +873,6 @@ func (s *BillingCacheService) checkSimpleModeAPIKeyRateLimits(ctx context.Contex
 		return ErrAPIKeyRateLimit7dExceeded	}
 	return nil
 }
-
 // checkRPM 执行并行 RPM 限流，所有适用的限制同时生效，任一超限即拒绝：
 //
 //  1. (用户, 分组) rpm_override       — 最细粒度：管理员为特定用户在特定分组设定的专属限额。

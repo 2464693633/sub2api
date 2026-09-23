@@ -46,8 +46,10 @@ func (h *GatewayHandler) VideoStudioModels(c *gin.Context, apiKeyService *servic
 		ids := h.gatewayService.GetAvailableModels(c.Request.Context(), &g.ID, g.Platform)
 		for _, id := range ids {
 			id = strings.TrimSpace(id)
-			// 排除含 image 的模型名(如 grok-imagine-image-*),避免图片模型混入视频列表
-			if id == "" || seen[id] || strings.Contains(strings.ToLower(id), "image") || !videoStudioModelPattern.MatchString(id) {
+			// 排除含 image 的模型名(如 grok-imagine-image-*),以及上游 v0.2.8 新增的
+			// 裸 grok-imagine 图片模型别名,避免图片模型混入视频列表
+			lower := strings.ToLower(id)
+			if id == "" || seen[id] || strings.Contains(lower, "image") || lower == "grok-imagine" || !videoStudioModelPattern.MatchString(id) {
 				continue
 			}
 			seen[id] = true

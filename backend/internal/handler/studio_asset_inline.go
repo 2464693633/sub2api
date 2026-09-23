@@ -112,12 +112,12 @@ func (b *StudioAssetBuffer) WriteHeader(code int) {
 	}
 }
 
-// inlineGrokImageAssets 识别工作台生图成功响应中的 xAI 图片 URL,
+// inlineGrokImageAssets 识别工作台生图成功响应中的上游图片 URL(xAI imgen / R2 公开桶),
 // 下载并改写为 b64_json;任何失败都原样返回(changed=false),前端走代理兜底。
 // 用 map 泛型操作保留上游响应的全部未知字段。
 func inlineGrokImageAssets(c *gin.Context, body []byte) ([]byte, bool) {
 	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 || trimmed[0] != '{' || !bytes.Contains(body, []byte("imgen.")) {
+	if len(trimmed) == 0 || trimmed[0] != '{' || !(bytes.Contains(body, []byte("imgen.")) || bytes.Contains(body, []byte(".r2.dev"))) {
 		return body, false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))
