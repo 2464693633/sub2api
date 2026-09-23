@@ -76,42 +76,28 @@ func RegisterStudioAIRoutes(
 				return
 			}
 
-			// 密钥与模型选择:用户指定密钥时校验归属并直接使用;
-			// 未指定时沿用自动模式(自动挑对话分组+托管密钥)。
-			var authKeyValue string
-			chatModel := strings.TrimSpace(req.Model)
-			if req.KeyID > 0 {
-				key, keyErr := apiKeyService.GetByID(c.Request.Context(), req.KeyID)
-				if keyErr != nil || key == nil || key.UserID != subject.UserID || key.Status != service.StatusAPIKeyActive {
-					c.JSON(http.StatusBadRequest, gin.H{"message": "密钥不存在或不可用"})
-					return
-				}
-				hasGroup := key.GroupID != nil && *key.GroupID > 0 || len(key.GroupIDs) > 0
-				if !hasGroup {
-					c.JSON(http.StatusBadRequest, gin.H{"message": "该密钥未绑定分组,无法路由"})
-					return
-				}
-				if chatModel == "" {
-					c.JSON(http.StatusBadRequest, gin.H{"message": "请选择用于优化提示词的模型"})
-					return
-				}
-				authKeyValue = key.Key
-			} else {
-				group, model, err := h.Gateway.StudioChatTarget(c, apiKeyService, subject.UserID)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
-					return
-				}
-				apiKey, err := apiKeyService.EnsureAIPromptKeyForGroup(c.Request.Context(), subject.UserID, group.ID)
-				if err != nil {
-					c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
-					return
-				}
-				authKeyValue = apiKey.Key
-				if chatModel == "" {
-					chatModel = model
-				}
+			// 仅使用用户自己创建的 API 密钥:不再提供自动选组/托管密钥模式。
+			// 密钥必须归属当前用户、启用且绑定分组;模型由用户显式选择。
+			if req.KeyID <= 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "请选择用于优化提示词的 API 密钥"})
+				return
 			}
+			key, keyErr := apiKeyService.GetByID(c.Request.Context(), req.KeyID)
+			if keyErr != nil || key == nil || key.UserID != subject.UserID || key.Status != service.StatusAPIKeyActive {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "密钥不存在或不可用"})
+				return
+			}
+			hasGroup := key.GroupID != nil && *key.GroupID > 0 || len(key.GroupIDs) > 0
+			if !hasGroup {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "该密钥未绑定分组,无法路由"})
+				return
+			}
+			chatModel := strings.TrimSpace(req.Model)
+			if chatModel == "" {
+				c.JSON(http.StatusBadRequest, gin.H{"message": "请选择用于优化提示词的模型"})
+				return
+			}
+			authKeyValue := key.Key
 
 			payload, err := json.Marshal(map[string]any{
 				"model": chatModel,

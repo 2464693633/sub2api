@@ -1524,7 +1524,7 @@ const isAbortError = (error: unknown) => {
 }
 
 // 工作台系统密钥(生图/视频工作台自动创建与管理),默认不在列表中显示
-const STUDIO_KEY_NAMES = new Set(['生图工作台', '视频工作台'])
+const STUDIO_KEY_NAMES = new Set(['生图工作台', '视频工作台', 'AI提示词'])
 const showStudioKeys = ref(localStorage.getItem('keys_show_studio_keys') === '1')
 watch(showStudioKeys, (v) => {
   localStorage.setItem('keys_show_studio_keys', v ? '1' : '0')

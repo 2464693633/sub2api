@@ -114,8 +114,10 @@ export function rememberAIModel() {
 export async function aiEnhancePrompt(
   kind: 'image' | 'video',
   prompt: string,
-  opts?: { keyId?: number; model?: string }
+  opts: { keyId?: number; model?: string }
 ): Promise<string> {
+  // 仅支持用户自选密钥+模型(后端同样强制校验)
+  if (!opts?.keyId) throw new Error(t('canvas.aiNeedKey'))
   const token = localStorage.getItem('auth_token') || ''
   // 上游偶发挂起:75 秒无响应主动超时,提示更换密钥/模型
   const controller = new AbortController()

@@ -36,7 +36,7 @@
               <option v-if="aiModels.length === 0" value="">{{ t('canvas.aiNoModels') }}</option>
               <option v-for="m in aiModels" :key="m" :value="m">{{ m }}</option>
             </select>
-            <button type="button" :disabled="aiLoading" class="shrink-0 rounded border border-primary-300 px-1.5 py-0.5 text-[11px] text-primary-600 hover:border-primary-500 hover:bg-primary-50 disabled:opacity-50 dark:border-primary-700 dark:text-primary-400 dark:hover:bg-primary-900/20" @click="onAIPrompt">{{ aiLoading ? t('canvas.aiPrompting') : '✨ ' + t('canvas.aiPrompt') }}</button>
+            <button type="button" :disabled="aiLoading || !aiKeyId || !aiModel" class="shrink-0 rounded border border-primary-300 px-1.5 py-0.5 text-[11px] text-primary-600 hover:border-primary-500 hover:bg-primary-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-primary-700 dark:text-primary-400 dark:hover:bg-primary-900/20" @click="onAIPrompt">{{ aiLoading ? t('canvas.aiPrompting') : '✨ ' + t('canvas.aiPrompt') }}</button>
           </div>
         </div>
         <textarea
