@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { creativeStudioAPI as api, type StudioSnapshot, type StudioProject, type StudioAsset, type StudioJob } from '@/api/creativeStudio'
 import { useCreativeStudio, persistedProject } from '../useCreativeStudio'
 
-vi.mock('@/api/creativeStudio', () => ({ creativeStudioAPI: Object.fromEntries(['list','create','get','save','remove','upload','asset','run','retry','cancel','render','models'].map(name => [name, vi.fn()])) }))
+vi.mock('@/api/creativeStudio', () => ({ creativeStudioAPI: Object.fromEntries(['list','create','get','save','remove','upload','asset','run','retry','cancel','render','models','preflight'].map(name => [name, vi.fn()])) }))
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const node = { id: 'image-1', type: 'image' as const, position: { x: 50, y: 80 }, data: { kind: 'image' as const, title: 'overview', prompt: 'leather bag', params: { model: 'gpt-image-2', group_id: 20, size: 'auto', quality: 'auto', format: 'png', seconds: 6, resolution: '720p' } } }
 const imageAsset = (id: string): StudioAsset => ({ id, kind: 'image', name: `${id}.png`, mime: 'image/png', size: 10, created_at: 100, node_id: node.id })
@@ -38,6 +38,7 @@ beforeEach(() => {
     return copy(server)
   })
   vi.mocked(api.asset).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+  vi.mocked(api.preflight).mockImplementation(async (_id, ids, revision) => ({ revision, valid: true, counts: { image: ids.length, video: 0, total: ids.length }, nodes: [], errors: [] }))
   vi.mocked(api.run).mockImplementation(async () => copy(server))
   vi.mocked(api.render).mockImplementation(async () => copy(server))
 })
@@ -206,6 +207,71 @@ describe('creative studio persistence and workflows', () => {
     expect(studio.jobs.value.some(j => j.id === 'job-2')).toBe(true)
     expect(studio.project.value!.nodes[0]!.data.assetId).toBe('older')
     expect(studio.project.value!.nodes[0]!.data.resultId).toBe('job-2')
+  })
+
+  it('keeps legacy parameters custom and inherits project defaults for new cards', async () => {
+    const studio = await start()
+    const legacy = studio.project.value!.nodes[0]!
+    studio.project.value!.settings!.image_params.size = '1536x1024'
+    const fresh = studio.add('image')!
+    expect(studio.effectiveParams(legacy).size).toBe('auto')
+    expect(studio.effectiveParams(fresh).size).toBe('1536x1024')
+    studio.setParamsMode(fresh.id, 'custom')
+    studio.project.value!.settings!.image_params.size = '1024x1536'
+    expect(studio.effectiveParams(fresh).size).toBe('1536x1024')
+    studio.applyProjectDefaults([legacy.id, fresh.id])
+    expect(studio.effectiveParams(legacy).size).toBe('1024x1536')
+    expect(studio.effectiveParams(fresh).size).toBe('1024x1536')
+    await studio.save()
+    expect(server.project.nodes.every(n => n.data.paramsMode === 'project')).toBe(true)
+  })
+
+  it('blocks all generation when the server preflight rejects one dependency', async () => {
+    const studio = await start()
+    vi.mocked(api.preflight).mockResolvedValue({ revision: 1, valid: false, counts: { image: 1, video: 0, total: 1 }, nodes: [], errors: [{ node_id: node.id, code: 'invalid_params', message: 'unsupported image references' }] })
+    await studio.run([node.id])
+    expect(api.run).not.toHaveBeenCalled()
+    expect(studio.pendingRun.value).toBeNull()
+    expect(studio.preflight.value?.errors[0]?.node_id).toBe(node.id)
+    expect(studio.error.value).toBe('preflightFix')
+  })
+
+  it('does not submit a graph edited while preflight was in flight', async () => {
+    const studio = await start()
+    const pending = deferred<Awaited<ReturnType<typeof api.preflight>>>()
+    vi.mocked(api.preflight).mockImplementationOnce(() => pending.promise)
+    const running = studio.run([node.id])
+    await flushPromises()
+    studio.project.value!.nodes[0]!.data.prompt = 'a different product'
+    pending.resolve({ revision: 1, valid: true, counts: { image: 1, video: 0, total: 1 }, nodes: [], errors: [] })
+    await running
+    expect(api.run).not.toHaveBeenCalled()
+    expect(studio.pendingRun.value).toBeNull()
+    expect(studio.notice.value).toBe('planChanged')
+  })
+
+  it('pins marked versions in batch timeline actions and keeps selection transient', async () => {
+    const studio = await start()
+    server.assets = [imageAsset('preferred')]
+    studio.assets.value = copy(server.assets)
+    studio.selectedId.value = node.id
+    studio.markPreferred(server.assets[0]!)
+    studio.selectNodes([node.id])
+    studio.addSelectedTimeline()
+    await studio.save()
+    expect(server.project.nodes[0]!.data.preferredAssetId).toBe('preferred')
+    expect(server.project.timeline!.clips[0]!.asset_id).toBe('preferred')
+    expect(server.project.nodes[0]).not.toHaveProperty('selected')
+  })
+
+  it('counts shared prerequisites once and reuses completed parent versions', async () => {
+    const studio = await start()
+    const first = studio.add('image')!, second = studio.add('image')!
+    studio.project.value!.edges = [{ id: 'a', source: node.id, target: first.id }, { id: 'b', source: node.id, target: second.id }]
+    expect(studio.runCounts([first.id, second.id])).toEqual({ image: 3, video: 0, total: 3 })
+    studio.project.value!.nodes[0]!.data.assetId = 'completed-parent'
+    expect(studio.runCounts([first.id, second.id])).toEqual({ image: 2, video: 0, total: 2 })
+    expect(studio.runCounts([node.id, first.id, second.id])).toEqual({ image: 3, video: 0, total: 3 })
   })
 
   it('does not persist preview URLs in exported project metadata', () => {

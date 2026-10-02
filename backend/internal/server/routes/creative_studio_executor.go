@@ -49,6 +49,9 @@ func (e *creativeStudioExecutor) Execute(ctx context.Context, job creativestudio
 	if job.Kind != "image" && job.Kind != "video" {
 		return creativestudio.Result{}, errors.New("unsupported generation task")
 	}
+	if err := creativestudio.ValidateGenerationParams(job.Kind, job.Params, len(inputs)); err != nil {
+		return creativestudio.Result{}, err
+	}
 	key, platform, err := e.resolveKey(ctx, job.UserID, job.Kind, params.GroupID)
 	if err != nil {
 		return creativestudio.Result{}, err
@@ -195,16 +198,19 @@ func (e *creativeStudioExecutor) image(ctx context.Context, job creativestudio.J
 		path = "/v1/images/edits"
 		form := multipart.NewWriter(&payload)
 		fields := map[string]string{"model": params.Model, "prompt": job.Prompt}
+		if params.Size != "" && params.Size != "auto" {
+			fields["size"] = params.Size
+		}
 		if params.Platform != service.PlatformGrok {
-			if params.Size != "" && params.Size != "auto" {
-				fields["size"] = params.Size
-			}
-			if params.Quality != "" && params.Quality != "auto" {
+			if params.Quality != "" && params.Quality != "auto" && !strings.EqualFold(params.Model, "dall-e-2") {
 				fields["quality"] = params.Quality
 			}
-			if params.Format != "" {
+			if params.Format != "" && !strings.HasPrefix(strings.ToLower(params.Model), "dall-e") {
 				fields["output_format"] = params.Format
 			}
+		}
+		if strings.HasPrefix(strings.ToLower(params.Model), "dall-e") {
+			fields["response_format"] = "b64_json"
 		}
 		for name, value := range fields {
 			if err := form.WriteField(name, value); err != nil {
@@ -243,14 +249,14 @@ func (e *creativeStudioExecutor) image(ctx context.Context, job creativestudio.J
 		contentType = form.FormDataContentType()
 	} else {
 		fields := map[string]any{"model": params.Model, "prompt": job.Prompt, "n": 1}
+		if params.Size != "" && params.Size != "auto" {
+			fields["size"] = params.Size
+		}
 		if params.Platform != service.PlatformGrok {
-			if params.Size != "" && params.Size != "auto" {
-				fields["size"] = params.Size
-			}
-			if params.Quality != "" && params.Quality != "auto" {
+			if params.Quality != "" && params.Quality != "auto" && !strings.EqualFold(params.Model, "dall-e-2") {
 				fields["quality"] = params.Quality
 			}
-			if params.Format != "" {
+			if params.Format != "" && !strings.HasPrefix(strings.ToLower(params.Model), "dall-e") {
 				fields["output_format"] = params.Format
 			}
 			if strings.HasPrefix(params.Model, "dall-e") {
@@ -318,19 +324,19 @@ func (e *creativeStudioExecutor) video(ctx context.Context, job creativestudio.J
 	defer cancel()
 	remoteID := job.RemoteID
 	if remoteID == "" {
-		payload := map[string]any{"model": params.Model, "prompt": job.Prompt, "seconds": params.Seconds, "resolution": params.Resolution}
+		payload := map[string]any{"model": params.Model, "prompt": job.Prompt, "duration": params.Seconds, "resolution": params.Resolution}
 		if params.Seconds < 1 || params.Seconds > 30 {
 			return creativestudio.Result{}, errors.New("视频时长必须为 1–30 秒 / Video duration must be 1–30 seconds")
 		}
-		if params.Size != "" && params.Size != "auto" {
-			payload["size"] = params.Size
+		if aspect := creativestudio.VideoAspectRatio(params.Size); aspect != "" {
+			payload["aspect_ratio"] = aspect
 		}
 		if len(refs) == 1 {
 			data, err := os.ReadFile(refs[0].Path)
 			if err != nil {
 				return creativestudio.Result{}, err
 			}
-			payload["image_url"] = "data:" + refs[0].MIME + ";base64," + base64.StdEncoding.EncodeToString(data)
+			payload["image"] = map[string]string{"url": "data:" + refs[0].MIME + ";base64," + base64.StdEncoding.EncodeToString(data)}
 		}
 		body, err := json.Marshal(payload)
 		if err != nil {

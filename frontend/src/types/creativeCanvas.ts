@@ -12,6 +12,8 @@ export interface CreativeCanvasNodeData {
   previewUrl?: string
   assetId?: string
   resultId?: string
+  preferredAssetId?: string
+  paramsMode?: 'project' | 'custom'
   error?: string
   progress?: number
   [key: string]: unknown

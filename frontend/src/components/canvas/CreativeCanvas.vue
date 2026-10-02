@@ -36,6 +36,7 @@
         @pane-click="emit('select', null)"
         @viewport-change-end="emit('update:viewport', $event)"
       >
+        <template #edge-smoothstep="edgeProps"><RoutedCanvasEdge v-bind="edgeProps" /></template>
         <Background :gap="24" :size="1" pattern-color="#94a3b860" />
         <Controls position="bottom-right" :show-interactive="false" />
         <template v-for="kind in kinds" :key="kind" #[`node-${kind}`]="{ id, data, selected }">
@@ -81,6 +82,7 @@ import type {
 } from '@/types/creativeCanvas'
 import { validateCreativeCanvasConnection } from '@/types/creativeCanvas'
 import CreativeNodeCard from './CreativeCanvasNode.vue'
+import RoutedCanvasEdge from './CreativeCanvasEdge.vue'
 import { creativeCanvasMessages } from './creativeCanvasMessages'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
@@ -169,7 +171,11 @@ function onConnect(connection: Connection) {
 }
 
 onBeforeUnmount(() => { if (errorTimer) clearTimeout(errorTimer) })
-defineExpose({ fitView })
+function focusNode(id: string) {
+  const node = props.nodes.find(n => n.id === id)
+  if (node) return flow.setCenter(node.position.x + 143, node.position.y + 170, { zoom: 1, duration: 250 })
+}
+defineExpose({ fitView, focusNode })
 </script>
 
 <style scoped>

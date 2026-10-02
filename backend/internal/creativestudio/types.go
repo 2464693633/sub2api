@@ -28,12 +28,14 @@ type Viewport struct {
 	Zoom float64 `json:"zoom"`
 }
 type NodeData struct {
-	Kind     string          `json:"kind"`
-	Title    string          `json:"title"`
-	Prompt   string          `json:"prompt"`
-	AssetID  string          `json:"assetId,omitempty"`
-	ResultID string          `json:"resultId,omitempty"`
-	Params   json.RawMessage `json:"params,omitempty"`
+	Kind             string          `json:"kind"`
+	Title            string          `json:"title"`
+	Prompt           string          `json:"prompt"`
+	AssetID          string          `json:"assetId,omitempty"`
+	PreferredAssetID string          `json:"preferredAssetId,omitempty"`
+	ParamsMode       string          `json:"paramsMode,omitempty"`
+	ResultID         string          `json:"resultId,omitempty"`
+	Params           json.RawMessage `json:"params,omitempty"`
 }
 type Node struct {
 	ID       string   `json:"id"`
@@ -48,16 +50,24 @@ type Edge struct {
 	Label  string `json:"label,omitempty"`
 	Type   string `json:"type,omitempty"`
 }
+type ProjectSettings struct {
+	Subject     string          `json:"subject"`
+	Style       string          `json:"style"`
+	ImageParams json.RawMessage `json:"image_params,omitempty"`
+	VideoParams json.RawMessage `json:"video_params,omitempty"`
+}
+
 type Project struct {
-	ID        string          `json:"id"`
-	Name      string          `json:"name"`
-	Revision  int64           `json:"revision"`
-	Nodes     []Node          `json:"nodes"`
-	Edges     []Edge          `json:"edges"`
-	Viewport  Viewport        `json:"viewport"`
-	Timeline  json.RawMessage `json:"timeline,omitempty"`
-	CreatedAt int64           `json:"created_at"`
-	UpdatedAt int64           `json:"updated_at"`
+	Settings  *ProjectSettings `json:"settings,omitempty"`
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	Revision  int64            `json:"revision"`
+	Nodes     []Node           `json:"nodes"`
+	Edges     []Edge           `json:"edges"`
+	Viewport  Viewport         `json:"viewport"`
+	Timeline  json.RawMessage  `json:"timeline,omitempty"`
+	CreatedAt int64            `json:"created_at"`
+	UpdatedAt int64            `json:"updated_at"`
 }
 type Asset struct {
 	ID        string `json:"id"`

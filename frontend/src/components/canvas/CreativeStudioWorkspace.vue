@@ -29,15 +29,48 @@
     <div v-if="loading" class="loading" role="status">{{ tr('loading') }}</div>
 
     <template v-if="project && !loading">
-      <div class="workspace-grid">
-        <CreativeCanvas
+      <details v-if="project.settings" class="project-settings" :open="!project.nodes.length">
+        <summary>{{ tr('projectSettings') }} <span class="muted">{{ tr('projectSettingsHint') }}</span></summary>
+        <div class="settings-grid">
+          <div><label>{{ tr('subject') }}<textarea v-model="project.settings.subject" rows="3" maxlength="2000" :placeholder="tr('subjectPlaceholder')"></textarea></label><label>{{ tr('style') }}<textarea v-model="project.settings.style" rows="2" maxlength="1500" :placeholder="tr('stylePlaceholder')"></textarea></label><p class="muted">{{ tr('settingsInheritance') }}</p><button type="button" :disabled="busy || saveState === 'conflict'" @click="applyProjectDefaults(project.nodes.map(n => n.id))">{{ tr('applyAllDefaults') }}</button></div>
+          <div><h3>{{ tr('imageDefaults') }}</h3><StudioGenerationFields v-model="project.settings.image_params" kind="image" :models="imageModels" :disabled="saveState === 'conflict'" /></div>
+          <div><h3>{{ tr('videoDefaults') }}</h3><StudioGenerationFields v-model="project.settings.video_params" kind="video" :models="videoModels" :disabled="saveState === 'conflict'" /></div>
+        </div>
+      </details>
+      <div class="workspace-actions">
+        <div class="view-switch"><button type="button" :aria-pressed="boardMode === 'canvas'" @click="boardMode = 'canvas'">{{ tr('workspace') }}</button><button type="button" :aria-pressed="boardMode === 'list'" @click="boardMode = 'list'">{{ tr('cardList') }}</button></div>
+        <button type="button" @click="selectNodes(project.nodes.map(n => n.id))">{{ tr('selectAll') }}</button><button v-if="selectedNodes.length" type="button" @click="selectNodes([])">{{ tr('clearSelection') }}</button>
+        <span class="muted">{{ tr('plannedCounts', plannedCounts) }}</span><button type="button" :disabled="busy || !pendingNodeIds.length" @click="checkPlan()">{{ tr('checkPlan') }}</button>
+      </div>
+      <div v-if="selectedNodes.length" class="batch-actions">
+        <strong>{{ tr('selected', { n: selectedNodes.length }) }}</strong>
+        <button type="button" :disabled="busy || saveState === 'conflict'" @click="applyProjectDefaults(selectedNodes.map(n => n.id))">{{ tr('applySelectedDefaults') }}</button>
+        <button type="button" :disabled="busy || !selectedNodes.some(n => n.type !== 'text')" @click="run(selectedNodes.filter(n => n.type !== 'text').map(n => n.id))">{{ tr('generateSelectedVersions') }}</button>
+        <button type="button" :disabled="!selectedNodes.some(n => n.data.assetId)" @click="addSelectedTimeline">+ {{ tr('addTimeline') }}</button>
+        <button type="button" :disabled="!selectedImages.length" @click="deriveSelected">{{ tr('multiVideos') }}</button>
+      </div>
+      <details v-if="preflight" class="preflight-panel" :open="!preflight.valid">
+        <summary>{{ tr(preflight.valid ? 'preflightReady' : 'preflightFix') }} · {{ tr('plannedCounts', preflight.counts) }}</summary>
+        <div v-for="(issue, index) in preflight.errors" :key="index" class="error"><button v-if="issue.node_id" type="button" @click="focusNode(issue.node_id)">{{ project.nodes.find(n => n.id === issue.node_id)?.data.title }}</button> {{ issue.message }}</div>
+        <div v-for="step in preflight.nodes" :key="step.node_id" class="preflight-step"><strong>{{ step.title }}</strong><span>{{ step.params.model }}</span><span v-if="step.inputs.length">{{ tr('refs') }}: {{ step.inputs.map(input => project!.nodes.find(n => n.id === input.node_id)?.data.title || input.asset_id).join(' · ') }}</span></div>
+      </details>
+      <div class="workspace-grid" :class="{ 'list-mode': boardMode === 'list' }">
+        <CreativeCanvas v-if="boardMode === 'canvas'"
           :key="project.id" ref="board" v-model:nodes="project.nodes" v-model:edges="project.edges"
           v-model:viewport="project.viewport" :selected-node-id="selectedId" :readonly="saveState === 'conflict'"
-          @select="selectedId = $event" @add="add($event)" @open-assets="showAssets"
+          @select="selectedId = $event" @add="addAndFocus($event)" @open-assets="showAssets"
           @template="addTemplate" @arrange="arrangeBoard" @run="runNode($event)" @duplicate="duplicate"
-          @remove="remove" @derive="derive($event.id, $event.kind)" @edit="editPrompt" @preview="previewNode"
+          @remove="remove" @derive="deriveAndFocus($event.id, $event.kind)" @edit="editPrompt" @preview="previewNode"
         />
-        <aside class="inspector" :aria-label="tr('inspector')">
+        <section v-else class="card-list" :aria-label="tr('cardList')">
+          <div class="button-row"><button type="button" @click="addAndFocus('text')">+ {{ tr('text') }}</button><button type="button" @click="addAndFocus('image')">+ {{ tr('images') }}</button><button type="button" @click="addAndFocus('video')">+ {{ tr('videos') }}</button><button type="button" @click="showAssets">{{ tr('assets') }}</button><button type="button" @click="addTemplate">{{ tr('detailsTemplate') }}</button></div>
+          <article v-for="node in project.nodes" :key="node.id" class="list-card" :class="{ chosen: selectedId === node.id }">
+            <input v-model="node.selected" type="checkbox" :aria-label="tr('selectCard', { title: node.data.title })" />
+            <button type="button" class="list-card-main" @click="focusNode(node.id)"><img v-if="node.type === 'image' && node.data.previewUrl" :src="node.data.previewUrl" :alt="node.data.title" /><span v-else class="list-card-kind">{{ node.type === 'image' ? '▧' : node.type === 'video' ? '▷' : 'T' }}</span><span><strong>{{ node.data.title }}</strong><small>{{ node.data.prompt || project.settings?.subject || tr('promptPlaceholder') }}</small><span class="muted">{{ tr(node.data.status || 'draft') }}</span></span></button>
+            <button v-if="node.type !== 'text'" type="button" :disabled="busy || ['queued','waiting','running'].includes(node.data.status || '')" @click="runNode(node.id)">{{ ['failed','cancelled'].includes(node.data.status || '') ? tr('retry') : node.data.assetId ? tr('rerun') : tr('run') }}</button>
+          </article><p v-if="!project.nodes.length" class="muted">{{ tr('selectHint') }}</p>
+        </section>
+        <aside ref="inspector" class="inspector" :aria-label="tr('inspector')">
           <div class="panel-heading"><h2>{{ tr('inspector') }}</h2><span v-if="selected" class="kind-tag">{{ tr(selected.type === 'text' ? 'text' : selected.type === 'image' ? 'images' : 'videos') }}</span></div>
           <p v-if="!selected" class="empty-panel">{{ tr('selectHint') }}</p>
           <template v-else>
@@ -46,22 +79,9 @@
               <textarea v-model="selected.data.prompt" rows="5" maxlength="4000" :placeholder="tr(selected.type === 'video' ? 'motionPlaceholder' : 'promptPlaceholder')"></textarea>
             </label>
             <template v-if="selected.type !== 'text' && selectedParams">
-              <label>{{ tr('model') }}
-                <select :value="modelKey(selectedParams)" @change="selectModel(($event.target as HTMLSelectElement).value)">
-                  <option v-if="!selectedModels.some(m => modelKey(m) === modelKey(selectedParams!))" :value="modelKey(selectedParams)">{{ selectedParams.model || tr('noModel') }}</option>
-                  <option v-for="m in selectedModels" :key="modelKey(m)" :value="modelKey(m)">{{ m.id }} · {{ m.group_name }}</option>
-                </select>
-              </label>
-              <p v-if="!selectedModels.length" class="warning">{{ tr('noModel') }}</p>
-              <div v-if="selected.type === 'image' && !grokSelected" class="field-grid">
-                <label>{{ tr('size') }}<select v-model="selectedParams.size"><option value="auto">{{ tr('auto') }}</option><option v-for="size in ['1024x1024', '1536x1024', '1024x1536', '1792x1024', '1024x1792']" :key="size">{{ size }}</option></select></label>
-                <label>{{ tr('quality') }}<select v-model="selectedParams.quality"><option v-for="q in ['auto', 'high', 'medium', 'low']" :key="q" :value="q">{{ tr(q) }}</option></select></label>
-              </div>
-              <div v-if="selected.type === 'video'" class="field-grid">
-                <label>{{ tr('seconds') }}<input v-model.number="selectedParams.seconds" type="number" min="1" max="30" step="1" /></label>
-                <label>{{ tr('resolution') }}<select v-model="selectedParams.resolution"><option v-for="res in ['480p','720p','1080p']" :key="res">{{ res }}</option></select></label>
-                <label>{{ tr('size') }}<select v-model="selectedParams.size"><option value="auto">{{ tr('auto') }}</option><option v-for="size in ['1280x720','720x1280','1024x1024']" :key="size">{{ size }}</option></select></label>
-              </div>
+              <label>{{ tr('parameterSource') }}<select :value="selected.data.paramsMode || 'custom'" @change="setParamsMode(selected!.id, ($event.target as HTMLSelectElement).value as 'project' | 'custom')"><option value="project">{{ tr('followProject') }}</option><option value="custom">{{ tr('customParameters') }}</option></select></label>
+              <StudioGenerationFields :model-value="selectedParams" :kind="selected.type" :models="selectedModels" :disabled="selected.data.paramsMode === 'project' || saveState === 'conflict'" @update:model-value="selected!.data.params = $event" />
+              <p v-if="selected.data.paramsMode === 'project'" class="muted">{{ tr('inheritedHint') }}</p>
               <h3>{{ tr('refs') }}</h3>
               <p v-if="!references.length" class="muted">{{ tr('noRefs') }}</p>
               <div v-for="reference in references" :key="reference.id" class="reference-row"><span>{{ reference.data.title }}</span><button type="button" :aria-label="tr('remove')" @click="disconnect(reference.id)">×</button></div>
@@ -75,16 +95,14 @@
                 <div class="button-row"><button type="button" @click="previewNode(selected.id)">{{ tr('preview') }}</button><button type="button" :disabled="busy" @click="downloadById(selected.data.assetId!)">{{ tr('download') }}</button></div>
                 <button type="button" class="full" @click="addTimeline(selected.data.assetId!, selected.data.title)">+ {{ tr('addTimeline') }}</button>
               </template>
-              <div v-if="selected.type === 'image'" class="button-row"><button type="button" @click="derive(selected!.id, 'image')">+ {{ tr('useAsImage') }}</button><button type="button" @click="derive(selected!.id, 'video')">▷ {{ tr('useAsVideo') }}</button></div>
+              <div v-if="selected.type === 'image'" class="button-row"><button type="button" @click="deriveAndFocus(selected!.id, 'image')">+ {{ tr('useAsImage') }}</button><button type="button" @click="deriveAndFocus(selected!.id, 'video')">▷ {{ tr('useAsVideo') }}</button></div>
               <template v-if="versions.length">
-                <h3>{{ tr('versions') }}</h3><p class="muted">{{ tr('keepVersions') }}</p>
-                <button v-for="(asset, index) in versions" :key="asset.id" type="button" class="version" :class="{ chosen: selected.data.assetId === asset.id }" @click="useVersion(asset)">
-                  <span>v{{ versions.length - index }} · {{ date(asset.created_at) }}</span><span>{{ selected.data.assetId === asset.id ? '✓' : tr('useVersion') }}</span>
-                </button>
+                <h3>{{ tr('versions') }}</h3><button v-if="selected.type === 'image' && versions.length > 1" type="button" class="full" @click="showComparison">{{ tr('compareVersions') }}</button><p class="muted">{{ tr('keepVersions') }}</p>
+                <div v-for="(asset, index) in versions" :key="asset.id" class="version" :class="{ chosen: selected.data.assetId === asset.id }"><button type="button" @click="useVersion(asset)">v{{ versions.length - index }} · {{ date(asset.created_at) }} {{ selected.data.assetId === asset.id ? '✓' : '' }}</button><button type="button" :aria-label="tr('markPreferred')" :aria-pressed="selected.data.preferredAssetId === asset.id" @click="markPreferred(asset)">{{ selected.data.preferredAssetId === asset.id ? '★' : '☆' }}</button></div>
               </template>
             </template>
           </template>
-          <button v-if="selectedImages.length > 1" type="button" class="full" @click="selectedImages.forEach(n => derive(n.id, 'video'))">{{ tr('multiVideos') }} · {{ selectedImages.length }}</button>
+
         </aside>
       </div>
 
@@ -92,8 +110,10 @@
         <summary><span>▤ {{ tr('timeline') }}</span><span class="muted">{{ timeline.clips.length }} {{ tr('clip') }} · {{ totalDuration }}s</span></summary>
         <div class="timeline-controls">
           <select v-model="timeline.size" :aria-label="tr('size')"><option value="1280x720">16:9 · 720p</option><option value="720x1280">9:16 · 720p</option><option value="720x720">1:1 · 720p</option></select>
-          <label class="soundtrack">♫ {{ tr('soundtrack') }}<select v-model="timeline.audio_asset_id"><option value="">{{ tr('noAudio') }}</option><option v-for="asset in audioAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
+          <label class="soundtrack">♫ {{ tr('soundtrack') }}<select v-model="timeline.audio_asset_id" :aria-label="tr('soundtrack')"><option value="">{{ tr('noAudio') }}</option><option v-for="asset in audioAssets" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
           <button type="button" :disabled="busy" @click="audioInput?.click()">+ {{ tr('uploadAudio') }}</button>
+          <button type="button" :disabled="!timeline.clips.length" @click="timelinePlayer?.open()">▶ {{ tr('previewTimeline') }}</button>
+          <label class="soundtrack">{{ tr('cover') }}<select v-model="timeline.cover_asset_id" :aria-label="tr('cover')"><option value="">{{ tr('noCover') }}</option><option v-for="asset in assets.filter(a => a.kind === 'image')" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
           <button type="button" class="primary export-button" :disabled="busy || !timeline.clips.length || saveState === 'conflict'" @click="render">↓ {{ tr('render') }}</button>
         </div>
         <p v-if="!timeline.clips.length" class="timeline-empty">{{ tr('timelineEmpty') }}</p>
@@ -112,6 +132,8 @@
       <details v-if="jobs.some(j => j.kind !== 'compose')" class="task-panel"><summary>{{ tr('taskList') }} · {{ jobs.filter(j => j.kind !== 'compose').length }}</summary><div v-for="job in jobs.filter(j => j.kind !== 'compose').slice(0, 60)" :key="job.id" class="job-row"><button type="button" @click="selectedId = job.node_id">{{ project.nodes.find(n => n.id === job.node_id)?.data.title || job.node_id.slice(0, 8) }}</button><span>{{ tr(job.status) }}</span><span v-if="job.error" class="error">{{ job.error }}</span><button v-if="['waiting','queued'].includes(job.status)" type="button" :disabled="busy" @click="jobAction(job, 'cancel')">{{ tr('stopQueue') }}</button></div></details>
     </template>
 
+    <CreativeTimelinePreview v-if="project" ref="timelinePlayer" :key="project.id" :timeline="timeline" :assets="assets" :resolve-preview="preview" />
+    <dialog ref="compareDialog" class="compare-dialog" @close="releaseComparison"><div class="dialog-heading"><h2>{{ tr('compareVersions') }}</h2><button type="button" :aria-label="tr('close')" @click="compareDialog?.close()">×</button></div><div class="comparison-grid"><div v-for="side in [0, 1]" :key="side"><select v-model="comparisonIds[side]" :aria-label="side === 0 ? tr('leftVersion') : tr('rightVersion')" @change="loadComparison"><option v-for="(asset, index) in versions" :key="asset.id" :value="asset.id">v{{ versions.length - index }} · {{ date(asset.created_at) }}</option></select><img v-if="comparisonIds[side] && comparisonUrls[comparisonIds[side]!]" :src="comparisonUrls[comparisonIds[side]!]" :alt="tr(side === 0 ? 'leftVersion' : 'rightVersion')" /><p v-else class="muted">{{ tr('loading') }}</p><button type="button" class="full" @click="chooseCompared(comparisonIds[side])">☆ {{ tr('markPreferred') }}</button></div></div><p v-if="comparisonError" role="alert" class="error">{{ comparisonError }}</p></dialog>
     <input ref="fileInput" type="file" multiple class="hidden-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg" @change="uploadFiles" />
     <input ref="audioInput" type="file" class="hidden-input" accept="audio/mpeg,audio/wav,audio/ogg" @change="uploadFiles" />
     <dialog ref="deleteDialog" class="delete-dialog"><h2>{{ tr('deleteProject') }}</h2><p>{{ tr('deleteWarning') }}</p><div class="button-row"><button type="button" @click="deleteDialog?.close()">{{ tr('close') }}</button><button type="button" :disabled="busy || running.length > 0" @click="deleteDialog?.close(); deleteProject()">{{ tr('confirmDelete') }}</button></div><p v-if="running.length" class="muted">{{ tr('deleteBusy') }}</p></dialog>
@@ -130,19 +152,31 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CreativeCanvas from './CreativeCanvas.vue'
+import StudioGenerationFields from './StudioGenerationFields.vue'
+import CreativeTimelinePreview from './CreativeTimelinePreview.vue'
 import { creativeStudioMessages } from './creativeStudioMessages'
 import { useCreativeStudio } from '@/composables/useCreativeStudio'
-import { isGrokImageModel } from '@/composables/studioModels'
 import { sessionOwnerKey } from '@/composables/studioSession'
-import type { StudioAsset, StudioModel, StudioParams } from '@/api/creativeStudio'
+import type { CreativeCanvasKind } from '@/types/creativeCanvas'
+import { creativeStudioAPI } from '@/api/creativeStudio'
+import type { StudioAsset } from '@/api/creativeStudio'
 
 const { t: tr, locale } = useI18n({ useScope: 'local', messages: creativeStudioMessages })
-const { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline,
+const { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
   initialize, create, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft } = useCreativeStudio(tr)
 const board = ref<InstanceType<typeof CreativeCanvas>>()
+const inspector = ref<HTMLElement>()
+const boardMode = ref<'canvas' | 'list'>(window.innerWidth < 760 ? 'list' : 'canvas')
+const timelinePlayer = ref<InstanceType<typeof CreativeTimelinePreview>>()
+const compareDialog = ref<HTMLDialogElement>()
+const comparisonIds = ref<(string | undefined)[]>([])
+const comparisonUrls = ref<Record<string, string>>({})
+const comparisonError = ref('')
+let comparisonController: AbortController | undefined
+const plannedCounts = computed(() => runCounts())
 const fileInput = ref<HTMLInputElement>()
 const audioInput = ref<HTMLInputElement>()
 const deleteDialog = ref<HTMLDialogElement>()
@@ -151,9 +185,8 @@ const previewDialog = ref<HTMLDialogElement>()
 const previewMedia = ref<StudioAsset>()
 const previewLoading = ref(false)
 const previewError = ref('')
-const selectedParams = computed(() => selected.value?.data.params as StudioParams | undefined)
+const selectedParams = computed(() => selected.value ? effectiveParams(selected.value) : undefined)
 const selectedModels = computed(() => selected.value?.type === 'video' ? videoModels.value : imageModels.value)
-const grokSelected = computed(() => selectedParams.value?.platform === 'grok' || isGrokImageModel(selectedParams.value?.model || ''))
 const references = computed(() => project.value?.nodes.filter(n => project.value?.edges.some(e => e.source === n.id && e.target === selectedId.value)) || [])
 const versions = computed(() => assets.value.filter(a => a.node_id === selectedId.value || a.id === selected.value?.data.assetId).sort((a, b) => b.created_at - a.created_at))
 const selectedJob = computed(() => jobs.value.filter(j => j.node_id === selectedId.value).sort((a, b) => b.created_at - a.created_at || b.id.localeCompare(a.id))[0])
@@ -161,13 +194,39 @@ const selectedActive = computed(() => selectedJob.value && ['running','queued','
 const selectedImages = computed(() => project.value?.nodes.filter(n => n.selected && n.type === 'image') || [])
 const audioAssets = computed(() => assets.value.filter(a => a.kind === 'audio'))
 const totalDuration = computed(() => Math.round(timeline.value.clips.reduce((sum, c) => sum + (Number(c.duration) || 0), 0) * 10) / 10)
-const modelKey = (m: Pick<StudioModel, 'id' | 'group_id'> | StudioParams) => JSON.stringify([m.group_id, 'id' in m ? m.id : m.model])
 const assetById = (id: string) => assets.value.find(a => a.id === id)
 const date = (value: number) => new Date(value).toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-function selectModel(key: string) {
-  const model = selectedModels.value.find(m => modelKey(m) === key)
-  if (model && selectedParams.value) Object.assign(selectedParams.value, { model: model.id, group_id: model.group_id, platform: model.platform })
+async function focusNode(id: string) { selectedId.value = id; await nextTick(); if (boardMode.value === 'list' && window.innerWidth < 760) inspector.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else void board.value?.focusNode(id) }
+async function addAndFocus(kind: CreativeCanvasKind) { const node = add(kind); if (node) await focusNode(node.id) }
+async function deriveAndFocus(id: string, kind: 'image' | 'video') { const node = derive(id, kind); if (node) await focusNode(node.id) }
+async function deriveSelected() { const ids = selectedImages.value.map(n => n.id); ids.forEach(id => derive(id, 'video')); await nextTick(); void board.value?.fitView() }
+function releaseComparison() {
+  comparisonController?.abort()
+  for (const url of Object.values(comparisonUrls.value)) URL.revokeObjectURL(url)
+  comparisonUrls.value = {}; comparisonIds.value = []; comparisonError.value = ''
 }
+function clearComparison() { releaseComparison(); compareDialog.value?.close() }
+async function loadComparison() {
+  comparisonController?.abort()
+  comparisonController = new AbortController()
+  const signal = comparisonController.signal
+  const id = project.value?.id
+  const owner = sessionOwnerKey()
+  if (!id) return
+  comparisonError.value = ''
+  for (const [assetId, url] of Object.entries(comparisonUrls.value)) if (!comparisonIds.value.includes(assetId)) { URL.revokeObjectURL(url); delete comparisonUrls.value[assetId] }
+  for (const assetId of comparisonIds.value) {
+    if (!assetId || comparisonUrls.value[assetId]) continue
+    try {
+      const blob = await creativeStudioAPI.asset(id, assetId, signal)
+      if (signal.aborted || project.value?.id !== id || owner !== sessionOwnerKey()) return
+      comparisonUrls.value[assetId] = URL.createObjectURL(blob)
+    } catch (e) { if (!signal.aborted) comparisonError.value = (e as Error).message || tr('errorPrefix') }
+  }
+}
+function showComparison() { clearComparison(); comparisonIds.value = [selected.value?.data.assetId || versions.value[0]?.id, versions.value.find(a => a.id !== selected.value?.data.assetId)?.id]; compareDialog.value?.showModal(); void loadComparison() }
+function chooseCompared(id?: string) { const asset = assets.value.find(a => a.id === id); if (asset) markPreferred(asset) }
+watch([() => project.value?.id, selectedId], clearComparison)
 function disconnect(id: string) { if (project.value) project.value.edges = project.value.edges.filter(e => !(e.source === id && e.target === selectedId.value)) }
 function editPrompt({ id, prompt }: { id: string; prompt: string }) {
   const node = project.value?.nodes.find(n => n.id === id)
@@ -228,7 +287,7 @@ async function importLocal() {
   await upload(items.map(item => new File([item.blob], item.name, { type: item.blob.type })), items.map(item => item.prompt))
   if (!error.value) localSelected.value = []
 }
-function endSession() { localItems.value = []; localSelected.value = []; assetDialog.value?.close(); deleteDialog.value?.close(); closePreview(); previewMedia.value = undefined }
+function endSession() { clearComparison(); timelinePlayer.value?.close(); localItems.value = []; localSelected.value = []; assetDialog.value?.close(); deleteDialog.value?.close(); closePreview(); previewMedia.value = undefined }
 window.addEventListener('studio-session-ended', endSession)
 onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListener('studio-session-ended', endSession) })
 </script>
@@ -240,6 +299,32 @@ onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListene
 .project-identity { flex-wrap: wrap; min-width: 0; }
 .project-icon { color: #0f766e; font-size: 25px; }
 .project-name { max-width: 180px; }
+
+.project-settings,.preflight-panel { border:1px solid var(--cs-border);border-radius:10px;background:var(--cs-bg);padding:12px;margin:10px 0; }
+.settings-grid { display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:22px;margin-top:16px; }
+.settings-grid h3 { margin-top:0; }
+.settings-grid label { margin-bottom:12px; }
+.workspace-actions,.batch-actions { display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:9px 0; }
+.batch-actions { padding:10px;border:1px solid #99f6e4;border-radius:9px;background:#ccfbf122; }
+.view-switch { display:flex; }
+.view-switch button[aria-pressed=true] { background:#0f766e;color:white;border-color:#0f766e; }
+.preflight-step { display:flex;gap:10px;flex-wrap:wrap;border-top:1px solid var(--cs-border);padding:9px 0;font-size:11px; }
+.preflight-panel .error { margin-top:10px; }
+.card-list { padding:12px;border:1px solid var(--cs-border);border-radius:10px;background:var(--cs-bg);overflow:auto; }
+.list-card { display:flex;align-items:center;gap:10px;border:1px solid var(--cs-border);border-radius:8px;padding:10px;margin-top:10px; }
+.list-card.chosen { border-color:#14b8a6; }
+.list-card input { width:16px;flex-shrink:0; }
+.list-card-main { flex:1;display:flex;align-items:center;gap:12px;text-align:left;min-width:0;border:0;padding:0; }
+.list-card-main img,.list-card-kind { width:64px;height:64px;object-fit:contain;background:var(--cs-surface);border-radius:6px;flex-shrink:0; }
+.list-card-kind { display:grid;place-items:center;font-size:24px;color:#0f766e; }
+.list-card-main > span:last-child { min-width:0;overflow-wrap:anywhere; }
+.list-card-main strong,.list-card-main small { display:block; }
+.list-card-main small { margin:6px 0;color:var(--cs-muted);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical; }
+.version button { border:0;background:transparent;padding:4px 5px; }
+.version button[aria-pressed=true] { color:#d97706; }
+.comparison-grid { display:grid;grid-template-columns:1fr 1fr;gap:16px; }
+.comparison-grid img { margin-top:12px;width:100%;height:48vh;object-fit:contain;background:var(--cs-surface); }
+
 .project-identity select { max-width: 160px; }
 .project-actions { flex-wrap: wrap; margin-left: auto; }
 .save-status, .muted { color: var(--cs-muted); font-size: 11px; line-height: 1.65; }
@@ -321,5 +406,5 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 :global(.dark) .notice { background: #103735; color: #5eead4; }
 :global(.dark) .error { color: #fb7185; }
 @media (max-width: 1050px) { .project-name { display: none; } .workspace-grid { grid-template-columns: minmax(0, 1fr) 245px; } }
-@media (max-width: 760px) { .creative-workspace { overflow: visible; height: auto; } .workspace-grid { display: flex; flex-direction: column; height: auto; min-height: 0; } .workspace-grid > :first-child { height: 540px; flex-shrink: 0; } .inspector { max-height: none; } .empty-panel { padding: 12px 6px; } .project-actions { margin-left: 0; width: 100%; } .project-actions .primary { margin-left: auto; } .save-status { font-size: 10px; } .project-identity { width: 100%; } .message { flex-wrap: wrap; } .timeline-controls { gap: 6px; } .export-button { margin-left: 0; } dialog { padding: 15px; } }
+@media (max-width: 760px) { .settings-grid { grid-template-columns:1fr;gap:10px; } .workspace-grid.list-mode > :first-child { height:auto;max-height:none; } .comparison-grid { grid-template-columns:1fr; } .comparison-grid img { height:32vh; } .list-card { flex-wrap:wrap; } .list-card-main { flex-basis:calc(100% - 30px); } .list-card > button:last-child { margin-left:auto; } .creative-workspace { overflow: visible; height: auto; } .workspace-grid { display: flex; flex-direction: column; height: auto; min-height: 0; } .workspace-grid > :first-child { height: 540px; flex-shrink: 0; } .inspector { max-height: none; } .empty-panel { padding: 12px 6px; } .project-actions { margin-left: 0; width: 100%; } .project-actions .primary { margin-left: auto; } .save-status { font-size: 10px; } .project-identity { width: 100%; } .message { flex-wrap: wrap; } .timeline-controls { gap: 6px; } .export-button { margin-left: 0; } dialog { padding: 15px; } }
 </style>

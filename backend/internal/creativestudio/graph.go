@@ -24,9 +24,26 @@ func (s *Store) validateProject(project *Project, assets []Asset) error {
 	if len(project.Timeline) > 128<<10 || (len(project.Timeline) > 0 && !json.Valid(project.Timeline)) {
 		return ErrInvalid
 	}
+	if project.Settings != nil {
+		settings := project.Settings
+		if len(settings.Subject) > 4000 || len(settings.Style) > 4000 || !validOptionalParams(settings.ImageParams) || !validOptionalParams(settings.VideoParams) {
+			return fmt.Errorf("%w: invalid project settings", ErrInvalid)
+		}
+	}
 	assetKinds := make(map[string]string, len(assets))
 	for _, asset := range assets {
 		assetKinds[asset.ID] = asset.Kind
+	}
+	if len(project.Timeline) > 0 {
+		var timeline struct {
+			CoverAssetID string `json:"cover_asset_id"`
+		}
+		if json.Unmarshal(project.Timeline, &timeline) != nil {
+			return fmt.Errorf("%w: invalid timeline", ErrInvalid)
+		}
+		if timeline.CoverAssetID != "" && assetKinds[timeline.CoverAssetID] != "image" {
+			return fmt.Errorf("%w: cover must be an image in this project", ErrInvalid)
+		}
 	}
 	nodes := make(map[string]Node, len(project.Nodes))
 	for i := range project.Nodes {
@@ -42,6 +59,12 @@ func (s *Store) validateProject(project *Project, assets []Asset) error {
 		}
 		if node.Type != "text" && node.Type != "image" && node.Type != "video" {
 			return fmt.Errorf("%w: unsupported card type", ErrInvalid)
+		}
+		if node.Data.ParamsMode != "" && node.Data.ParamsMode != "project" && node.Data.ParamsMode != "custom" {
+			return fmt.Errorf("%w: invalid parameter inheritance", ErrInvalid)
+		}
+		if node.Data.PreferredAssetID != "" && (assetKinds[node.Data.PreferredAssetID] != node.Type || node.Type == "text") {
+			return fmt.Errorf("%w: preferred asset does not belong to this project or card type", ErrInvalid)
 		}
 		if node.Data.AssetID != "" && (assetKinds[node.Data.AssetID] != node.Type || node.Type == "text") {
 			return fmt.Errorf("%w: asset does not belong to this project or card type", ErrInvalid)
@@ -128,7 +151,7 @@ func (s *Store) checkJobLimit(doc *document, count int) error {
 }
 
 func (s *Store) Run(userID int64, projectID, requestID string, nodeIDs []string) (Snapshot, error) {
-	return s.run(userID, projectID, requestID, nodeIDs, 0)
+	return s.run(userID, projectID, requestID, nodeIDs, 0, nil)
 }
 
 // RunAtRevision executes the graph the caller actually saved. Replaying a known
@@ -137,10 +160,20 @@ func (s *Store) RunAtRevision(userID int64, projectID, requestID string, nodeIDs
 	if revision <= 0 {
 		return Snapshot{}, ErrInvalid
 	}
-	return s.run(userID, projectID, requestID, nodeIDs, revision)
+	return s.run(userID, projectID, requestID, nodeIDs, revision, nil)
 }
 
-func (s *Store) run(userID int64, projectID, requestID string, nodeIDs []string, revision int64) (Snapshot, error) {
+// RunAtRevisionValidated checks all planned steps atomically before adding any
+// job. The callback must use an already-loaded authorization snapshot: it runs
+// under the store lock and must not perform I/O. Replays bypass new validation.
+func (s *Store) RunAtRevisionValidated(userID int64, projectID, requestID string, nodeIDs []string, revision int64, validate func([]PreflightNode) error) (Snapshot, error) {
+	if revision <= 0 {
+		return Snapshot{}, ErrInvalid
+	}
+	return s.run(userID, projectID, requestID, nodeIDs, revision, validate)
+}
+
+func (s *Store) run(userID int64, projectID, requestID string, nodeIDs []string, revision int64, validate func([]PreflightNode) error) (Snapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	key, original, err := s.lookup(userID, projectID)
@@ -170,130 +203,23 @@ func (s *Store) run(userID int64, projectID, requestID string, nodeIDs []string,
 		return Snapshot{}, ErrConflict
 	}
 	doc := cloneDocument(original)
-	if err := s.validateProject(&doc.Project, doc.Assets); err != nil {
+	report, jobs, err := s.plan(key, doc, nodeIDs)
+	if err != nil {
 		return Snapshot{}, err
 	}
-	nodes := make(map[string]Node)
-	incoming := make(map[string][]string)
-	selected := make(map[string]bool)
-	for _, node := range doc.Project.Nodes {
-		nodes[node.ID] = node
+	if !report.Valid {
+		return Snapshot{}, fmt.Errorf("%w: %s", ErrInvalid, report.Errors[0].Message)
 	}
-	for _, edge := range doc.Project.Edges {
-		incoming[edge.Target] = append(incoming[edge.Target], edge.Source)
-	}
-	for _, id := range nodeIDs {
-		node, exists := nodes[id]
-		if !exists || node.Type == "text" {
-			return Snapshot{}, fmt.Errorf("%w: select an image or video card", ErrInvalid)
-		}
-		selected[id] = true
-	}
-	runID := uid()
-	planned := make(map[string]*Job)
-	order := make([]string, 0)
-	var plan func(string) (*Job, error)
-	plan = func(id string) (*Job, error) {
-		if job := planned[id]; job != nil {
-			return job, nil
-		}
-		node := nodes[id]
-		for _, existing := range doc.Jobs {
-			if existing.NodeID == id && activeStatus(existing.Status) {
-				return nil, fmt.Errorf("%w: card already has an active task", ErrBusy)
-			}
-		}
-		if err := checkParams(node.Data.Params); err != nil {
-			return nil, err
-		}
-		referenceCount := 0
-		for _, sourceID := range incoming[id] {
-			if nodes[sourceID].Type == "image" {
-				referenceCount++
-			}
-		}
-		if (node.Type == "video" && referenceCount > 1) || (node.Type == "image" && referenceCount > 8) {
-			return nil, fmt.Errorf("%w: video accepts one reference image; images accept up to eight", ErrInvalid)
-		}
-		stamp := now()
-		job := &Job{ID: uid(), RunID: runID, NodeID: id, Kind: node.Type, Status: "queued", Params: append(json.RawMessage(nil), node.Data.Params...), Inputs: []Input{}, CreatedAt: stamp, UpdatedAt: stamp}
-		planned[id] = job
-		prompts := make([]string, 0)
-		for _, sourceID := range incoming[id] {
-			source := nodes[sourceID]
-			if source.Type == "text" {
-				if prompt := strings.TrimSpace(source.Data.Prompt); prompt != "" {
-					prompts = append(prompts, prompt)
-				}
-				continue
-			}
-			assetID := source.Data.AssetID
-			if !selected[sourceID] && assetID == "" {
-				// A closed browser may not yet have copied a completed job's asset
-				// into its graph. Reuse that durable result instead of charging for
-				// another implicit generation. Failed/unknown prior submissions
-				// require an explicit retry or a selected reference version.
-				var latest *Job
-				for index := len(doc.Jobs) - 1; index >= 0; index-- {
-					candidate := &doc.Jobs[index]
-					if candidate.NodeID == sourceID && candidate.Kind == source.Type {
-						latest = candidate
-						break
-					}
-				}
-				if latest != nil {
-					switch latest.Status {
-					case "succeeded":
-						assetID = latest.AssetID
-						if assetID == "" {
-							return nil, fmt.Errorf("%w: previous input result is unavailable", ErrInvalid)
-						}
-					case "failed", "cancelled", "interrupted":
-						return nil, fmt.Errorf("%w: 前置卡片 %q 有未完成的历史任务，请先重试或选择已生成的版本 / Resolve the input card's previous task before running this branch", ErrInvalid, source.Data.Title)
-					default:
-						return nil, fmt.Errorf("%w: an input card already has an active task", ErrBusy)
-					}
-				}
-			}
-			if !selected[sourceID] && assetID != "" {
-				file, err := s.openAsset(key, doc, assetID)
-				if err != nil {
-					return nil, err
-				}
-				if file.Kind != "image" {
-					return nil, fmt.Errorf("%w: generation input must be an image", ErrInvalid)
-				}
-				job.Inputs = append(job.Inputs, Input{AssetID: assetID})
-			} else {
-				parent, err := plan(sourceID)
-				if err != nil {
-					return nil, err
-				}
-				job.Inputs = append(job.Inputs, Input{JobID: parent.ID})
-				job.Status = "waiting"
-			}
-		}
-		if own := strings.TrimSpace(node.Data.Prompt); own != "" {
-			prompts = append(prompts, own)
-		}
-		job.Prompt = strings.Join(prompts, "\n\n")
-		if len(job.Prompt) == 0 || len(job.Prompt) > 24000 {
-			return nil, fmt.Errorf("%w: a nonempty prompt of at most 24000 bytes is required", ErrInvalid)
-		}
-		order = append(order, id)
-		return job, nil
-	}
-	for _, id := range nodeIDs {
-		if _, err := plan(id); err != nil {
+	if validate != nil {
+		if err := validate(report.Nodes); err != nil {
 			return Snapshot{}, err
 		}
 	}
-	if err := s.checkJobLimit(doc, len(planned)); err != nil {
-		return Snapshot{}, err
+	runID := uid()
+	for i := range jobs {
+		jobs[i].RunID = runID
 	}
-	for _, id := range order {
-		doc.Jobs = append(doc.Jobs, *planned[id])
-	}
+	doc.Jobs = append(doc.Jobs, jobs...)
 	doc.Requests[requestID] = requestRecord{RunID: runID, Fingerprint: requestFingerprint}
 	if err := s.commit(key, doc); err != nil {
 		return Snapshot{}, err

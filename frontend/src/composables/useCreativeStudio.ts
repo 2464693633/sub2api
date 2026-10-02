@@ -1,5 +1,5 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { creativeStudioAPI as api, type StudioProject, type StudioAsset, type StudioJob, type StudioSnapshot, type StudioModel, type StudioParams, type StudioTimeline } from '@/api/creativeStudio'
+import { creativeStudioAPI as api, type StudioProject, type StudioAsset, type StudioJob, type StudioSnapshot, type StudioModel, type StudioParams, type StudioTimeline, type StudioSettings, type StudioPreflight } from '@/api/creativeStudio'
 import type { CreativeCanvasKind, CreativeCanvasNode } from '@/types/creativeCanvas'
 import { sessionOwnerKey } from './studioSession'
 import { isGrokImageModel } from './studioModels'
@@ -15,7 +15,7 @@ export function persistedProject(p: StudioProject): StudioProject {
   return JSON.parse(JSON.stringify({ ...p,
     nodes: p.nodes.map(n => ({ id: n.id, type: n.type, position: { x: n.position.x, y: n.position.y }, data: {
       kind: n.data.kind, title: n.data.title, prompt: n.data.prompt,
-      assetId: n.data.assetId, resultId: n.data.resultId, params: n.data.params
+      assetId: n.data.assetId, resultId: n.data.resultId, params: n.data.params, paramsMode: n.data.paramsMode, preferredAssetId: n.data.preferredAssetId
     } })),
     edges: p.edges.map(e => ({ id: e.id, source: e.source, target: e.target, label: typeof e.label === 'string' ? e.label : undefined, type: e.type })),
     viewport: { x: p.viewport.x, y: p.viewport.y, zoom: p.viewport.zoom },
@@ -49,6 +49,7 @@ export function useCreativeStudio(tr: Translate) {
   const saveState = ref<'saved' | 'saving' | 'saveError' | 'conflict' | 'localDraft'>('saved')
   const pendingRun = ref<PendingRun | null>(null)
   const previewUrls = ref<Record<string, string>>({})
+  const preflight = ref<StudioPreflight | null>(null)
   let owner = sessionOwnerKey()
   let epoch = 0
   let controller = new AbortController()
@@ -64,6 +65,8 @@ export function useCreativeStudio(tr: Translate) {
   const selected = computed(() => project.value?.nodes.find(n => n.id === selectedId.value))
   const running = computed(() => jobs.value.filter(active))
   const exports = computed(() => jobs.value.filter(j => j.kind === 'compose'))
+  const selectedNodes = computed(() => project.value?.nodes.filter(n => n.selected) || [])
+  const pendingNodeIds = computed(() => project.value?.nodes.filter(n => n.type !== 'text' && !n.data.assetId && !jobs.value.some(j => j.node_id === n.id)).map(n => n.id) || [])
   const timeline = computed(() => project.value?.timeline || emptyTimeline())
   const key = (id: string) => `creative-studio:${owner}:${id}`
   const current = (ticket: number) => !stopped && ticket === epoch && owner === sessionOwnerKey()
@@ -89,6 +92,7 @@ export function useCreativeStudio(tr: Translate) {
     previewPromises.clear()
     project.value = null
     assets.value = []; jobs.value = []; selectedId.value = null
+    preflight.value = null
     pendingRun.value = null; savePromise = undefined; savedSignature = ''
   }
   function sessionEnded() {
@@ -186,6 +190,7 @@ export function useCreativeStudio(tr: Translate) {
   }
   watch(() => project.value ? signature(project.value) : '', () => {
     if (!project.value || loading.value || !current(epoch)) return
+    preflight.value = null
     retainDraft()
     if (signature(project.value) === savedSignature || saveState.value === 'conflict') return
     saveState.value = 'localDraft'
@@ -224,6 +229,7 @@ export function useCreativeStudio(tr: Translate) {
       const snapshot = await api.get(id, controller.signal)
       if (!current(ticket)) return
       snapshot.project.timeline ||= emptyTimeline()
+      snapshot.project.settings ||= defaultSettings(snapshot.project)
       savedSignature = signature(snapshot.project)
       project.value = snapshot.project
       if (discardDraft) writeLocal(key(id), null)
@@ -231,6 +237,7 @@ export function useCreativeStudio(tr: Translate) {
         try {
           const draft = JSON.parse(readLocal(key(id)) || 'null') as { project: StudioProject; pendingRun?: PendingRun } | null
           if (draft?.project.id === id) {
+            draft.project.settings ||= defaultSettings(draft.project)
             project.value = draft.project
             pendingRun.value = draft.pendingRun || null
             if (draft.project.revision !== snapshot.project.revision) saveState.value = 'conflict'
@@ -298,10 +305,69 @@ export function useCreativeStudio(tr: Translate) {
     const model = (kind === 'video' ? videoModels : imageModels).value[0]
     return { model: model?.id || '', group_id: model?.group_id || 0, platform: model?.platform, size: 'auto', quality: 'auto', format: 'png', seconds: 6, resolution: '720p' }
   }
+  function defaultSettings(p: StudioProject): StudioSettings {
+    const previous = (kind: 'image' | 'video') => p.nodes.find(n => n.type === kind)?.data.params as StudioParams | undefined
+    return { subject: '', style: '', image_params: { ...(previous('image') || params('image')) }, video_params: { ...(previous('video') || params('video')) } }
+  }
+  function effectiveParams(node: CreativeCanvasNode): StudioParams {
+    if (node.data.paramsMode === 'project' && project.value?.settings) return node.type === 'video' ? project.value.settings.video_params : project.value.settings.image_params
+    return node.data.params as StudioParams
+  }
+  function setParamsMode(id: string, mode: 'project' | 'custom') {
+    const node = project.value?.nodes.find(n => n.id === id)
+    if (!node || node.type === 'text') return
+    if (mode === 'custom') node.data.params = { ...effectiveParams(node) }
+    node.data.paramsMode = mode
+  }
+  function applyProjectDefaults(ids: string[]) {
+    for (const id of ids) setParamsMode(id, 'project')
+  }
+  function selectNodes(ids: string[]) {
+    for (const node of project.value?.nodes || []) node.selected = ids.includes(node.id)
+  }
+  function markPreferred(asset: StudioAsset) {
+    if (!selected.value || selected.value.type !== asset.kind) return
+    selected.value.data.preferredAssetId = selected.value.data.preferredAssetId === asset.id ? undefined : asset.id
+    if (selected.value.data.preferredAssetId) useVersion(asset)
+  }
+  function addSelectedTimeline() {
+    for (const node of selectedNodes.value) if (node.data.assetId) addTimeline(node.data.assetId, node.data.title)
+  }
+  function runCounts(ids = pendingNodeIds.value) {
+    const planned = new Set<string>()
+    const selectedIDs = new Set(ids)
+    const visit = (id: string) => {
+      if (planned.has(id)) return
+      const node = project.value?.nodes.find(n => n.id === id)
+      if (!node || node.type === 'text') return
+      planned.add(id)
+      for (const edge of project.value?.edges.filter(e => e.target === id) || []) {
+        const source = project.value?.nodes.find(n => n.id === edge.source)
+        const completed = jobs.value.find(j => j.node_id === edge.source)?.status === 'succeeded'
+        if (source && (selectedIDs.has(source.id) || (!source.data.assetId && !completed))) visit(source.id)
+      }
+    }
+    ids.forEach(visit)
+    const image = project.value?.nodes.filter(n => planned.has(n.id) && n.type === 'image').length || 0
+    return { image, video: planned.size - image, total: planned.size }
+  }
+  async function checkPlan(ids = pendingNodeIds.value) {
+    let result: StudioPreflight | undefined
+    await action(async ticket => {
+      if (!ids.length || !await save() || !current(ticket)) return
+      const revision = project.value!.revision
+      const content = signature(project.value!)
+      const response = await api.preflight(project.value!.id, ids, revision, controller.signal)
+      if (current(ticket) && project.value?.revision === revision && signature(project.value!) === content) {
+        result = response; preflight.value = response
+      } else if (current(ticket)) notice.value = tr('planChanged')
+    })
+    return result
+  }
   function add(kind: CreativeCanvasKind, title?: string, prompt = '', position?: { x: number; y: number }) {
     if (!project.value) return undefined
     const n = project.value.nodes.length
-    const node: CreativeCanvasNode = { id: uid(), type: kind, position: position || { x: (n % 3) * 350 + 60, y: Math.floor(n / 3) * 390 + 50 }, data: { kind, title: title || tr(kind === 'image' ? 'images' : kind === 'video' ? 'videos' : 'text'), prompt, params: params(kind), status: 'draft' } }
+    const node: CreativeCanvasNode = { id: uid(), type: kind, position: position || { x: (n % 3) * 350 + 60, y: Math.floor(n / 3) * 390 + 50 }, data: { kind, title: title || tr(kind === 'image' ? 'images' : kind === 'video' ? 'videos' : 'text'), prompt, params: params(kind), paramsMode: 'project', status: 'draft' } }
     project.value.nodes.push(node)
     selectedId.value = node.id
     return node
@@ -316,6 +382,7 @@ export function useCreativeStudio(tr: Translate) {
     while (project.value?.nodes.some(n => Math.abs(n.position.x - position.x) < 300 && Math.abs(n.position.y - position.y) < 380)) position.y += 410
     const node = add(kind, undefined, kind === 'video' ? tr('defaultMotion') : '', position)
     if (node) connect(id, node.id)
+    return node
   }
   function template() {
     if (!project.value) return
@@ -338,7 +405,7 @@ export function useCreativeStudio(tr: Translate) {
     const source = project.value?.nodes.find(n => n.id === id)
     if (!source) return
     const node = add(source.type, source.data.title, source.data.prompt, { x: source.position.x + 60, y: source.position.y + 70 })
-    if (node) node.data.params = { ...(source.data.params as StudioParams) }
+    if (node) { node.data.params = { ...effectiveParams(source) }; node.data.paramsMode = source.data.paramsMode || 'custom' }
   }
   function arrange() {
     const p = project.value
@@ -368,10 +435,18 @@ export function useCreativeStudio(tr: Translate) {
   async function run(nodeIds?: string[]) {
     await action(async ticket => {
       if (!pendingRun.value) {
-        const ids = nodeIds || project.value!.nodes.filter(n => n.type !== 'text' && !n.data.assetId && !jobs.value.some(j => j.node_id === n.id)).map(n => n.id)
+        const ids = nodeIds || pendingNodeIds.value
         if (!ids.length) { notice.value = tr('nothingPending'); return }
         if (!await save() || !current(ticket)) return
-        pendingRun.value = { requestId: uid(), nodeIds: ids, revision: project.value!.revision }
+        const checkedRevision = project.value!.revision
+        const checkedSignature = signature(project.value!)
+        const plan = await api.preflight(project.value!.id, ids, checkedRevision, controller.signal)
+        if (!current(ticket)) return
+        preflight.value = plan
+        if (!plan.valid) { error.value = tr('preflightFix'); return }
+        // Edits made while validating need a fresh plan, never a different graph behind the same button.
+        if (signature(project.value!) !== checkedSignature || project.value!.revision !== checkedRevision) { notice.value = tr('planChanged'); return }
+        pendingRun.value = { requestId: uid(), nodeIds: ids, revision: checkedRevision }
         retainDraft()
       }
       const pending = pendingRun.value
@@ -430,6 +505,7 @@ export function useCreativeStudio(tr: Translate) {
   function addTimeline(assetId: string, title = '') {
     if (!project.value || !assets.value.some(a => a.id === assetId && a.kind !== 'audio')) return
     project.value.timeline ||= emptyTimeline()
+    if (project.value.timeline.clips.length >= 12) { error.value = tr('timelineFull'); return }
     project.value.timeline.clips.push({ id: uid(), asset_id: assetId, title, start: 0, duration: 4 })
   }
   async function render() {
@@ -472,6 +548,6 @@ export function useCreativeStudio(tr: Translate) {
     window.removeEventListener('studio-session-ended', sessionEnded)
     window.removeEventListener('beforeunload', beforeUnload)
   })
-  return { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline,
+  return { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
     initialize, create, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft }
 }

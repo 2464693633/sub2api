@@ -17,6 +17,34 @@ export interface StudioParams {
   seconds: number
   resolution: string
 }
+export interface StudioSettings {
+  subject: string
+  style: string
+  image_params: StudioParams
+  video_params: StudioParams
+}
+export interface StudioCapabilities {
+  profile: string
+  max_references: number
+  sizes: string[]
+  qualities: string[]
+  formats: string[]
+  seconds: number[]
+  resolutions: string[]
+  custom_quality: boolean
+  custom_format: boolean
+  custom_size: boolean
+  custom_seconds: boolean
+  custom_resolution: boolean
+  notes: string[]
+}
+export interface StudioPreflight {
+  revision: number
+  valid: boolean
+  counts: { image: number; video: number; total: number }
+  nodes: { node_id: string; title: string; kind: 'image' | 'video'; prompt: string; params: StudioParams; inputs: { node_id: string; kind: 'text' | 'asset' | 'job'; asset_id?: string }[] }[]
+  errors: { node_id?: string; code: string; message: string }[]
+}
 export interface StudioAsset {
   id: string
   kind: 'image' | 'video' | 'audio'
@@ -38,6 +66,7 @@ export interface StudioTimeline {
   clips: StudioClip[]
   size: '1280x720' | '720x1280' | '720x720'
   audio_asset_id?: string
+  cover_asset_id?: string
 }
 export interface StudioProject {
   id: string
@@ -46,6 +75,7 @@ export interface StudioProject {
   nodes: CreativeCanvasNode[]
   edges: CreativeCanvasEdge[]
   viewport: CreativeCanvasViewport
+  settings?: StudioSettings
   timeline?: StudioTimeline
   created_at: number
   updated_at: number
@@ -105,6 +135,12 @@ export const creativeStudioAPI = {
     return (await apiClient.post<StudioSnapshot>(`${projectPath(id)}/runs`, {
       request_id: requestId, node_ids: nodeIds, revision
     }, { signal })).data
+  },
+  async preflight(id: string, nodeIds: string[], revision: number, signal?: AbortSignal) {
+    return (await apiClient.post<StudioPreflight>(`${projectPath(id)}/preflight`, { node_ids: nodeIds, revision }, { signal })).data
+  },
+  async capabilities(kind: 'image' | 'video', model: string, platform?: string, signal?: AbortSignal) {
+    return (await apiClient.get<StudioCapabilities>(`${base}/capabilities`, { params: { kind, model, platform }, signal })).data
   },
   async retry(id: string, jobId: string, signal?: AbortSignal) {
     return (await apiClient.post<StudioSnapshot>(`${projectPath(id)}/jobs/${encodeURIComponent(jobId)}/retry`, {}, { signal })).data

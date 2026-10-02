@@ -30,6 +30,7 @@ type creativeComposition struct {
 	Clips        []creativeClip `json:"clips"`
 	Size         string         `json:"size"`
 	AudioAssetID string         `json:"audio_asset_id,omitempty"`
+	CoverAssetID string         `json:"cover_asset_id,omitempty"`
 }
 
 func (c creativeComposition) validate() ([]string, error) {
@@ -55,10 +56,30 @@ func (c creativeComposition) validate() ([]string, error) {
 	if total > 90 {
 		return nil, errors.New("成片总时长不能超过 90 秒 / Total duration cannot exceed 90 seconds")
 	}
-	if c.AudioAssetID != "" && !seen[c.AudioAssetID] {
-		ids = append(ids, c.AudioAssetID)
+	for _, id := range []string{c.AudioAssetID, c.CoverAssetID} {
+		if id != "" && !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
 	}
 	return ids, nil
+}
+
+// Validate owned asset roles before creating an export job or invoking ffmpeg.
+func (c creativeComposition) validateAssets(assets map[string]creativestudio.AssetFile) error {
+	for _, clip := range c.Clips {
+		asset, ok := assets[clip.AssetID]
+		if !ok || (asset.Kind != "image" && asset.Kind != "video") {
+			return errors.New("镜头素材不存在 / Shot media is missing")
+		}
+	}
+	if c.AudioAssetID != "" && assets[c.AudioAssetID].Kind != "audio" {
+		return errors.New("配乐必须选择当前项目的音频 / Soundtrack must be audio in this project")
+	}
+	if c.CoverAssetID != "" && assets[c.CoverAssetID].Kind != "image" {
+		return errors.New("封面必须选择当前项目的图片 / Cover must be an image in this project")
+	}
+	return nil
 }
 
 type creativeProbe struct {
@@ -66,9 +87,12 @@ type creativeProbe struct {
 		Duration string `json:"duration"`
 	} `json:"format"`
 	Streams []struct {
-		CodecType string `json:"codec_type"`
-		Width     int    `json:"width"`
-		Height    int    `json:"height"`
+		CodecType   string `json:"codec_type"`
+		Width       int    `json:"width"`
+		Height      int    `json:"height"`
+		Disposition struct {
+			AttachedPic int `json:"attached_pic"`
+		} `json:"disposition"`
 	} `json:"streams"`
 }
 
@@ -95,7 +119,7 @@ func creativeMediaCommand(ctx context.Context, executable string, args ...string
 }
 
 func creativeProbeFile(ctx context.Context, path string) (creativeProbe, error) {
-	data, err := creativeMediaCommand(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,width,height", "-of", "json", path)
+	data, err := creativeMediaCommand(ctx, "ffprobe", "-v", "error", "-protocol_whitelist", "file,pipe", "-show_entries", "format=duration:stream=codec_type,width,height:stream_disposition=attached_pic", "-of", "json", path)
 	var result creativeProbe
 	if err != nil {
 		return result, err
@@ -123,6 +147,9 @@ func (e *creativeStudioExecutor) render(ctx context.Context, job creativestudio.
 	assets := make(map[string]creativestudio.AssetFile, len(inputs))
 	for _, asset := range inputs {
 		assets[asset.ID] = asset
+	}
+	if err := composition.validateAssets(assets); err != nil {
+		return creativestudio.Result{}, err
 	}
 	dir, err := os.MkdirTemp("", "sub2api-studio-render-")
 	if err != nil {
@@ -217,6 +244,21 @@ func (e *creativeStudioExecutor) render(ctx context.Context, job creativestudio.
 		final := filepath.Join(dir, "final.mp4")
 		if _, err := creativeMediaCommand(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-filter_complex_threads", "1", "-protocol_whitelist", "file,pipe", "-i", output, "-stream_loop", "-1", "-protocol_whitelist", "file,pipe", "-i", music.Path,
 			"-filter_complex", "[1:a]volume=0.2[bg];[0:a][bg]amix=inputs=2:duration=first:normalize=0[mix]", "-map", "0:v:0", "-map", "[mix]", "-t", strconv.FormatFloat(total, 'f', 3, 64), "-c:v", "copy", "-c:a", "aac", "-ar", "48000", "-ac", "2", "-movflags", "+faststart", final); err != nil {
+			return creativestudio.Result{}, err
+		}
+		output = final
+	}
+	if composition.CoverAssetID != "" {
+		cover, err := creativeThumbnail(assets[composition.CoverAssetID].Path)
+		if err != nil {
+			return creativestudio.Result{}, errors.New("无法读取封面图片 / Cover image cannot be decoded")
+		}
+		coverPath := filepath.Join(dir, "cover.jpg")
+		if err := os.WriteFile(coverPath, cover, 0600); err != nil {
+			return creativestudio.Result{}, err
+		}
+		final := filepath.Join(dir, "covered.mp4")
+		if _, err := creativeMediaCommand(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-threads", "1", "-protocol_whitelist", "file,pipe", "-i", output, "-protocol_whitelist", "file,pipe", "-i", coverPath, "-map", "0", "-map", "1:v:0", "-c", "copy", "-disposition:v:1", "attached_pic", "-movflags", "+faststart", final); err != nil {
 			return creativestudio.Result{}, err
 		}
 		output = final

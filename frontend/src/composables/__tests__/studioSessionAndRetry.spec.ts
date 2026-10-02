@@ -97,7 +97,8 @@ describe('studio session and task isolation', () => {
     await vi.waitFor(() => expect(video.generating.value).toBe(false))
 
     const body = JSON.parse(String(fetcher.mock.calls[0][1]?.body))
-    expect(body.size).toBe('720x1280')
+    expect(body.aspect_ratio).toBe('9:16')
+    expect(body.duration).toBe(6)
   })
 
   it('resumes an existing remote video task without posting a new generation', async () => {
@@ -154,8 +155,8 @@ describe('studio session and task isolation', () => {
     expect(posts).toHaveLength(2)
     expect(posts[1][1]?.body).toBe(posts[0][1]?.body)
     expect(JSON.parse(String(posts[1][1]?.body))).toMatchObject({
-      model: 'original-video', prompt: 'original prompt', size: '720x1280',
-      image_url: 'data:image/png;base64,aW1hZ2U='
+      model: 'original-video', prompt: 'original prompt', aspect_ratio: '9:16', duration: 6,
+      image: { url: 'data:image/png;base64,aW1hZ2U=' }
     })
     expect(posts[1][1]?.headers).toMatchObject({ 'X-Video-Studio-Group': '20' })
     expect(fetcher.mock.calls.some(([url]) => url.endsWith('/tasks/job-2'))).toBe(true)

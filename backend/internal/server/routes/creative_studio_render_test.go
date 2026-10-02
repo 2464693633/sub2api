@@ -16,9 +16,9 @@ import (
 )
 
 func TestCreativeCompositionValidatesBoundsAndFreezesAssetIDs(t *testing.T) {
-	valid := creativeComposition{Size: "1280x720", Clips: []creativeClip{{AssetID: "a", Duration: 3}, {AssetID: "a", Start: 1, Duration: 2}, {AssetID: "b", Duration: 4}}, AudioAssetID: "music"}
+	valid := creativeComposition{Size: "1280x720", Clips: []creativeClip{{AssetID: "a", Duration: 3}, {AssetID: "a", Start: 1, Duration: 2}, {AssetID: "b", Duration: 4}}, AudioAssetID: "music", CoverAssetID: "cover"}
 	ids, err := valid.validate()
-	if err != nil || strings.Join(ids, ",") != "a,b,music" {
+	if err != nil || strings.Join(ids, ",") != "a,b,music,cover" {
 		t.Fatalf("incorrect asset selection: %+v %v", ids, err)
 	}
 	for name, change := range map[string]func(*creativeComposition){
@@ -78,7 +78,7 @@ func TestCreativeRenderImageVideoAndSoundtrack(t *testing.T) {
 	if _, err := creativeMediaCommand(ctx, "ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=48000", "-t", "1", "-threads", "1", audioPath); err != nil {
 		t.Fatal(err)
 	}
-	composition := creativeComposition{Size: "720x720", Clips: []creativeClip{{AssetID: "image", Duration: 1}, {AssetID: "video", Start: .2, Duration: 1}}, AudioAssetID: "audio"}
+	composition := creativeComposition{Size: "720x720", Clips: []creativeClip{{AssetID: "image", Duration: 1}, {AssetID: "video", Start: .2, Duration: 1}}, AudioAssetID: "audio", CoverAssetID: "image"}
 	if creativeCaptionFont() != "" {
 		composition.Clips[0].Title = "100% %{eif:1+1} ' [safe]"
 	}
@@ -110,16 +110,43 @@ func TestCreativeRenderImageVideoAndSoundtrack(t *testing.T) {
 	if err != nil || duration < 1.9 || duration > 2.3 {
 		t.Fatalf("incorrect output duration: %s", probe.Format.Duration)
 	}
-	video, audio := false, false
+	video, audio, cover := false, false, false
 	for _, stream := range probe.Streams {
 		if stream.CodecType == "video" {
-			video = stream.Width == 720 && stream.Height == 720
+			if stream.Disposition.AttachedPic == 1 {
+				cover = true
+			} else {
+				video = stream.Width == 720 && stream.Height == 720
+			}
 		}
 		if stream.CodecType == "audio" {
 			audio = true
 		}
 	}
-	if !video || !audio {
+	if !video || !audio || !cover {
 		t.Fatalf("missing output streams: %+v", probe.Streams)
+	}
+}
+
+func TestCreativeCompositionRejectsWrongCoverAndSoundtrack(t *testing.T) {
+	assets := map[string]creativestudio.AssetFile{
+		"shot":  {Asset: creativestudio.Asset{ID: "shot", Kind: "video"}},
+		"image": {Asset: creativestudio.Asset{ID: "image", Kind: "image"}},
+		"audio": {Asset: creativestudio.Asset{ID: "audio", Kind: "audio"}},
+	}
+	composition := creativeComposition{Clips: []creativeClip{{AssetID: "shot", Duration: 1}}, CoverAssetID: "image", AudioAssetID: "audio"}
+	if err := composition.validateAssets(assets); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"missing", "shot", "audio"} {
+		composition.CoverAssetID = id
+		if err := composition.validateAssets(assets); err == nil {
+			t.Fatalf("wrong cover accepted: %s", id)
+		}
+	}
+	composition.CoverAssetID = "image"
+	composition.AudioAssetID = "shot"
+	if err := composition.validateAssets(assets); err == nil {
+		t.Fatal("video accepted as soundtrack")
 	}
 }

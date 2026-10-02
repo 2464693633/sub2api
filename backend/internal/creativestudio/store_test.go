@@ -43,7 +43,7 @@ func testStore(t *testing.T, executor Executor, options Options) *Store {
 	return s
 }
 func card(id, kind string) Node {
-	return Node{ID: id, Type: kind, Data: NodeData{Kind: kind, Title: id, Prompt: "Prompt " + id, Params: json.RawMessage(`{"model":"example","group_id":1}`)}}
+	return Node{ID: id, Type: kind, Data: NodeData{Kind: kind, Title: id, Prompt: "Prompt " + id, Params: json.RawMessage(`{"model":"example","group_id":1,"seconds":6}`)}}
 }
 func saveGraph(t *testing.T, s *Store, user int64, nodes []Node, edges []Edge) Snapshot {
 	t.Helper()

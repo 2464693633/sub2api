@@ -67,6 +67,14 @@ func RegisterCreativeStudioRoutes(r *gin.Engine, jwtAuth middleware.JWTAuthMiddl
 		}
 		response.Success(c, value)
 	}
+	api.GET("/capabilities", func(c *gin.Context) {
+		kind := c.Query("kind")
+		if kind != "image" && kind != "video" {
+			response.BadRequest(c, "Invalid media kind")
+			return
+		}
+		response.Success(c, creativestudio.ModelCapabilities(kind, c.Query("model"), c.Query("platform")))
+	})
 	api.GET("", func(c *gin.Context) { v, err := store.List(owner(c)); reply(c, v, err) })
 	api.POST("", middleware.RequestBodyLimit(1<<20), func(c *gin.Context) {
 		var req struct {
@@ -164,6 +172,31 @@ func RegisterCreativeStudioRoutes(r *gin.Engine, jwtAuth middleware.JWTAuthMiddl
 		c.Header("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": asset.Name}))
 		http.ServeContent(c.Writer, c.Request, asset.Name, info.ModTime(), f)
 	})
+	api.POST("/:project/preflight", middleware.RequestBodyLimit(1<<20), func(c *gin.Context) {
+		var req struct {
+			NodeIDs  []string `json:"node_ids"`
+			Revision int64    `json:"revision"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "Invalid workflow request")
+			return
+		}
+		v, err := store.Preflight(owner(c), c.Param("project"), req.NodeIDs, req.Revision)
+		if err != nil {
+			reply(c, v, err)
+			return
+		}
+		groups, err := loadCreativeStudioGroups(c.Request.Context(), apiKeys, owner(c))
+		if err != nil {
+			reply(c, v, err)
+			return
+		}
+		if issues := groups.issues(v.Nodes); len(issues) > 0 {
+			v.Valid = false
+			v.Errors = append(v.Errors, issues...)
+		}
+		reply(c, v, nil)
+	})
 	api.POST("/:project/runs", middleware.RequestBodyLimit(1<<20), func(c *gin.Context) {
 		var req struct {
 			RequestID string   `json:"request_id"`
@@ -174,7 +207,12 @@ func RegisterCreativeStudioRoutes(r *gin.Engine, jwtAuth middleware.JWTAuthMiddl
 			response.BadRequest(c, "Invalid workflow request")
 			return
 		}
-		v, err := store.RunAtRevision(owner(c), c.Param("project"), req.RequestID, req.NodeIDs, req.Revision)
+		groups, err := loadCreativeStudioGroups(c.Request.Context(), apiKeys, owner(c))
+		if err != nil {
+			creativeStudioError(c, err)
+			return
+		}
+		v, err := store.RunAtRevisionValidated(owner(c), c.Param("project"), req.RequestID, req.NodeIDs, req.Revision, groups.validate)
 		reply(c, v, err)
 	})
 	api.POST("/:project/jobs/:job/retry", func(c *gin.Context) {
@@ -193,6 +231,19 @@ func RegisterCreativeStudioRoutes(r *gin.Engine, jwtAuth middleware.JWTAuthMiddl
 		}
 		ids, err := req.validate()
 		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		assets := make(map[string]creativestudio.AssetFile, len(ids))
+		for _, id := range ids {
+			asset, err := store.OpenAsset(owner(c), c.Param("project"), id)
+			if err != nil {
+				creativeStudioError(c, err)
+				return
+			}
+			assets[id] = asset
+		}
+		if err := req.validateAssets(assets); err != nil {
 			response.BadRequest(c, err.Error())
 			return
 		}

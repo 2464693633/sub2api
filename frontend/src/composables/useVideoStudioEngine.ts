@@ -212,12 +212,19 @@ async function submitTask(task: VideoTask): Promise<{ remoteId: string }> {
   const payload: Record<string, unknown> = {
     model: task.model,
     prompt: task.prompt,
-    seconds: task.seconds,
+    duration: task.seconds,
     resolution: task.resolution
   }
-  if (task.videoSize && task.videoSize !== 'auto') payload.size = task.videoSize
+  if (task.videoSize && task.videoSize !== 'auto') {
+    const [width, height] = task.videoSize.split('x').map(Number)
+    if (width > 0 && height > 0) {
+      const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a
+      const factor = gcd(width, height)
+      payload.aspect_ratio = `${width / factor}:${height / factor}`
+    }
+  }
   if (task.mode === 'i2v' && task.refImage) {
-    payload.image_url = await fileToDataUrl(task.refImage)
+    payload.image = { url: await fileToDataUrl(task.refImage) }
   }
   // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
   const headers: Record<string, string> = { ...sessionAuthHeader(task), 'Content-Type': 'application/json' }

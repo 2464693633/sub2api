@@ -220,3 +220,79 @@ func TestCreativeVideoTerminalAndDownloadFailures(t *testing.T) {
 		}
 	})
 }
+
+func TestCreativeVideoPayloadMatchesGatewayParser(t *testing.T) {
+	imageData := creativeTestPNG(t)
+	imagePath := filepath.Join(t.TempDir(), "source.png")
+	if err := os.WriteFile(imagePath, imageData, 0600); err != nil {
+		t.Fatal(err)
+	}
+	e := &creativeStudioExecutor{gateway: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/videos":
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed := service.ParseGrokMediaRequest(r.Header.Get("Content-Type"), body)
+			if parsed.DurationSeconds != 4 || parsed.AspectRatio != "9:16" || parsed.Resolution != "480p" || len(parsed.InputImageURLs) != 1 || !strings.HasPrefix(parsed.InputImageURLs[0], "data:image/png;base64,") {
+				t.Errorf("gateway would lose video settings/reference: %+v", parsed)
+			}
+			var official struct {
+				Duration int `json:"duration"`
+				Image    struct {
+					URL string `json:"url"`
+				} `json:"image"`
+			}
+			if err := json.Unmarshal(body, &official); err != nil || official.Duration != 4 || official.Image.URL == "" {
+				t.Errorf("missing official upstream fields: %s %v", body, err)
+			}
+			_, _ = w.Write([]byte(`{"request_id":"remote"}`))
+		case "/v1/videos/remote":
+			_, _ = w.Write([]byte(`{"status":"done"}`))
+		case "/v1/videos/remote/content":
+			w.Header().Set("Content-Type", "video/mp4")
+			_, _ = w.Write([]byte("\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom"))
+		default:
+			t.Errorf("unexpected gateway path: %s", r.URL.Path)
+		}
+	})}
+	_, err := e.video(context.Background(), creativestudio.Job{ID: "video", Prompt: "gentle pan"}, creativeGenerationParams{Model: "grok-imagine-video", Seconds: 4, Resolution: "480p", Size: "720x1280"}, "test-key", []creativestudio.AssetFile{{Asset: creativestudio.Asset{ID: "source", Kind: "image", MIME: "image/png"}, Path: imagePath}}, func(string, bool) error { return nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCreativeGrokImagePreservesGeometryAndOmitsOpenAIControls(t *testing.T) {
+	data := creativeTestPNG(t)
+	for _, edit := range []bool{false, true} {
+		t.Run(map[bool]string{false: "generate", true: "edit"}[edit], func(t *testing.T) {
+			e := &creativeStudioExecutor{gateway: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				parsed := service.ParseGrokMediaRequest(r.Header.Get("Content-Type"), body)
+				if parsed.Size != "1536x1024" || parsed.Model != "grok-imagine-image-2.0" {
+					t.Errorf("gateway lost image geometry: %+v", parsed)
+				}
+				if bytes.Contains(body, []byte("output_format")) || bytes.Contains(body, []byte("quality")) {
+					t.Error("Grok request contains unsupported OpenAI controls")
+				}
+				_ = json.NewEncoder(w).Encode(map[string]any{"data": []map[string]string{{"b64_json": base64.StdEncoding.EncodeToString(data)}}})
+			})}
+			var refs []creativestudio.AssetFile
+			if edit {
+				path := filepath.Join(t.TempDir(), "image.png")
+				if err := os.WriteFile(path, data, 0600); err != nil {
+					t.Fatal(err)
+				}
+				refs = []creativestudio.AssetFile{{Asset: creativestudio.Asset{ID: "input", Kind: "image", MIME: "image/png", Size: int64(len(data))}, Path: path}}
+			}
+			_, err := e.image(context.Background(), creativestudio.Job{ID: "image", Prompt: "Product"}, creativeGenerationParams{Model: "grok-imagine-image-2.0", Platform: service.PlatformGrok, Size: "1536x1024", Quality: "high", Format: "png"}, "test-key", refs)
+			if err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
+}
