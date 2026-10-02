@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -13,6 +14,12 @@ import (
 
 // videoStudioModelPattern 与视频工作台前端一致的视频模型识别规则。
 var videoStudioModelPattern = regexp.MustCompile(`(?i)(video|imagine|seedance|veo|sora|kling)`)
+
+func isVideoStudioModel(id, platform string) bool {
+	lower := strings.ToLower(id)
+	isGrokImage := platform == service.PlatformGrok && xai.IsGrokImagineImageModel(id)
+	return videoStudioModelPattern.MatchString(id) && !strings.Contains(lower, "image") && !isGrokImage
+}
 
 // VideoStudioModels 聚合用户全部视频分组的视频模型,按分组标注返回
 // (多个 grok/composite 视频分组同台),供前端按模型所属分组路由生成请求。
@@ -44,12 +51,13 @@ func (h *GatewayHandler) VideoStudioModels(c *gin.Context, apiKeyService *servic
 	for i := range groups {
 		g := &groups[i]
 		ids := h.gatewayService.GetAvailableModels(c.Request.Context(), &g.ID, g.Platform)
+		ids = modelListingSource(g.Platform, ids, defaultModelIDsForPlatform(g.Platform))
+		if g.ModelAllowlistEnabled() {
+			ids = g.ModelAllowlist.FilterForListing(ids)
+		}
 		for _, id := range ids {
 			id = strings.TrimSpace(id)
-			// 排除含 image 的模型名(如 grok-imagine-image-*),以及上游 v0.2.8 新增的
-			// 裸 grok-imagine 图片模型别名,避免图片模型混入视频列表
-			lower := strings.ToLower(id)
-			if id == "" || seen[id] || strings.Contains(lower, "image") || lower == "grok-imagine" || !videoStudioModelPattern.MatchString(id) {
+			if id == "" || seen[id] || !isVideoStudioModel(id, g.Platform) {
 				continue
 			}
 			seen[id] = true

@@ -102,7 +102,7 @@ export default {
     aiPromptFailed: 'AI enhance failed, please retry later',
     aiPromptTimeout: 'AI enhance timed out — retry later or pick another key/model',
     aiPickKey: 'Your API key',
-    aiNeedKey: 'Select an API key first (create one under API Keys)'
+    aiNeedKey: 'Select an API key first (create one under API Keys)',
     aiPickModel: 'Model for enhancement',
     aiNoKeys: 'Create an API key first',
     aiNoModels: 'Pick a model',

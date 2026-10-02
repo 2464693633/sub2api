@@ -242,6 +242,7 @@ async function onAIPrompt() {
     prompt.value = await aiEnhancePrompt('video', text, { keyId: aiKeyId.value ?? undefined, model: aiModel.value || undefined })
     appStore.showSuccess(t('canvas.aiPromptDone'))
   } catch (err) {
+    if (err instanceof Error && err.name === 'StudioSessionChangedError') return
     appStore.showError(err instanceof Error ? err.message : t('canvas.aiPromptFailed'))
   } finally {
     aiLoading.value = false

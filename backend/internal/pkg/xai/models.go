@@ -278,6 +278,19 @@ func IsGrokImagineModel(model string) bool {
 	}
 }
 
+// IsGrokImagineVideoModel reports whether model is an Imagine video model or alias.
+func IsGrokImagineVideoModel(model string) bool {
+	normalized := strings.ToLower(StripGrokProviderPrefix(model))
+	return strings.HasPrefix(normalized, "grok-imagine-video") ||
+		normalized == "grok-video-1.5" ||
+		strings.HasPrefix(normalized, "imagine-video")
+}
+
+// IsGrokImagineImageModel reports whether model is an Imagine image model or alias.
+func IsGrokImagineImageModel(model string) bool {
+	return IsGrokImagineModel(model) && !IsGrokImagineVideoModel(model)
+}
+
 // IsGrokTextResponsesModelID reports whether model is a known Grok text model
 // for the Responses API. Imagine image/video and unknown custom ids return false.
 func IsGrokTextResponsesModelID(model string) bool {

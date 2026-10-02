@@ -9,6 +9,8 @@ import { computed, ref } from 'vue'
 import JSZip from 'jszip'
 import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
+import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
+import { isGrokImageModel } from './studioModels'
 
 const t = i18n.global.t
 
@@ -109,6 +111,7 @@ export const batchCancelRequested = ref(false)
 export const elapsed = ref(0)
 let slotSeq = 0
 let elapsedTimer: number | null = null
+let sessionEpoch = 0
 
 // ===== 历史 =====
 export const history = ref<HistoryItem[]>([])
@@ -121,10 +124,19 @@ function appStore() {
   return useAppStore()
 }
 
-// 每次调用现读 localStorage:token 刷新后旧值不能被缓存(computed 会永久缓存导致 401)
-function sessionAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem('auth_token') || ''
-  return { Authorization: `Bearer ${token}` }
+interface StudioSession { owner: string; sessionEpoch: number }
+
+function currentSession(): StudioSession {
+  return { owner: sessionOwnerKey(), sessionEpoch }
+}
+
+function isCurrentSession(session: StudioSession): boolean {
+  return session.sessionEpoch === sessionEpoch && session.owner === sessionOwnerKey()
+}
+
+function sessionAuthHeader(session: StudioSession): Record<string, string> {
+  if (!isCurrentSession(session)) throw new StudioSessionChangedError()
+  return { Authorization: `Bearer ${localStorage.getItem('auth_token') || ''}` }
 }
 
 function gatewayBase(): string {
@@ -219,20 +231,23 @@ export function retryInit() {
   void loadModels()
 }
 export async function loadModels() {
+  const session = currentSession()
   initError.value = ''
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
     const res = await fetch(`${gatewayBase()}/api/v1/image-studio/models`, {
-      headers: sessionAuthHeader(),
+      headers: sessionAuthHeader(session),
       signal: controller.signal
     })
     window.clearTimeout(timer)
     const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: ImageModelOption[] } | null
+    if (!isCurrentSession(session)) return
     if (!res.ok) {
       throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
     }
-    const options = (body?.data || []).filter(o => o && o.id && IMAGE_MODEL_PATTERN.test(o.id))
+    const options = (body?.data || []).filter(o => o && o.id &&
+      (IMAGE_MODEL_PATTERN.test(o.id) || (o.platform === 'grok' && isGrokImageModel(o.id))))
     if (!options.length) {
       initError.value = t('imageStudio.noImageModels')
       return
@@ -240,6 +255,7 @@ export async function loadModels() {
     models.value = options
     if (!models.value.some(o => o.id === model.value)) model.value = models.value[0]?.id || FALLBACK_MODELS[0]
   } catch (err: unknown) {
+    if (!isCurrentSession(session)) return
     const msg = err instanceof DOMException && err.name === 'AbortError'
       ? t('imageStudio.timeout')
       : (err instanceof Error ? err.message : t('imageStudio.noKeys'))
@@ -250,9 +266,9 @@ export async function loadModels() {
 }
 
 // ===== IndexedDB =====
-function openIdb(): Promise<IDBDatabase> {
+function openIdb(owner = sessionOwnerKey()): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open('image-studio-db', 1)
+    const req = indexedDB.open(`image-studio-db-${owner}`, 1)
     req.onupgradeneeded = () => {
       if (!req.result.objectStoreNames.contains('history')) {
         req.result.createObjectStore('history', { keyPath: 'id' })
@@ -262,8 +278,8 @@ function openIdb(): Promise<IDBDatabase> {
     req.onerror = () => reject(req.error)
   })
 }
-async function idbPut(item: HistoryItem) {
-  const db = await openIdb()
+async function idbPut(item: HistoryItem, owner = sessionOwnerKey()) {
+  const db = await openIdb(owner)
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('history', 'readwrite')
     tx.objectStore('history').put(item)
@@ -272,8 +288,8 @@ async function idbPut(item: HistoryItem) {
   })
   db.close()
 }
-async function idbPutMany(items: HistoryItem[]) {
-  const db = await openIdb()
+async function idbPutMany(items: HistoryItem[], owner = sessionOwnerKey()) {
+  const db = await openIdb(owner)
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('history', 'readwrite')
     const store = tx.objectStore('history')
@@ -283,8 +299,8 @@ async function idbPutMany(items: HistoryItem[]) {
   })
   db.close()
 }
-async function idbAll(): Promise<HistoryItem[]> {
-  const db = await openIdb()
+async function idbAll(owner = sessionOwnerKey()): Promise<HistoryItem[]> {
+  const db = await openIdb(owner)
   const items = await new Promise<HistoryItem[]>((resolve, reject) => {
     const req = db.transaction('history', 'readonly').objectStore('history').getAll()
     req.onsuccess = () => resolve(req.result as HistoryItem[])
@@ -315,20 +331,24 @@ async function idbClear() {
 }
 
 export async function loadHistory() {
+  const session = currentSession()
   try {
-    const items = await idbAll()
+    const items = await idbAll(session.owner)
+    if (!isCurrentSession(session)) return
     // 过滤早期版本写入的不完整记录(缺少 images 数组会导致渲染崩溃)
     history.value = items
       .filter(it => it && Array.isArray(it.images))
       .sort((a, b) => b.ts - a.ts)
   } catch {
-    history.value = []
+    if (isCurrentSession(session)) history.value = []
   }
 }
 
 export function updateStorageMeter() {
+  const session = currentSession()
   if (navigator.storage?.estimate) {
     void navigator.storage.estimate().then(est => {
+      if (!isCurrentSession(session)) return
       storageUsed.value = est.usage ?? 0
       storageQuota.value = est.quota ?? 0
     })
@@ -391,6 +411,7 @@ export function restoreHistory(item: HistoryItem) {
 // ===== ZIP 导出 / 导入 =====
 export async function exportZip() {
   if (!history.value.length) return
+  const session = currentSession()
   const zip = new JSZip()
   const metas: Record<string, unknown>[] = []
   for (const item of history.value) {
@@ -412,6 +433,7 @@ export async function exportZip() {
   }
   zip.file('meta.json', JSON.stringify(metas, null, 2))
   const blob = await zip.generateAsync({ type: 'blob' })
+  if (!isCurrentSession(session)) return
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -422,6 +444,7 @@ export async function exportZip() {
 export async function onImportZipChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files || !input.files[0]) return
+  const session = currentSession()
   try {
     const zip = await JSZip.loadAsync(input.files[0])
     let metas: Record<string, unknown>[] = []
@@ -463,15 +486,19 @@ export async function onImportZipChange(event: Event) {
       })
     }
     if (items.length) {
-      await idbPutMany(items)
+      if (!isCurrentSession(session)) return
+      await idbPutMany(items, session.owner)
+      if (!isCurrentSession(session)) return
       await loadHistory()
+      if (!isCurrentSession(session)) return
       appStore().showSuccess(t('imageStudio.importDone', { n: items.length }))
       updateStorageMeter()
     }
   } catch {
-    appStore().showError(t('imageStudio.importFailed'))
+    if (isCurrentSession(session)) appStore().showError(t('imageStudio.importFailed'))
+  } finally {
+    input.value = ''
   }
-  input.value = ''
 }
 
 // ===== 生成 =====
@@ -481,14 +508,15 @@ function blobFromB64(b64: string): Blob {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return new Blob([bytes], { type: 'image/png' })
 }
-async function blobFromUrl(url: string): Promise<Blob> {
+async function blobFromUrl(url: string, session: StudioSession): Promise<Blob> {
+  if (!isCurrentSession(session)) throw new StudioSessionChangedError()
   // 优先直连;上游 CDN 无 CORS 头(如 imgen.x.ai)时走后端代理下载
   try {
     const res = await fetch(url)
     if (res.ok) return await res.blob()
   } catch { /* CORS/网络错误,走代理 */ }
   const proxied = await fetch(`${gatewayBase()}/api/v1/image-studio/asset?u=${encodeURIComponent(url)}`, {
-    headers: sessionAuthHeader()
+    headers: sessionAuthHeader(session)
   })
   if (!proxied.ok) throw new Error(`asset proxy HTTP ${proxied.status}`)
   return await proxied.blob()
@@ -508,11 +536,11 @@ async function imageSizeOf(blob: Blob): Promise<string> {
 
 async function generateOne(spec: BatchSpec, promptText: string, refList: File[]): Promise<{ blob: Blob | null; error?: string }> {
   // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
-  const headers = sessionAuthHeader()
-  const opt = models.value.find(o => o.id === spec.model)
-  if (opt && opt.group_id > 0) headers['X-Image-Studio-Group'] = String(opt.group_id)
+  if (!isCurrentSession(spec)) return { blob: null }
+  const headers = sessionAuthHeader(spec)
+  if (spec.groupId && spec.groupId > 0) headers['X-Image-Studio-Group'] = String(spec.groupId)
   // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
-  const isGrok = opt?.platform ? opt.platform === 'grok' : /grok/i.test(spec.model)
+  const isGrok = spec.platform ? spec.platform === 'grok' : /grok/i.test(spec.model)
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 300000)
   try {
@@ -555,6 +583,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
       })
     }
     const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string; data?: Array<{ b64_json?: string; url?: string }> } | null
+    if (!isCurrentSession(spec)) return { blob: null }
     if (!res.ok) {
       const msg = body?.error?.message || body?.message || t('imageStudio.generateFailed')
       return { blob: null, error: msg }
@@ -564,7 +593,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
     const first = data[0]
     const blob = first?.b64_json
       ? blobFromB64(first.b64_json)
-      : (first?.url ? await blobFromUrl(first.url) : null)
+      : (first?.url ? await blobFromUrl(first.url, spec) : null)
     if (!blob) return { blob: null, error: t('imageStudio.generateFailed') }
     return { blob }
   } catch (err: unknown) {
@@ -584,6 +613,10 @@ export interface BatchSpec {
   quality: 'auto' | 'high' | 'medium' | 'low'
   format: 'png' | 'jpeg' | 'webp'
   size: string
+  owner: string
+  sessionEpoch: number
+  groupId?: number
+  platform?: string
 }
 let lastSpec: BatchSpec | null = null
 
@@ -641,18 +674,22 @@ export function setRefFromSlot(slotId: number) {
 }
 export async function retrySlot(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot || generating.value || !lastSpec) return
+  if (!slot || slot.status !== 'failed' || generating.value || !lastSpec || !isCurrentSession(lastSpec)) return
+  const spec = lastSpec
   slot.status = 'running'
-  const refs = lastSpec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
+  const refs = spec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
   const started = performance.now()
-  const result = await generateOne(lastSpec, slot.prompt, refs)
+  const result = await generateOne(spec, slot.prompt, refs)
+  if (!isCurrentSession(spec) || !batch.value.some(s => s.slotId === slotId)) return
+  const actualSize = result.blob ? await imageSizeOf(result.blob) : undefined
+  if (!isCurrentSession(spec) || !batch.value.some(s => s.slotId === slotId)) return
   slot.ms = Math.round(performance.now() - started)
   slot.status = result.blob ? 'done' : 'failed'
   slot.error = result.error
   if (result.blob) {
     slot.blob = result.blob
     slot.url = URL.createObjectURL(result.blob)
-    slot.actualSize = await imageSizeOf(result.blob)
+    slot.actualSize = actualSize
   }
   batch.value = [...batch.value]
 }
@@ -660,12 +697,17 @@ export async function retrySlot(slotId: number) {
 export async function generateBatch() {
   const box = activeBox.value
   if (!box || initError.value || !box.text.trim() || generating.value) return
+  const selectedOption = models.value.find(o => o.id === model.value)
   const spec: BatchSpec = {
     model: model.value,
     mode: mode.value,
     quality: quality.value,
     format: outputFormat.value,
-    size: computedSize.value
+    size: computedSize.value,
+    owner: sessionOwnerKey(),
+    sessionEpoch,
+    groupId: selectedOption?.group_id,
+    platform: selectedOption?.platform
   }
   lastSpec = spec
   const n = quantity.value
@@ -680,17 +722,21 @@ export async function generateBatch() {
   try {
     for (let i = 0; i < n; i++) {
       // 用户点击停止后不再发起新请求,已完成的图照常入库
+      if (!isCurrentSession(spec)) return
       if (batchCancelRequested.value) break
       const slotId = ++slotSeq
       const slot: BatchSlot = { slotId, status: 'running', prompt: promptText, size: spec.size }
       batch.value = [...batch.value, slot]
       const started = performance.now()
       const result = await generateOne(spec, promptText, refs)
+      if (!isCurrentSession(spec)) return
       slot.ms = Math.round(performance.now() - started)
       if (result.blob) {
+        const actualSize = await imageSizeOf(result.blob)
+        if (!isCurrentSession(spec)) return
         slot.blob = result.blob
         slot.url = URL.createObjectURL(result.blob)
-        slot.actualSize = await imageSizeOf(result.blob)
+        slot.actualSize = actualSize
         slot.status = 'done'
         okCount++
       } else {
@@ -706,26 +752,59 @@ export async function generateBatch() {
       appStore().showSuccess(t('imageStudio.batchDone', { ok: okCount, total: n }))
     }
   } finally {
-    generating.value = false
-    stopElapsed()
-    const done = batch.value.filter(s => s.status === 'done' && s.blob)
-    if (done.length) {
-      const item: HistoryItem = {
-        id: Date.now(),
-        ts: Date.now(),
-        model: spec.model,
-        quality: spec.quality,
-        format: spec.format,
-        size: spec.size,
-        actualSize: done[0]?.actualSize,
-        prompt: promptText,
-        mode: spec.mode,
-        images: done.map(s => ({ blob: s.blob as Blob, failed: false })),
-        starred: false
+    if (isCurrentSession(spec)) {
+      generating.value = false
+      stopElapsed()
+      const done = batch.value.filter(s => s.status === 'done' && s.blob)
+      if (done.length) {
+        const item: HistoryItem = {
+          id: Date.now(),
+          ts: Date.now(),
+          model: spec.model,
+          quality: spec.quality,
+          format: spec.format,
+          size: spec.size,
+          actualSize: done[0]?.actualSize,
+          prompt: promptText,
+          mode: spec.mode,
+          images: done.map(s => ({ blob: s.blob as Blob, failed: false })),
+          starred: false
+        }
+        await idbPut(item, spec.owner).catch(() => undefined)
+        if (isCurrentSession(spec)) {
+          history.value = [item, ...history.value]
+          updateStorageMeter()
+        }
       }
-      await idbPut(item).catch(() => undefined)
-      history.value = [item, ...history.value]
-      updateStorageMeter()
     }
   }
+}
+
+/** Stop the old user's queue and remove all in-memory studio data on logout/account change. */
+export function resetImageStudioSession() {
+  sessionEpoch++
+  batchCancelRequested.value = true
+  generating.value = false
+  elapsed.value = 0
+  storageUsed.value = 0
+  storageQuota.value = 0
+  stopElapsed()
+  batch.value.forEach(slot => { if (slot.url) URL.revokeObjectURL(slot.url) })
+  batch.value = []
+  refItems.value.forEach(item => URL.revokeObjectURL(item.url))
+  refItems.value = []
+  objectUrlCache.forEach(url => URL.revokeObjectURL(url))
+  objectUrlCache.clear()
+  history.value = []
+  historySearch.value = ''
+  promptBoxes.value = [{ id: ++boxSeq, text: '', status: 'draft' }]
+  activeBoxId.value = promptBoxes.value[0].id
+  lastSpec = null
+  initError.value = ''
+  models.value = toOptions(FALLBACK_MODELS)
+  model.value = FALLBACK_MODELS[0]
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('studio-session-ended', resetImageStudioSession)
 }

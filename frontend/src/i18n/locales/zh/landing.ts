@@ -102,7 +102,7 @@ export default {
     aiPromptFailed: 'AI 优化失败,请稍后重试',
     aiPromptTimeout: 'AI 优化超时,请稍后重试或更换密钥/模型',
     aiPickKey: '优化用的 API 密钥(我的密钥)',
-    aiNeedKey: '请先选择 API 密钥(在「API 密钥」页创建)'
+    aiNeedKey: '请先选择 API 密钥(在「API 密钥」页创建)',
     aiPickModel: '优化用的模型',
     aiNoKeys: '请先创建 API 密钥',
     aiNoModels: '请选择模型',
