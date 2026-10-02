@@ -37,10 +37,11 @@
           <div><h3>{{ tr('videoDefaults') }}</h3><StudioGenerationFields v-model="project.settings.video_params" kind="video" :models="videoModels" :disabled="saveState === 'conflict'" /></div>
         </div>
       </details>
-      <div class="workspace-actions">
+      <div class="workspace-actions workspace-toolbar">
         <div class="view-switch"><button type="button" :aria-pressed="boardMode === 'canvas'" @click="boardMode = 'canvas'">{{ tr('workspace') }}</button><button type="button" :aria-pressed="boardMode === 'list'" @click="boardMode = 'list'">{{ tr('cardList') }}</button></div>
         <button type="button" @click="selectNodes(project.nodes.map(n => n.id))">{{ tr('selectAll') }}</button><button v-if="selectedNodes.length" type="button" @click="selectNodes([])">{{ tr('clearSelection') }}</button>
-        <span class="muted">{{ tr('plannedCounts', plannedCounts) }}</span><button type="button" :disabled="busy || !pendingNodeIds.length" @click="checkPlan()">{{ tr('checkPlan') }}</button>
+        <span class="muted toolbar-summary">{{ tr('plannedCounts', plannedCounts) }}</span><button type="button" :disabled="busy || !pendingNodeIds.length" @click="checkPlan()">{{ tr('checkPlan') }}</button>
+        <button type="button" class="timeline-toggle" :aria-expanded="timelineDockOpen" @click="timelineDockOpen = !timelineDockOpen">▤ {{ tr('timeline') }} · {{ timeline.clips.length }}</button>
       </div>
       <div v-if="selectedNodes.length" class="batch-actions">
         <strong>{{ tr('selected', { n: selectedNodes.length }) }}</strong>
@@ -54,7 +55,7 @@
         <div v-for="(issue, index) in preflight.errors" :key="index" class="error"><button v-if="issue.node_id" type="button" @click="focusNode(issue.node_id)">{{ project.nodes.find(n => n.id === issue.node_id)?.data.title }}</button> {{ issue.message }}</div>
         <div v-for="step in preflight.nodes" :key="step.node_id" class="preflight-step"><strong>{{ step.title }}</strong><span>{{ step.params.model }}</span><span v-if="step.inputs.length">{{ tr('refs') }}: {{ step.inputs.map(input => project!.nodes.find(n => n.id === input.node_id)?.data.title || input.asset_id).join(' · ') }}</span></div>
       </details>
-      <div class="workspace-grid" :class="{ 'list-mode': boardMode === 'list' }">
+      <div class="workspace-grid" :class="{ 'list-mode': boardMode === 'list', 'inspector-open': !!selected }">
         <CreativeCanvas v-if="boardMode === 'canvas'"
           :key="project.id" ref="board" v-model:nodes="project.nodes" v-model:edges="project.edges"
           v-model:viewport="project.viewport" :selected-node-id="selectedId" :readonly="saveState === 'conflict'"
@@ -70,7 +71,7 @@
             <button v-if="node.type !== 'text'" type="button" :disabled="busy || ['queued','waiting','running'].includes(node.data.status || '')" @click="runNode(node.id)">{{ ['failed','cancelled'].includes(node.data.status || '') ? tr('retry') : node.data.assetId ? tr('rerun') : tr('run') }}</button>
           </article><p v-if="!project.nodes.length" class="muted">{{ tr('selectHint') }}</p>
         </section>
-        <aside ref="inspector" class="inspector" :aria-label="tr('inspector')">
+        <aside v-if="selected" ref="inspector" class="inspector" :aria-label="tr('inspector')">
           <div class="panel-heading"><h2>{{ tr('inspector') }}</h2><span v-if="selected" class="kind-tag">{{ tr(selected.type === 'text' ? 'text' : selected.type === 'image' ? 'images' : 'videos') }}</span></div>
           <p v-if="!selected" class="empty-panel">{{ tr('selectHint') }}</p>
           <template v-else>
@@ -106,7 +107,7 @@
         </aside>
       </div>
 
-      <details class="timeline-panel" open>
+      <details class="timeline-panel" :open="timelineDockOpen" @toggle="timelineDockOpen = ($event.target as HTMLDetailsElement).open">
         <summary><span>▤ {{ tr('timeline') }}</span><span class="muted">{{ timeline.clips.length }} {{ tr('clip') }} · {{ totalDuration }}s</span></summary>
         <div class="timeline-controls">
           <select v-model="timeline.size" :aria-label="tr('size')"><option value="1280x720">16:9 · 720p</option><option value="720x1280">9:16 · 720p</option><option value="720x720">1:1 · 720p</option></select>
@@ -170,6 +171,10 @@ const { projects, project, assets, jobs, imageModels, videoModels, selectedId, s
 const board = ref<InstanceType<typeof CreativeCanvas>>()
 const inspector = ref<HTMLElement>()
 const boardMode = ref<'canvas' | 'list'>(window.innerWidth < 760 ? 'list' : 'canvas')
+// Keep the canvas dominant by default. The timeline opens on demand from the
+// compact workspace toolbar so editing does not require scrolling past a
+// large, always-open panel.
+const timelineDockOpen = ref(false)
 const timelinePlayer = ref<InstanceType<typeof CreativeTimelinePreview>>()
 const compareDialog = ref<HTMLDialogElement>()
 const comparisonIds = ref<(string | undefined)[]>([])
@@ -295,7 +300,7 @@ onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListene
 <style scoped>
 .creative-workspace { --cs-bg: #fff; --cs-surface: #f8fafc; --cs-border: #e2e8f0; --cs-text: #334155; --cs-muted: #64748b; color: var(--cs-text); height: 100%; overflow-y: auto; padding-right: 2px; font-size: 12px; }
 .project-bar, .project-identity, .project-actions, .button-row, .panel-heading, .dialog-heading, .clip-top, .timeline-controls, .job-row { display: flex; align-items: center; gap: 8px; }
-.project-bar { justify-content: space-between; flex-wrap: wrap; margin-bottom: 12px; }
+.project-bar { position: sticky; top: 0; z-index: 8; justify-content: space-between; flex-wrap: wrap; margin-bottom: 10px; padding: 7px 0; border-bottom: 1px solid transparent; background: var(--cs-bg); }
 .project-identity { flex-wrap: wrap; min-width: 0; }
 .project-icon { color: #0f766e; font-size: 25px; }
 .project-name { max-width: 180px; }
@@ -305,6 +310,9 @@ onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListene
 .settings-grid h3 { margin-top:0; }
 .settings-grid label { margin-bottom:12px; }
 .workspace-actions,.batch-actions { display:flex;align-items:center;flex-wrap:wrap;gap:7px;margin:9px 0; }
+.workspace-toolbar { position: sticky; top: 54px; z-index: 7; margin: 0 0 9px; padding: 7px 0; background: var(--cs-bg); }
+.workspace-toolbar .toolbar-summary { margin-left: auto; }
+.workspace-toolbar .timeline-toggle { color: #0f766e; border-color: #99f6e4; background: #f0fdfa; }
 .batch-actions { padding:10px;border:1px solid #99f6e4;border-radius:9px;background:#ccfbf122; }
 .view-switch { display:flex; }
 .view-switch button[aria-pressed=true] { background:#0f766e;color:white;border-color:#0f766e; }
@@ -341,7 +349,8 @@ label { display: flex; flex-direction: column; gap: 6px; color: var(--cs-muted);
 h2 { margin: 0; font-size: 13px; font-weight: 600; }
 h3 { margin: 18px 0 8px; font-size: 12px; font-weight: 600; }
 p { margin: 8px 0; }
-.workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr) 282px; gap: 12px; min-height: 540px; height: min(720px, 68vh); }
+.workspace-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; min-height: 540px; height: min(720px, 68vh); }
+.workspace-grid.inspector-open { grid-template-columns: minmax(0, 1fr) 300px; }
 .inspector { overflow-y: auto; padding: 15px; border: 1px solid var(--cs-border); border-radius: 12px; background: var(--cs-bg); }
 .panel-heading { justify-content: space-between; margin-bottom: 16px; }
 .inspector > label { margin-bottom: 14px; }
@@ -366,6 +375,8 @@ p { margin: 8px 0; }
 .notice { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
 .loading { padding: 70px 20px; text-align: center; color: var(--cs-muted); }
 .timeline-panel, .task-panel { margin-top: 12px; border: 1px solid var(--cs-border); border-radius: 10px; background: var(--cs-bg); padding: 12px; }
+.timeline-panel { position: sticky; bottom: 0; z-index: 6; box-shadow: 0 -6px 18px #0f172a0a; }
+.timeline-panel:not([open]) { padding-bottom: 10px; }
 summary { cursor: pointer; font-size: 13px; font-weight: 600; }
 summary > span + span { margin-left: 14px; font-weight: 400; }
 .timeline-controls { flex-wrap: wrap; margin: 13px 0; }
@@ -405,6 +416,6 @@ dialog::backdrop { background: #0f172a80; backdrop-filter: blur(3px); }
 :global(.dark) .message.warning { background: #382d18; color: #fbbf24; }
 :global(.dark) .notice { background: #103735; color: #5eead4; }
 :global(.dark) .error { color: #fb7185; }
-@media (max-width: 1050px) { .project-name { display: none; } .workspace-grid { grid-template-columns: minmax(0, 1fr) 245px; } }
-@media (max-width: 760px) { .settings-grid { grid-template-columns:1fr;gap:10px; } .workspace-grid.list-mode > :first-child { height:auto;max-height:none; } .comparison-grid { grid-template-columns:1fr; } .comparison-grid img { height:32vh; } .list-card { flex-wrap:wrap; } .list-card-main { flex-basis:calc(100% - 30px); } .list-card > button:last-child { margin-left:auto; } .creative-workspace { overflow: visible; height: auto; } .workspace-grid { display: flex; flex-direction: column; height: auto; min-height: 0; } .workspace-grid > :first-child { height: 540px; flex-shrink: 0; } .inspector { max-height: none; } .empty-panel { padding: 12px 6px; } .project-actions { margin-left: 0; width: 100%; } .project-actions .primary { margin-left: auto; } .save-status { font-size: 10px; } .project-identity { width: 100%; } .message { flex-wrap: wrap; } .timeline-controls { gap: 6px; } .export-button { margin-left: 0; } dialog { padding: 15px; } }
+@media (max-width: 1050px) { .project-name { display: none; } .workspace-grid.inspector-open { grid-template-columns: minmax(0, 1fr) 245px; } }
+@media (max-width: 760px) { .settings-grid { grid-template-columns:1fr;gap:10px; } .workspace-grid.list-mode > :first-child { height:auto;max-height:none; } .comparison-grid { grid-template-columns:1fr; } .comparison-grid img { height:32vh; } .list-card { flex-wrap:wrap; } .list-card-main { flex-basis:calc(100% - 30px); } .list-card > button:last-child { margin-left:auto; } .creative-workspace { overflow: visible; height: auto; } .workspace-grid, .workspace-grid.inspector-open { display: flex; flex-direction: column; height: auto; min-height: 0; } .workspace-grid > :first-child { height: 540px; flex-shrink: 0; } .inspector { max-height: none; } .empty-panel { padding: 12px 6px; } .project-actions { margin-left: 0; width: 100%; } .project-actions .primary { margin-left: auto; } .save-status { font-size: 10px; } .project-identity { width: 100%; } .message { flex-wrap: wrap; } .timeline-controls { gap: 6px; } .export-button { margin-left: 0; } .workspace-toolbar { top: 92px; } .workspace-toolbar .toolbar-summary { margin-left: 0; } dialog { padding: 15px; } }
 </style>
