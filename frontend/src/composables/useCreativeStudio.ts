@@ -3,6 +3,7 @@ import { creativeStudioAPI as api, type StudioProject, type StudioAsset, type St
 import type { CreativeCanvasKind, CreativeCanvasNode } from '@/types/creativeCanvas'
 import { sessionOwnerKey } from './studioSession'
 import { isGrokImageModel } from './studioModels'
+import type { QuickComposeFlow, QuickComposeInput } from '@/types/creativeQuickCompose'
 
 type Translate = (key: string, args?: Record<string, unknown>) => string
 interface PendingRun { requestId: string; nodeIds: string[]; revision: number }
@@ -395,6 +396,72 @@ export function useCreativeStudio(tr: Translate) {
     }
     selectedId.value = overview.id; notice.value = tr('templateAdded')
   }
+  async function createQuickCompose(input: QuickComposeInput): Promise<QuickComposeFlow | undefined> {
+    if (busy.value || loading.value || switching || !current(epoch)) return
+    if (pendingRun.value) { error.value = tr('requestRetry'); return }
+    if (!input.subject.trim() || !Number.isInteger(input.detailCount) || input.detailCount < 0 || input.detailCount > 4 ||
+      !['none', 'two', 'all'].includes(input.videoMode)) {
+      error.value = tr('quickInvalid'); return
+    }
+    const encoder = new TextEncoder()
+    if (encoder.encode(input.subject.trim()).length > 4000 || encoder.encode(input.style.trim()).length > 4000 ||
+      encoder.encode(input.overview.trim()).length > 12000) {
+      error.value = tr('quickTextTooLong'); return
+    }
+    // Copy the form before any async request. The new flow is a separate
+    // project so its shared subject and models cannot change existing work.
+    const draft = JSON.parse(JSON.stringify(input)) as QuickComposeInput
+    let ticket = epoch
+    switching = true; busy.value = true; error.value = ''; notice.value = ''
+    try {
+      if (project.value && !await save()) return
+      if (!current(ticket)) return
+      const snapshot = await api.create(draft.subject.trim().slice(0, 60), controller.signal)
+      if (!current(ticket)) return
+      const next = snapshot.project
+      next.settings = { subject: draft.subject.trim(), style: draft.style.trim(), image_params: draft.imageParams, video_params: draft.videoParams }
+      next.timeline = emptyTimeline()
+      next.nodes = []; next.edges = []
+      const make = (kind: 'image' | 'video', title: string, prompt: string, x: number, y: number) => {
+        const node: CreativeCanvasNode = { id: uid(), type: kind, position: { x, y }, data: {
+          kind, title, prompt, paramsMode: 'project', status: 'draft',
+          params: { ...(kind === 'image' ? draft.imageParams : draft.videoParams) }
+        } }
+        next.nodes.push(node)
+        return node
+      }
+      const link = (source: string, target: string) => next.edges.push({ id: uid(), source, target, type: 'smoothstep' })
+      const overview = make('image', tr('overview'), draft.overview.trim() || tr('quickOverviewDefault'), 60, draft.detailCount > 1 ? 260 : 50)
+      const images = [overview]
+      for (let i = 0; i < draft.detailCount; i++) {
+        const detail = make('image', tr(`detail${i + 1}`), tr(`detailPrompt${i + 1}`), 430 + Math.floor(i / 2) * 370, 50 + (i % 2) * 410)
+        link(overview.id, detail.id); images.push(detail)
+      }
+      const videoSources = draft.videoMode === 'all' ? images : draft.videoMode === 'two'
+        ? [overview, ...(images.length > 1 ? [images[Math.min(3, images.length - 1)]!] : [])] : []
+      videoSources.forEach((source, index) => {
+        const video = make('video', `${source.data.title} · ${tr('quickVideoTitle')}`, tr('defaultMotion'),
+          draft.detailCount > 2 ? 1170 : draft.detailCount ? 800 : 430, 50 + index * 410)
+        link(source.id, video.id)
+      })
+      const flow = { projectId: next.id, nodeIds: next.nodes.map(n => n.id) }
+      // Install a recoverable local draft before saving its graph. A failed
+      // save must return these IDs so retry never creates a second flow.
+      reset(); ticket = epoch
+      loading.value = true
+      project.value = next; projects.value.unshift(next)
+      selectedId.value = overview.id
+      savedSignature = ''
+      loading.value = false
+      writeLocal(`creative-studio:${owner}:last`, next.id)
+      retainDraft()
+      await save()
+      if (!current(ticket)) return
+      pollTimer = setTimeout(() => { void poll() }, 4500)
+      return flow
+    } catch (e) { if (current(ticket)) error.value = errorMessage(e) }
+    finally { switching = false; if (current(ticket)) { busy.value = false; loading.value = false } }
+  }
   function remove(id: string) {
     if (!project.value) return
     project.value.nodes = project.value.nodes.filter(n => n.id !== id)
@@ -433,6 +500,7 @@ export function useCreativeStudio(tr: Translate) {
     finally { if (current(ticket)) busy.value = false }
   }
   async function run(nodeIds?: string[]) {
+    let submitted = false
     await action(async ticket => {
       if (!pendingRun.value) {
         const ids = nodeIds || pendingNodeIds.value
@@ -454,12 +522,13 @@ export function useCreativeStudio(tr: Translate) {
         const sequence = ++snapshotSequence
         const snapshot = await api.run(project.value!.id, pending.nodeIds, pending.requestId, pending.revision, controller.signal)
         if (!current(ticket)) return
-        pendingRun.value = null; acceptResults(snapshot, sequence); retainDraft(); notice.value = tr('submitted')
+        pendingRun.value = null; acceptResults(snapshot, sequence); retainDraft(); notice.value = tr('submitted'); submitted = true
       } catch (e) {
         if (current(ticket) && [400, 403, 404, 409, 413, 422].includes(errorStatus(e) || 0)) { pendingRun.value = null; retainDraft() }
         throw e
       }
     })
+    return submitted
   }
   async function runNode(id: string) {
     const job = jobs.value.find(j => j.node_id === id)
@@ -549,5 +618,5 @@ export function useCreativeStudio(tr: Translate) {
     window.removeEventListener('beforeunload', beforeUnload)
   })
   return { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
-    initialize, create, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft }
+    initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft }
 }

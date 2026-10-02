@@ -3,6 +3,7 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { creativeStudioAPI as api, type StudioSnapshot, type StudioProject, type StudioAsset, type StudioJob } from '@/api/creativeStudio'
 import { useCreativeStudio, persistedProject } from '../useCreativeStudio'
+import type { QuickComposeInput } from '@/types/creativeQuickCompose'
 
 vi.mock('@/api/creativeStudio', () => ({ creativeStudioAPI: Object.fromEntries(['list','create','get','save','remove','upload','asset','run','retry','cancel','render','models','preflight'].map(name => [name, vi.fn()])) }))
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
@@ -281,5 +282,99 @@ describe('creative studio persistence and workflows', () => {
     const result = persistedProject(p)
     expect(JSON.stringify(result)).not.toContain('blob:')
     expect(result.nodes[0]!.data).not.toHaveProperty('error')
+  })
+})
+
+describe('quick compose project creation', () => {
+  const input = (detailCount = 4, videoMode: QuickComposeInput['videoMode'] = 'two'): QuickComposeInput => ({
+    subject: 'A brown leather bag', style: 'Warm product photography', overview: '', detailCount, videoMode,
+    imageParams: { ...node.data.params }, videoParams: { ...node.data.params, model: 'grok-imagine-video' }
+  })
+
+  beforeEach(() => {
+    vi.mocked(api.create).mockImplementation(async name => {
+      server = { project: { id: 'quick-project', name, revision: 1, nodes: [], edges: [], viewport: { x: 0, y: 0, zoom: 1 }, created_at: 100, updated_at: 100 }, assets: [], jobs: [] }
+      return copy(server)
+    })
+  })
+
+  it.each([
+    { details: 0, mode: 'none' as const, images: 1, videos: 0 },
+    { details: 0, mode: 'two' as const, images: 1, videos: 1 },
+    { details: 4, mode: 'two' as const, images: 5, videos: 2 },
+    { details: 2, mode: 'all' as const, images: 3, videos: 3 }
+  ])('creates an independent $images image / $videos video graph without generating', async ({ details, mode, images, videos }) => {
+    const studio = await start()
+    const previous = studio.project.value!
+    const previousDraft = copy(previous)
+    const form = input(details, mode)
+    const flow = await studio.createQuickCompose(form)
+    expect(previous).toEqual(previousDraft)
+    expect(studio.project.value?.id).toBe('quick-project')
+    expect(flow?.nodeIds).toEqual(server.project.nodes.map(n => n.id))
+    expect(server.project.nodes.filter(n => n.type === 'image')).toHaveLength(images)
+    expect(server.project.nodes.filter(n => n.type === 'video')).toHaveLength(videos)
+    const overview = server.project.nodes[0]!
+    expect(overview.data.prompt).toBe('quickOverviewDefault')
+    for (const n of server.project.nodes.slice(1)) {
+      const incoming = server.project.edges.filter(e => e.target === n.id)
+      expect(incoming).toHaveLength(1)
+      const source = server.project.nodes.find(p => p.id === incoming[0]!.source)!
+      expect(source.type).toBe('image')
+      if (n.type === 'image') expect(source.id).toBe(overview.id)
+    }
+    form.subject = 'mutated'; form.imageParams.model = 'different'
+    expect(server.project.settings?.subject).toBe('A brown leather bag')
+    expect(server.project.settings?.image_params.model).toBe('gpt-image-2')
+    expect(api.run).not.toHaveBeenCalled()
+  })
+
+  it('retains the new flow and its IDs after save failure, then saves and submits that flow', async () => {
+    const studio = await start()
+    vi.mocked(api.save).mockRejectedValueOnce(new Error('save failed'))
+    const flow = await studio.createQuickCompose(input())
+    expect(flow?.projectId).toBe('quick-project')
+    expect(studio.saveState.value).toBe('saveError')
+    expect(localStorage.getItem('creative-studio:user-1:quick-project')).toContain('A brown leather bag')
+    expect(await studio.run(flow!.nodeIds)).toBe(true)
+    expect(api.create).toHaveBeenCalledTimes(1)
+    expect(api.run).toHaveBeenCalledWith('quick-project', flow!.nodeIds, expect.any(String), expect.any(Number), expect.any(AbortSignal))
+  })
+
+  it('does not create a flow when the current project has an unsaved conflict', async () => {
+    const studio = await start()
+    studio.project.value!.name = 'unsaved work'
+    vi.mocked(api.save).mockRejectedValueOnce({ status: 409, message: 'conflict' })
+    expect(await studio.createQuickCompose(input())).toBeUndefined()
+    expect(api.create).not.toHaveBeenCalled()
+    expect(studio.project.value?.name).toBe('unsaved work')
+    expect(studio.busy.value).toBe(false)
+  })
+
+  it('keeps the same submission receipt and prevents new creation while a run is unconfirmed', async () => {
+    const studio = await start()
+    const flow = (await studio.createQuickCompose(input()))!
+    vi.mocked(api.run).mockRejectedValueOnce(new Error('response lost'))
+    expect(await studio.run(flow.nodeIds)).toBe(false)
+    const original = vi.mocked(api.run).mock.calls[0]!
+    expect(await studio.createQuickCompose(input())).toBeUndefined()
+    expect(api.create).toHaveBeenCalledTimes(1)
+    expect(await studio.run(flow.nodeIds)).toBe(true)
+    expect(vi.mocked(api.run).mock.calls[1]!.slice(0, 4)).toEqual(original.slice(0, 4))
+  })
+
+  it('ignores a double click while creation is in flight and does not attach a late response after logout', async () => {
+    const studio = await start()
+    const delayed = deferred<StudioSnapshot>()
+    vi.mocked(api.create).mockImplementationOnce(() => delayed.promise)
+    const creating = studio.createQuickCompose(input())
+    await flushPromises()
+    expect(await studio.createQuickCompose(input())).toBeUndefined()
+    expect(api.create).toHaveBeenCalledTimes(1)
+    window.dispatchEvent(new Event('studio-session-ended'))
+    delayed.resolve({ project: { ...copy(server.project), id: 'late-project', nodes: [], edges: [] }, assets: [], jobs: [] })
+    expect(await creating).toBeUndefined()
+    expect(studio.project.value).toBeNull()
+    expect(api.run).not.toHaveBeenCalled()
   })
 })

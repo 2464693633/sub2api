@@ -9,6 +9,7 @@
         </select>
         <input v-if="project" v-model="project.name" :aria-label="tr('rename')" :placeholder="tr('unnamed')" maxlength="80" class="project-name" />
         <button type="button" :disabled="busy || loading" @click="create">+ {{ tr('newProject') }}</button>
+        <button type="button" class="quick-compose-button" :disabled="busy || loading || quickBusy || !!pendingRun || saveState === 'conflict'" @click="openQuickCompose">✦ {{ tr('quickCompose') }}</button>
       </div>
       <div class="project-actions">
         <button v-if="project" type="button" :disabled="busy || loading" :title="tr('deleteProject')" @click="deleteDialog?.showModal()">{{ tr('deleteProject') }}</button>
@@ -139,6 +140,8 @@
     <input ref="fileInput" type="file" multiple class="hidden-input" accept="image/png,image/jpeg,image/webp,video/mp4,video/webm,audio/mpeg,audio/wav,audio/ogg" @change="uploadFiles" />
     <input ref="audioInput" type="file" class="hidden-input" accept="audio/mpeg,audio/wav,audio/ogg" @change="uploadFiles" />
     <dialog ref="deleteDialog" class="delete-dialog"><h2>{{ tr('deleteProject') }}</h2><p>{{ tr('deleteWarning') }}</p><div class="button-row"><button type="button" @click="deleteDialog?.close()">{{ tr('close') }}</button><button type="button" :disabled="busy || running.length > 0" @click="deleteDialog?.close(); deleteProject()">{{ tr('confirmDelete') }}</button></div><p v-if="running.length" class="muted">{{ tr('deleteBusy') }}</p></dialog>
+    <QuickComposeDialog ref="quickDialog" :image-models="imageModels" :video-models="videoModels" :defaults="project?.settings"
+      :busy="quickBusy" :prepared="!!quickFlow" :error="quickError" @submit="submitQuickCompose" />
     <dialog ref="assetDialog" class="asset-dialog">
       <div class="dialog-heading"><h2>{{ tr('assets') }}</h2><button type="button" :aria-label="tr('close')" @click="assetDialog?.close()">×</button></div>
       <div class="button-row"><button type="button" class="primary" :disabled="busy" @click="fileInput?.click()">+ {{ busy ? tr('uploading') : tr('upload') }}</button><button type="button" :disabled="localLoading" @click="loadLocalHistory">{{ tr('localHistory') }}</button></div>
@@ -159,6 +162,8 @@ import { useI18n } from 'vue-i18n'
 import CreativeCanvas from './CreativeCanvas.vue'
 import StudioGenerationFields from './StudioGenerationFields.vue'
 import CreativeTimelinePreview from './CreativeTimelinePreview.vue'
+import QuickComposeDialog from './QuickComposeDialog.vue'
+import type { QuickComposeInput, QuickComposeFlow } from '@/types/creativeQuickCompose'
 import { creativeStudioMessages } from './creativeStudioMessages'
 import { useCreativeStudio } from '@/composables/useCreativeStudio'
 import { sessionOwnerKey } from '@/composables/studioSession'
@@ -168,7 +173,7 @@ import type { StudioAsset } from '@/api/creativeStudio'
 
 const { t: tr, locale } = useI18n({ useScope: 'local', messages: creativeStudioMessages })
 const { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
-  initialize, create, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft } = useCreativeStudio(tr)
+  initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft } = useCreativeStudio(tr)
 const board = ref<InstanceType<typeof CreativeCanvas>>()
 const inspector = ref<HTMLElement>()
 const boardMode = ref<'canvas' | 'list'>(window.innerWidth < 760 ? 'list' : 'canvas')
@@ -186,6 +191,10 @@ const plannedCounts = computed(() => runCounts())
 const fileInput = ref<HTMLInputElement>()
 const audioInput = ref<HTMLInputElement>()
 const deleteDialog = ref<HTMLDialogElement>()
+const quickDialog = ref<InstanceType<typeof QuickComposeDialog>>()
+const quickFlow = ref<QuickComposeFlow>()
+const quickBusy = ref(false)
+const quickError = ref('')
 const assetDialog = ref<HTMLDialogElement>()
 const previewDialog = ref<HTMLDialogElement>()
 const previewMedia = ref<StudioAsset>()
@@ -240,6 +249,45 @@ function editPrompt({ id, prompt }: { id: string; prompt: string }) {
 }
 async function addTemplate() { template(); await nextTick(); void board.value?.fitView() }
 async function arrangeBoard() { arrange(); await nextTick(); void board.value?.fitView() }
+function openQuickCompose() {
+  if (quickBusy.value || busy.value || pendingRun.value) return
+  if (quickFlow.value && (quickFlow.value.projectId !== project.value?.id || quickFlowHasJobs(quickFlow.value))) quickFlow.value = undefined
+  quickError.value = ''
+  quickDialog.value?.open()
+}
+function quickFlowHasJobs(flow: QuickComposeFlow) { return jobs.value.some(job => flow.nodeIds.includes(job.node_id)) }
+async function submitQuickCompose(input: QuickComposeInput, generate: boolean) {
+  if (quickBusy.value || busy.value || loading.value) return
+  quickBusy.value = true; quickError.value = ''
+  const owner = sessionOwnerKey()
+  try {
+    if (!quickFlow.value) quickFlow.value = await createQuickCompose(input)
+    const flow = quickFlow.value
+    if (disposed || sessionOwnerKey() !== owner || !flow || flow.projectId !== project.value?.id) {
+      quickError.value = error.value
+      return
+    }
+    // The same draft may have been started from the canvas or another tab.
+    // Only an unconfirmed request may be replayed; existing jobs use Retry.
+    if (!pendingRun.value && quickFlowHasJobs(flow)) {
+      quickDialog.value?.close(); quickFlow.value = undefined
+      notice.value = tr('quickAlreadySubmitted'); return
+    }
+    await nextTick()
+    await board.value?.fitView()
+    if (disposed || sessionOwnerKey() !== owner || flow.projectId !== project.value?.id) return
+    if (generate) {
+      const submitted = await run(flow.nodeIds)
+      if (disposed || sessionOwnerKey() !== owner) return
+      if (!submitted) { quickError.value = error.value || notice.value || tr('preflightFix'); return }
+    } else if (!await save()) {
+      quickError.value = error.value || tr('saveError'); return
+    }
+    quickDialog.value?.close()
+    quickFlow.value = undefined
+    if (!generate) notice.value = tr('quickDraftReady')
+  } finally { quickBusy.value = false }
+}
 function moveClip(index: number, offset: number) {
   const clips = timeline.value.clips
   const [clip] = clips.splice(index, 1)
@@ -294,7 +342,7 @@ async function importLocal() {
   await upload(items.map(item => new File([item.blob], item.name, { type: item.blob.type })), items.map(item => item.prompt))
   if (!error.value) localSelected.value = []
 }
-function endSession() { clearComparison(); timelinePlayer.value?.close(); localItems.value = []; localSelected.value = []; assetDialog.value?.close(); deleteDialog.value?.close(); closePreview(); previewMedia.value = undefined }
+function endSession() { quickFlow.value = undefined; quickError.value = ''; clearComparison(); timelinePlayer.value?.close(); localItems.value = []; localSelected.value = []; assetDialog.value?.close(); deleteDialog.value?.close(); quickDialog.value?.close(); closePreview(); previewMedia.value = undefined }
 window.addEventListener('studio-session-ended', endSession)
 onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListener('studio-session-ended', endSession) })
 </script>
@@ -306,6 +354,7 @@ onBeforeUnmount(() => { disposed = true; endSession(); window.removeEventListene
 .project-identity { flex-wrap: wrap; min-width: 0; }
 .project-icon { color: #0f766e; font-size: 25px; }
 .project-name { max-width: 180px; }
+.quick-compose-button { border-color:#99f6e4; color:#0f766e; background:#f0fdfa; }
 
 .project-settings,.preflight-panel { border:1px solid var(--cs-border);border-radius:10px;background:var(--cs-bg);padding:12px;margin:10px 0; }
 .settings-grid { display:grid;grid-template-columns:1.1fr 1fr 1fr;gap:22px;margin-top:16px; }

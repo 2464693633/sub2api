@@ -152,9 +152,9 @@ function ensureVisible() {
 flow.onPaneReady(() => { requestAnimationFrame(ensureVisible) })
 watch(() => flow.dimensions.value.width, (width, previous) => {
   // A saved viewport from the old two-column layout can be far too zoomed out
-  // after the contextual inspector is hidden. Fit once when the surface first
-  // measures, then only refit when the layout width changes materially.
-  if (width > 0 && (!previous || Math.abs(width - previous) > 40)) void fitView()
+  // after the contextual inspector is hidden. Fit on initial measurement;
+  // opening or closing a panel must not reset the user's zoom and position.
+  if (width > 0 && !previous) void fitView()
 })
 
 function onConnect(connection: Connection) {
