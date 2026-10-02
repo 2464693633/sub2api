@@ -69,6 +69,20 @@ func TestApplyTokenMultipliers_DerivesCacheCreationAggregateFromDetails(t *testi
 	require.Equal(t, 6, got.CacheCreation1hTokens)
 }
 
+func TestApplyTokenMultipliers_PreservesImageCachePricing(t *testing.T) {
+	tokens := ApplyTokenMultipliers(UsageTokens{CacheReadTokens: 100, ImageCacheReadTokens: 40}, TokenMultipliers{CacheRead: 2})
+	require.Equal(t, 200, tokens.CacheReadTokens)
+	require.Equal(t, 80, tokens.ImageCacheReadTokens)
+	cost := NewBillingService(nil, nil).computeTokenBreakdown(&ModelPricing{
+		CacheReadPricePerToken: 2, ImageCacheReadPricePerToken: 3,
+	}, tokens, 1, "", false)
+	require.Equal(t, 480.0, cost.CacheReadCost, "image cache tokens retain their own price after group scaling")
+	bounded := ApplyTokenMultipliers(UsageTokens{CacheReadTokens: 1, ImageCacheReadTokens: 20}, TokenMultipliers{CacheRead: 1.5})
+	require.Equal(t, 2, bounded.ImageCacheReadTokens)
+	require.Equal(t, bounded.CacheReadTokens, bounded.ImageCacheReadTokens)
+	require.Zero(t, ApplyTokenMultipliers(UsageTokens{CacheReadTokens: 100, ImageCacheReadTokens: 40}, TokenMultipliers{}).ImageCacheReadTokens)
+}
+
 func TestUseBillableActualCost_UsesCustomerLongContextFlag(t *testing.T) {
 	raw := &CostBreakdown{TotalCost: 1, ActualCost: 1}
 	billable := &CostBreakdown{TotalCost: 3, ActualCost: 3, LongContextBillingApplied: true}

@@ -1,6 +1,7 @@
 {
   "name": "sub2api-frontend",
   "private": true,
+  "packageManager": "pnpm@9.15.9",
   "version": "1.0.0",
   "type": "module",
   "scripts": {
@@ -26,7 +27,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.4",
     "@vueuse/core": "^10.7.0",
-    "axios": "^1.18.0",
+    "axios": "^1.20.0",
     "chart.js": "^4.4.1",
     "dompurify": "^3.4.14",
     "driver.js": "^1.4.0",

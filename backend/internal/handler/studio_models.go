@@ -14,7 +14,7 @@ func (h *GatewayHandler) studioAvailableModels(ctx context.Context, group *servi
 		return nil
 	}
 	if group.Platform == service.PlatformComposite {
-		return h.compositeAvailableModels(ctx, &group.ID)
+		return h.compositeAvailableModels(ctx, &group.ID, false)
 	}
 	if _, ok := platforms[group.Platform]; !ok {
 		return nil

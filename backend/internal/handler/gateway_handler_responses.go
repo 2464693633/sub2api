@@ -82,6 +82,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
+	if rejectSystemOneOnlyPlatform(c, apiKey, h.responsesErrorResponse) {
+		return
+	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
@@ -105,20 +108,16 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 
-	// Claude Code only restriction:
-	// /v1/responses is never a Claude Code endpoint.
-	// When claude_code_only is enabled, this endpoint is rejected.
-	// The existing service-layer checkClaudeCodeRestriction handles degradation
-	// to fallback groups when the Forward path calls SelectAccountForModelWithExclusions.
-	// Here we just reject at handler level since /v1/responses clients can't be Claude Code.
-	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		if activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool { return !group.ClaudeCodeOnly }) {
+	// Non-Claude clients may use the configured fallback group. If none exists,
+	// try a compatible group on the API key before rejecting this endpoint.
+	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly && apiKey.Group.FallbackGroupID == nil {
+		if activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil }) {
 			requestCtx = service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), apiKey.Group)
 			c.Request = c.Request.WithContext(requestCtx)
 			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(requestCtx, apiKey.GroupID, reqModel)
 		}
 	}
-	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
+	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly && apiKey.Group.FallbackGroupID == nil {
 		h.responsesErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
@@ -151,7 +150,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	// 2. Re-check billing
 	if billingErr := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, func(group *service.Group) bool { return !group.ClaudeCodeOnly })
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil })
 		if recovered {
 			subscription = nextSubscription
 			requestCtx = service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), apiKey.Group)
@@ -168,6 +167,20 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 	}
 
+	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。
+	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, tokenInflightEstimate(reqModel, body))
+	if err != nil {
+		reqLog.Info("gateway.responses.inflight_reservation_rejected", zap.Error(err))
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.responsesErrorResponse(c, status, code, message)
+		return
+	}
+	defer inflightRelease()
+	requestCtx = c.Request.Context()
+
 	// Parse request for session hash
 	bodyRef := service.NewRequestBodyRef(body)
 	parsedReq, _ := service.ParseGatewayRequest(bodyRef, "responses")
@@ -182,7 +195,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
 
 	// 3. Account selection + failover loop
-	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(func(group *service.Group) bool { return !group.ClaudeCodeOnly })
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil })
 	advanceGroup := func() bool {
 		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
 		if billingErr != nil {
@@ -205,11 +218,15 @@ groupAttempts:
 	for {
 		fs := NewFailoverState(h.maxAccountSwitches, false)
 		for {
-			if requestCtx.Err() != nil {
+			if failoverClientGone(c) {
 				return
 			}
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.responses.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					if advanceGroup() {
 						continue groupAttempts

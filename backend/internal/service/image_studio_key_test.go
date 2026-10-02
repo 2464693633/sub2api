@@ -115,14 +115,14 @@ func TestImageStudioGroups_FiltersImageCapablePlatformGroups(t *testing.T) {
 func TestEnsureImageStudioKeyForGroup_ReusesExisting(t *testing.T) {
 	groupID := int64(3434)
 	existing := APIKey{
-		ID:       11,
-		UserID:   7,
-		Key:      "sk-studio",
-		Name:     ImageStudioKeyName,
-		Status:   StatusAPIKeyActive,
-		GroupID:  &groupID,
-		GroupIDs: []int64{groupID},
-		Group:    &Group{ID: groupID, Name: "生图", Platform: PlatformOpenAI},
+		ID:        11,
+		UserID:    7,
+		Key:       "sk-studio",
+		Name:      ImageStudioKeyName,
+		Status:    StatusAPIKeyActive,
+		GroupID:   &groupID,
+		GroupIDs:  []int64{groupID},
+		Group:     &Group{ID: groupID, Name: "生图", Platform: PlatformOpenAI},
 		CreatedAt: time.Now().Add(-time.Hour),
 	}
 	apiRepo := &ensureStudioAPIKeyRepo{
@@ -136,6 +136,43 @@ func TestEnsureImageStudioKeyForGroup_ReusesExisting(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(11), key.ID)
 	require.Empty(t, apiRepo.created, "同分组已有工作台密钥时不应新建")
+}
+
+func TestEnsureStudioKeyForGroup_ReusesLaterPageAtCreationLimit(t *testing.T) {
+	for _, name := range []string{ImageStudioKeyName, VideoStudioKeyName, AIPromptKeyName} {
+		t.Run(name, func(t *testing.T) {
+			groupID := int64(9)
+			pages := []int{}
+			existing := APIKey{ID: 22, UserID: 7, Name: name, Status: StatusAPIKeyActive, GroupID: &groupID, CreatedAt: time.Now()}
+			apiRepo := &ensureStudioAPIKeyRepo{list: func(_ context.Context, _ int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+				pages = append(pages, params.Page)
+				require.Equal(t, StatusAPIKeyActive, filters.Status)
+				if params.Page == 1 {
+					return make([]APIKey, 100), &pagination.PaginationResult{Total: 101}, nil
+				}
+				return []APIKey{existing}, &pagination.PaginationResult{Total: 101}, nil
+			}}
+			svc := newEnsureStudioService(apiRepo, nil)
+			// The repository intentionally supplies no creation-limit methods:
+			// lookup must return the existing key before entering Create at all.
+			svc.cfg.APIKeyCreate.MaxActivePerUser = 200
+			svc.cfg.APIKeyCreate.MaxPerUserPerHour = 60
+			var key *APIKey
+			var err error
+			switch name {
+			case ImageStudioKeyName:
+				key, err = svc.EnsureImageStudioKeyForGroup(context.Background(), 7, groupID)
+			case VideoStudioKeyName:
+				key, err = svc.EnsureVideoStudioKeyForGroup(context.Background(), 7, groupID)
+			case AIPromptKeyName:
+				key, err = svc.EnsureAIPromptKeyForGroup(context.Background(), 7, groupID)
+			}
+			require.NoError(t, err)
+			require.Equal(t, existing.ID, key.ID)
+			require.Equal(t, []int{1, 2}, pages)
+			require.Empty(t, apiRepo.created)
+		})
+	}
 }
 
 func TestEnsureImageStudioKeyForGroup_CreatesPerGroup(t *testing.T) {

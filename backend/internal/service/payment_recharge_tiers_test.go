@@ -26,7 +26,7 @@ func TestRechargeTiersExactAmountAndCurrency(t *testing.T) {
 		{100, "EUR", 1000}, {99.99, "CNY", 999.90}, {100.01, "CNY", 1000.10},
 		{100.001, "CNY", 1000.01},
 	} {
-		require.Equal(t, tc.want, cfg.creditedBalance(tc.amount, tc.currency))
+		require.Equal(t, tc.want, quoteRechargeBonus(cfg, tc.amount, tc.currency).Credited)
 	}
 }
 
@@ -44,14 +44,14 @@ func TestRechargeTiersConfigRoundTripAndPatch(t *testing.T) {
 	require.NoError(t, svc.UpdatePaymentConfig(ctx, UpdatePaymentConfigRequest{BalanceRechargeMultiplier: &multiplier}))
 	cfg, err = svc.GetPaymentConfig(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 1100.0, cfg.creditedBalance(100, "CNY"), "tier is final credit, not another multiplier")
+	require.Equal(t, 1100.0, quoteRechargeBonus(cfg, 100, "CNY").Credited, "tier is final credit, not another multiplier")
 
 	empty := []RechargeTier{}
 	require.NoError(t, svc.UpdatePaymentConfig(ctx, UpdatePaymentConfigRequest{BalanceRechargeTiers: &empty}))
 	cfg, err = svc.GetPaymentConfig(ctx)
 	require.NoError(t, err)
 	require.Empty(t, cfg.BalanceRechargeTiers)
-	require.Equal(t, 500.0, cfg.creditedBalance(100, "CNY"))
+	require.Equal(t, 500.0, quoteRechargeBonus(cfg, 100, "CNY").Credited)
 }
 
 func TestRechargeTiersRejectInvalidConfigBeforeWriting(t *testing.T) {
@@ -88,14 +88,17 @@ func TestRechargeTierOrderFreezesCreditAndFulfillsOnce(t *testing.T) {
 	redeemRepo := &paymentFulfillmentRedeemRepo{}
 	redeemSvc := NewRedeemService(redeemRepo, userRepo, nil, &paymentFulfillmentRedeemCacheStub{}, nil, client, nil, nil)
 	svc := &PaymentService{entClient: client, userRepo: userRepo, redeemService: redeemSvc}
+	quote := quoteRechargeBonus(cfg, 100, "CNY")
 	order, err := svc.createOrderInTx(ctx,
 		CreateOrderRequest{UserID: user.ID, Amount: 100, PaymentType: payment.TypeAlipay, OrderType: payment.OrderTypeBalance},
-		&User{ID: user.ID, Email: user.Email}, nil, cfg, cfg.creditedBalance(100, "CNY"), 100, 2.5, 102.5,
+		&User{ID: user.ID, Email: user.Email}, nil, cfg, quote.Credited, quote.PayBase, 2.5, 102.5, quote.Bonus,
 		&payment.InstanceSelection{ProviderKey: payment.TypeAlipay},
 	)
 	require.NoError(t, err)
 	require.Equal(t, 1100.0, order.Amount)
 	require.Equal(t, 102.5, order.PayAmount)
+	require.Equal(t, 100.0, order.BonusAmount)
+	require.Equal(t, 1000.0, paymentOrderAmountWithoutBonus(order))
 	cfg.BalanceRechargeTiers = nil // A later configuration change must not change the pending order.
 	_, err = client.PaymentOrder.UpdateOneID(order.ID).SetStatus(OrderStatusPaid).Save(ctx)
 	require.NoError(t, err)
@@ -104,4 +107,24 @@ func TestRechargeTierOrderFreezesCreditAndFulfillsOnce(t *testing.T) {
 	require.Equal(t, 1100.0, credited)
 	require.Equal(t, 102.5, calculateGatewayRefundAmount(order.Amount, order.PayAmount, 1100, "CNY"))
 	require.Equal(t, 51.25, calculateGatewayRefundAmount(order.Amount, order.PayAmount, 550, "CNY"))
+}
+
+func TestRechargeExactOffersOverrideThresholdPromotions(t *testing.T) {
+	for _, mode := range []string{RechargeBonusModeBonus, RechargeBonusModeDiscount} {
+		t.Run(mode, func(t *testing.T) {
+			cfg := &PaymentConfig{
+				BalanceRechargeMultiplier: 10,
+				BalanceRechargeTiers:      []RechargeTier{{Amount: 100, CreditAmount: 1100, Currency: "CNY"}},
+				RechargeBonusTiers:        []RechargeBonusTier{{MinAmount: 50, BonusPercent: 20}},
+				RechargeBonusMode:         mode,
+			}
+			require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 1100, Bonus: 100}, quoteRechargeBonus(cfg, 100, "CNY"))
+			unmatched := quoteRechargeBonus(cfg, 100, "EUR")
+			if mode == RechargeBonusModeBonus {
+				require.Equal(t, rechargeBonusQuote{PayBase: 100, Credited: 1200, Bonus: 200, Percent: 20}, unmatched)
+			} else {
+				require.Equal(t, rechargeBonusQuote{PayBase: 80, Credited: 1000, Bonus: 200, Percent: 20}, unmatched)
+			}
+		})
+	}
 }

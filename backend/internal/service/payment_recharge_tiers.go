@@ -73,12 +73,3 @@ func decodeRechargeTiers(raw string) ([]RechargeTier, error) {
 	}
 	return normalizeRechargeTiers(tiers)
 }
-
-func (cfg *PaymentConfig) creditedBalance(amount float64, currency string) float64 {
-	for _, tier := range cfg.BalanceRechargeTiers {
-		if tier.Currency == currency && decimal.NewFromFloat(amount).Equal(decimal.NewFromFloat(tier.Amount)) {
-			return tier.CreditAmount
-		}
-	}
-	return calculateCreditedBalance(amount, cfg.BalanceRechargeMultiplier)
-}

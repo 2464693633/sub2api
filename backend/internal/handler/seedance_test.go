@@ -44,22 +44,25 @@ func TestSeedanceHandlerLifecycleAndOwnership(t *testing.T) {
 	h.SeedanceTasks(c)
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Positive(t, owner)
-	require.Len(t, bindings.pending, 1)
+	require.NotEmpty(t, bindings.pending["v2:10:seedance:task-ark"])
+	require.Equal(t, bindings.pending["v2:10:seedance:task-ark"], bindings.pending["10:20:seedance:task-ark"])
 	slots.assertReleased(t)
 	for _, method := range []string{http.MethodGet, http.MethodDelete} {
-		c, w = newContext(method)
-		h.SeedanceTasks(c)
-		require.Equal(t, 200, w.Code, w.Body.String())
-		slots.assertReleased(t)
+		for _, keyID := range []int64{20, 21} {
+			c, w = newContext(method)
+			key, _ := middleware.GetAPIKeyFromContext(c)
+			key.ID = keyID
+			h.SeedanceTasks(c)
+			require.Equal(t, 200, w.Code, w.Body.String())
+			slots.assertReleased(t)
+		}
 	}
-	for _, other := range []string{"user", "key", "group", "task", "provider"} {
+	for _, other := range []string{"user", "group", "task", "provider"} {
 		c, w = newContext(http.MethodGet)
 		key, _ := middleware.GetAPIKeyFromContext(c)
 		switch other {
 		case "user":
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 11, Concurrency: 5})
-		case "key":
-			key.ID = 21
 		case "group":
 			group := int64(25)
 			key.GroupID = &group
@@ -83,6 +86,7 @@ func TestSeedanceHandlerLifecycleAndOwnership(t *testing.T) {
 	subject, _ := middleware.GetAuthSubjectFromContext(c)
 	result := &service.OpenAIForwardResult{Usage: service.OpenAIUsage{OutputTokens: 12345}, ResponseID: "seedance:task-ark"}
 	for i := range 20 {
+		key.ID = 20 + int64(i%2) // Polling with another key must not bill again.
 		billed := prepareSeedanceCompletionBilling(context.Background(), h, key, subject, result.ResponseID, result)
 		if i == 0 {
 			require.NotNil(t, billed)
@@ -93,5 +97,5 @@ func TestSeedanceHandlerLifecycleAndOwnership(t *testing.T) {
 			require.Nil(t, billed)
 		}
 	}
-	require.Len(t, bindings.billed, 1)
+	require.Equal(t, map[string]bool{"v2:10:seedance:task-ark": true, "10:20:seedance:task-ark": true}, bindings.billed)
 }

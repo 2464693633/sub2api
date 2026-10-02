@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-
-	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
 // VideoStudioKeyName 视频工作台专用密钥的名称标记。
@@ -48,26 +46,16 @@ func (s *APIKeyService) VideoStudioGroups(ctx context.Context, userID int64) ([]
 // 查找规则:用户名下活跃密钥中名称等于 VideoStudioKeyName 且当前绑定该分组的最新一把。
 func (s *APIKeyService) EnsureVideoStudioKeyForGroup(ctx context.Context, userID int64, groupID int64) (*APIKey, error) {
 	muAny, _ := studioKeyMu.LoadOrStore(userID, &sync.Mutex{})
-	mu := muAny.(*sync.Mutex)
+	mu, ok := muAny.(*sync.Mutex)
+	if !ok || mu == nil {
+		return nil, fmt.Errorf("invalid studio key lock for user %d", userID)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 
-	keys, _, err := s.List(ctx, userID, pagination.PaginationParams{Page: 1, PageSize: 100}, APIKeyListFilters{Status: StatusAPIKeyActive})
+	existing, err := s.findStudioKeyForGroup(ctx, userID, groupID, VideoStudioKeyName)
 	if err != nil {
-		return nil, fmt.Errorf("list api keys: %w", err)
-	}
-	var existing *APIKey
-	for i := range keys {
-		k := &keys[i]
-		if k.Name != VideoStudioKeyName {
-			continue
-		}
-		if k.GroupID == nil || *k.GroupID != groupID {
-			continue
-		}
-		if existing == nil || k.CreatedAt.After(existing.CreatedAt) {
-			existing = k
-		}
+		return nil, err
 	}
 	if existing != nil {
 		return existing, nil

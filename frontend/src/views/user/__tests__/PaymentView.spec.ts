@@ -376,6 +376,110 @@ describe('PaymentView subscription plan grid', () => {
 })
 
 describe('PaymentView recharge rate preview', () => {
+  async function mountCurrencyOffers(cnyMax: number, usdMin: number, usdMax: number) {
+    vi.useRealTimers()
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    createOrder.mockReset().mockRejectedValue(new Error('test transport stopped'))
+    const method = checkoutInfoFixture().data.methods.wxpay
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      balance_recharge_tiers: [{ amount: 100, credit_amount: 120, currency: 'CNY' }],
+      recharge_bonus_tiers: [{ min_amount: 50, bonus_percent: 10 }],
+      recharge_bonus_mode: 'discount',
+      methods: {
+        wxpay: { ...method, currency: 'CNY', single_max: cnyMax },
+        stripe: { ...method, currency: 'USD', single_min: usdMin, single_max: usdMax },
+      },
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    return wrapper
+  }
+
+  it('quotes each payment method in its own currency before applying channel limits', async () => {
+    const wrapper = await mountCurrencyOffers(200, 0, 95)
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    const selector = wrapper.getComponent(PaymentMethodSelector)
+    expect(selector.props('selected')).toBe('wxpay')
+    expect(selector.props('methods')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'wxpay', available: true }),
+      expect.objectContaining({ type: 'stripe', available: true }),
+    ]))
+    expect(wrapper.text()).toContain('$120.00')
+
+    selector.vm.$emit('select', 'stripe')
+    await flushPromises()
+    expect(selector.props('selected')).toBe('stripe')
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(true)
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.text()).toContain(formatPaymentAmount(90, 'USD'))
+    expect(submit.attributes('disabled')).toBeUndefined()
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, payment_type: 'stripe' }))
+    wrapper.unmount()
+  })
+
+  it('switches to a channel that can accept its own discounted quote', async () => {
+    const wrapper = await mountCurrencyOffers(95, 0, 95)
+    expect(wrapper.getComponent(PaymentMethodSelector).props('selected')).toBe('wxpay')
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    const selector = wrapper.getComponent(PaymentMethodSelector)
+    expect(selector.props('selected')).toBe('stripe')
+    expect(selector.props('methods')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'wxpay', available: false }),
+      expect.objectContaining({ type: 'stripe', available: true }),
+    ]))
+    expect(wrapper.text()).not.toContain('payment.amountNoMethod')
+    wrapper.unmount()
+  })
+
+  it.each(['wxpay', 'stripe'])('keeps %s selected without looping when neither currency quote fits', async selected => {
+    const wrapper = await mountCurrencyOffers(95, 95, 0)
+    const selector = wrapper.getComponent(PaymentMethodSelector)
+    selector.vm.$emit('select', selected)
+    await flushPromises()
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    expect(selector.props('selected')).toBe(selected)
+    expect(selector.props('methods')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'wxpay', available: false }),
+      expect.objectContaining({ type: 'stripe', available: false }),
+    ]))
+    expect(wrapper.text()).toContain('payment.amountNoMethod')
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.attributes('disabled')).toBeDefined()
+    expect(createOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['bonus', 'discount'])('does not stack %s promotions on fixed offers in checkout', async mode => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      balance_recharge_multiplier: 10,
+      recharge_fee_rate: 2.5,
+      balance_recharge_tiers: [{ amount: 100, credit_amount: 1100, currency: 'CNY' }],
+      recharge_bonus_tiers: [{ min_amount: 50, bonus_percent: 20 }],
+      recharge_bonus_mode: mode,
+      methods: { wxpay: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'CNY' } },
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="recharge-tier"]').trigger('click')
+    expect(wrapper.text()).toContain('$1100.00')
+    expect(wrapper.text()).toContain(formatPaymentAmount(102.5, 'CNY'))
+    expect(wrapper.find('[data-testid="recharge-bonus-row"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="recharge-discount-row"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   it('rounds offer payment fees up to the selected currency unit', async () => {
     routeState.path = '/purchase'
     routeState.query = {}

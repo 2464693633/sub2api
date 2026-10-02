@@ -82,6 +82,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
+	if rejectSystemOneOnlyPlatform(c, apiKey, h.chatCompletionsErrorResponse) {
+		return
+	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if !ok {
 		h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
@@ -102,13 +105,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 
 	// Claude Code only restriction
-	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
-		if activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool { return !group.ClaudeCodeOnly }) {
+	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly && apiKey.Group.FallbackGroupID == nil {
+		if activateFirstConfiguredAPIKeyGroup(c, apiKey, func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil }) {
 			c.Request = c.Request.WithContext(service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), apiKey.Group))
 			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 		}
 	}
-	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly {
+	if apiKey.Group != nil && apiKey.Group.ClaudeCodeOnly && apiKey.Group.FallbackGroupID == nil {
 		h.chatCompletionsErrorResponse(c, http.StatusForbidden, "permission_error",
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
@@ -141,7 +144,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 
 	// 2. Re-check billing
 	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, func(group *service.Group) bool { return !group.ClaudeCodeOnly })
+		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil })
 		if recovered {
 			subscription = nextSubscription
 			c.Request = c.Request.WithContext(service.WithGatewayTokenRequestBillingGroup(c.Request.Context(), apiKey.Group))
@@ -156,6 +159,19 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 	}
+
+	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。
+	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, tokenInflightEstimate(reqModel, body))
+	if err != nil {
+		reqLog.Info("gateway.cc.inflight_reservation_rejected", zap.Error(err))
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.chatCompletionsErrorResponse(c, status, code, message)
+		return
+	}
+	defer inflightRelease()
 
 	// Parse request for session hash
 	bodyRef := service.NewRequestBodyRef(body)
@@ -175,7 +191,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		selectionSessionHash = "gemini:" + selectionSessionHash
 	}
 	// 3. Account selection + failover loop
-	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(func(group *service.Group) bool { return !group.ClaudeCodeOnly })
+	groupFailover := newAPIKeyGroupFailoverState(c, apiKey).require(func(group *service.Group) bool { return !group.ClaudeCodeOnly || group.FallbackGroupID != nil })
 	advanceGroup := func() bool {
 		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
 		if billingErr != nil {
@@ -201,11 +217,15 @@ groupAttempts:
 			fs = NewFailoverState(h.maxAccountSwitchesGemini, false)
 		}
 		for {
-			if c.Request.Context().Err() != nil {
+			if failoverClientGone(c) {
 				return
 			}
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.cc.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					if advanceGroup() {
 						continue groupAttempts

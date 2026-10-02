@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -120,9 +121,8 @@ func (s *grokMediaSlotsCache) assertReleased(t *testing.T) {
 
 type grokMediaSlotBindings struct {
 	testutil.StubGatewayCache
-	owner   int64
 	writes  int
-	key     string
+	owners  map[string]int64
 	billed  map[string]bool
 	pending map[string][]byte
 }
@@ -139,13 +139,17 @@ func (s *grokMediaSlotBindings) GetGrokVideoPendingBilling(_ context.Context, ke
 }
 
 func (s *grokMediaSlotBindings) GetSessionAccountID(_ context.Context, groupID int64, key string) (int64, error) {
-	if groupID != 24 || key != s.key {
+	owner, ok := s.owners[fmt.Sprintf("%d:%s", groupID, key)]
+	if !ok {
 		return 0, service.ErrStickySessionNotFound
 	}
-	return s.owner, nil
+	return owner, nil
 }
-func (s *grokMediaSlotBindings) SetSessionAccountID(_ context.Context, _ int64, key string, owner int64, _ time.Duration) error {
-	s.key, s.owner = key, owner
+func (s *grokMediaSlotBindings) SetSessionAccountID(_ context.Context, groupID int64, key string, owner int64, _ time.Duration) error {
+	if s.owners == nil {
+		s.owners = make(map[string]int64)
+	}
+	s.owners[fmt.Sprintf("%d:%s", groupID, key)] = owner
 	s.writes++
 	return nil
 }
@@ -153,7 +157,8 @@ func (s *grokMediaSlotBindings) RefreshSessionTTL(context.Context, int64, string
 	s.writes++
 	return nil
 }
-func (s *grokMediaSlotBindings) DeleteSessionAccountID(context.Context, int64, string) error {
+func (s *grokMediaSlotBindings) DeleteSessionAccountID(_ context.Context, groupID int64, key string) error {
+	delete(s.owners, fmt.Sprintf("%d:%s", groupID, key))
 	s.writes++
 	return nil
 }
@@ -219,7 +224,7 @@ func newGrokMediaSlotHandler(t *testing.T, oauth, mismatch bool, platforms ...st
 	}
 	slots := &grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}}
 	concurrency := service.NewConcurrencyService(slots)
-	bindings := &grokMediaSlotBindings{owner: 1}
+	bindings := &grokMediaSlotBindings{}
 	upstream := &grokMediaSlotUpstream{call: func(*http.Request, int64) (*http.Response, error) {
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}},
 			Body: io.NopCloser(strings.NewReader(`{"request_id":"task","status":"pending"}`))}, nil
@@ -374,7 +379,7 @@ func TestGrokMediaEligibilityReleasesBeforeSwitch(t *testing.T) {
 }
 
 func TestGrokMediaVideoLookupOwnerIsolation(t *testing.T) {
-	for _, other := range []string{"user", "api key", "group", "task"} {
+	for _, other := range []string{"user", "group", "task"} {
 		t.Run(other, func(t *testing.T) {
 			h, slots, bindings, upstream := newGrokMediaSlotHandler(t, false, false)
 			c, w := grokMediaSlotContext(context.Background(), false)
@@ -383,8 +388,6 @@ func TestGrokMediaVideoLookupOwnerIsolation(t *testing.T) {
 			switch other {
 			case "user":
 				c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 11, Concurrency: 5})
-			case "api key":
-				key.ID = 21
 			case "group":
 				groupID := int64(25)
 				key.GroupID = &groupID
@@ -418,5 +421,6 @@ func TestGrokMediaVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 			require.Nil(t, bill)
 		}
 	}
-	require.Len(t, bindings.billed, 1)
+	// Migration writes both claim formats; only the first poll may bill.
+	require.Equal(t, map[string]bool{"v2:10:task": true, "10:20:task": true}, bindings.billed)
 }
