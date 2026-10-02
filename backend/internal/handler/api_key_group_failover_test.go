@@ -7,11 +7,86 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+type failoverBalanceCache struct {
+	service.BillingCache
+}
+
+func (*failoverBalanceCache) GetUserBalance(context.Context, int64) (float64, error) {
+	return 100, nil
+}
+
+type failoverRPMCache struct {
+	service.UserRPMCache
+	calls int
+}
+
+func (s *failoverRPMCache) IncrementUserGroupRPM(context.Context, int64, int64) (int, error) {
+	s.calls++
+	return 2, nil
+}
+
+type failoverRPMRepo struct {
+	service.UserGroupRateRepository
+	calls   int
+	groupID int64
+}
+
+func (s *failoverRPMRepo) GetRPMOverrideByUserAndGroup(_ context.Context, _ int64, groupID int64) (*int, error) {
+	s.calls++
+	s.groupID = groupID
+	limit := 1
+	return &limit, nil
+}
+
+func TestAPIKeyGroupFailoverResolvesDestinationRPM(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		cached     map[int64]int
+		wantAllow  bool
+		wantLookup int
+		wantCount  int
+	}{
+		{name: "missing cache looks up destination override", wantLookup: 1, wantCount: 1},
+		{name: "source-only cache looks up destination override", cached: map[int64]int{11: 0}, wantLookup: 1, wantCount: 1},
+		{name: "explicit destination exemption", cached: map[int64]int{22: 0}, wantAllow: true},
+		{name: "cached destination limit", cached: map[int64]int{22: 3}, wantAllow: true, wantCount: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			gin.SetMode(gin.TestMode)
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+			first := &service.Group{ID: 11, Platform: service.PlatformOpenAI}
+			second := &service.Group{ID: 22, Platform: service.PlatformOpenAI, RPMLimit: 10}
+			sourceOverride := 0
+			key := &service.APIKey{
+				GroupID: &first.ID, Group: first,
+				User: &service.User{ID: 7, UserGroupRPMOverride: &sourceOverride}, GroupRPMOverrides: tc.cached,
+			}
+			middleware2.SetAPIKeyGroupCandidates(c, []middleware2.APIKeyGroupCandidate{{Group: first}, {Group: second}})
+			rpm := &failoverRPMCache{}
+			repo := &failoverRPMRepo{}
+			billing := service.NewBillingCacheService(&failoverBalanceCache{}, nil, nil, nil, rpm, repo, &config.Config{}, nil)
+			t.Cleanup(billing.Stop)
+
+			_, err, advanced := newAPIKeyGroupFailoverState(c, key).advance(context.Background(), c, key, billing)
+
+			require.NoError(t, err)
+			require.Equal(t, tc.wantAllow, advanced)
+			require.Equal(t, tc.wantLookup, repo.calls)
+			require.Equal(t, tc.wantCount, rpm.calls)
+			if tc.wantLookup > 0 {
+				require.Equal(t, second.ID, repo.groupID)
+			}
+		})
+	}
+}
 
 func TestAPIKeyGroupFailoverStateAdvancesInConfiguredOrder(t *testing.T) {
 	gin.SetMode(gin.TestMode)

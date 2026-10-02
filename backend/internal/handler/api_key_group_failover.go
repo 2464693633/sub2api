@@ -128,12 +128,18 @@ func (s *apiKeyGroupFailoverState) advance(
 			continue
 		}
 		if billing != nil {
+			var destinationRPMOverride []*int
+			if value, ok := apiKey.GroupRPMOverrides[candidate.Group.ID]; ok {
+				valueCopy := value
+				destinationRPMOverride = []*int{&valueCopy}
+			}
 			err := billing.CheckBillingEligibilityForGroupFailover(
 				ctx,
 				apiKey.User,
 				candidate.Group,
 				candidate.Subscription,
 				candidate.Group.Platform,
+				destinationRPMOverride...,
 			)
 			if err != nil {
 				if errors.Is(err, service.ErrBillingServiceUnavailable) {
