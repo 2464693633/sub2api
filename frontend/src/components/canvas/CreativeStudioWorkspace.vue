@@ -62,6 +62,7 @@
           @select="selectedId = $event" @add="addAndFocus($event)" @open-assets="showAssets"
           @template="addTemplate" @arrange="arrangeBoard" @run="runNode($event)" @duplicate="duplicate"
           @remove="remove" @derive="deriveAndFocus($event.id, $event.kind)" @edit="editPrompt" @preview="previewNode"
+          @add-timeline="addNodeToTimeline"
         />
         <section v-else class="card-list" :aria-label="tr('cardList')">
           <div class="button-row"><button type="button" @click="addAndFocus('text')">+ {{ tr('text') }}</button><button type="button" @click="addAndFocus('image')">+ {{ tr('images') }}</button><button type="button" @click="addAndFocus('video')">+ {{ tr('videos') }}</button><button type="button" @click="showAssets">{{ tr('assets') }}</button><button type="button" @click="addTemplate">{{ tr('detailsTemplate') }}</button></div>
@@ -264,6 +265,7 @@ async function previewAsset(id: string) {
   finally { previewLoading.value = false }
 }
 function previewNode(id: string) { const node = project.value?.nodes.find(n => n.id === id); if (node?.data.assetId) void previewAsset(node.data.assetId) }
+function addNodeToTimeline(id: string) { const node = project.value?.nodes.find(n => n.id === id); if (node?.data.assetId) { addTimeline(node.data.assetId, node.data.title); timelineDockOpen.value = true } }
 function closePreview() { previewDialog.value?.querySelectorAll('video,audio').forEach(el => (el as HTMLMediaElement).pause()); previewDialog.value?.close() }
 function downloadById(id: string) { const asset = assetById(id); if (asset) void download(asset) }
 interface LocalItem { id: string; kind: 'image' | 'video'; name: string; prompt: string; blob: Blob }

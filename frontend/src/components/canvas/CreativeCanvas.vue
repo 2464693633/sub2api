@@ -54,6 +54,7 @@
             @remove="emit('remove', id)"
             @edit-prompt="emit('edit', { id, prompt: $event })"
             @preview="emit('preview', id)"
+            @add-timeline="emit('addTimeline', id)"
           />
         </template>
       </VueFlow>
@@ -114,6 +115,7 @@ const emit = defineEmits<{
   derive: [request: { id: string; kind: 'image' | 'video' }]
   edit: [request: { id: string; prompt: string }]
   preview: [id: string]
+  addTimeline: [id: string]
 }>()
 
 const { t: canvasT } = useI18n({ useScope: 'local', messages: creativeCanvasMessages })

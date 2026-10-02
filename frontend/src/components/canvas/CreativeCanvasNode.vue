@@ -42,6 +42,7 @@
 
     <footer class="creative-node-actions nodrag">
       <button v-if="kind !== 'text'" type="button" class="creative-node-action creative-node-run" :disabled="readonly || active" @click.stop="emit('run')">{{ runLabel }}</button>
+      <button v-if="kind !== 'text' && data.assetId" type="button" class="creative-node-action creative-node-timeline-action" :disabled="readonly" @click.stop="emit('addTimeline')">+ {{ canvasT('board.timeline') }}</button>
       <button v-if="kind === 'text'" type="button" class="creative-node-action" :disabled="readonly" @click.stop="emit('derive', 'image')">+ {{ canvasT('board.fromText') }}</button>
       <template v-if="kind === 'image'">
         <button type="button" class="creative-node-action" :disabled="readonly" @click.stop="emit('derive', 'image')">+ {{ canvasT('board.details') }}</button>
@@ -72,6 +73,7 @@ const emit = defineEmits<{
   remove: []
   editPrompt: [prompt: string]
   preview: []
+  addTimeline: []
 }>()
 const { t: canvasT } = useI18n({ useScope: 'local', messages: creativeCanvasMessages })
 const active = computed(() => ['running', 'queued', 'waiting'].includes(props.data.status || ''))
