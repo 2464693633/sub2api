@@ -217,3 +217,15 @@
 重新使用已有 `detail-texture` 图片生成第二段 4 秒 `grok-imagine-video` 视频，任务 `bfa34659e35b05badb9b96afabee6568` 成功，素材为 `2d385066d11bde87e0872ad97cec6286`。第一段整体镜头使用已完成任务 `task_wH64S1NrLNJnwEQeck4umVzXVrTu0rHy` 的 CDN 成片导入素材 `0a6805e97161f0bc1bbd672fa2c6c17f`；部署后通过画布内容接口验证 Range `206 video/mp4` 下载成功。
 
 项目现已保留 5 张图片、2 段 AI 视频和 1 个合成导出。最新导出素材 `c46f99896db0322fb9d94cb5d99c2399` 为 18.021 秒、1280×720 H.264/AAC MP4，另含 640×640 JPEG 封面流；余额从 974.6281944 降至 974.2281944，新增两段视频各按 0.20 计费，导出本身未重复计费。线上画布和时间线预览无 JavaScript 错误。
+
+### 画布布局调研与首轮改版（2026-10-02）
+
+本轮对照了官方交互说明：
+
+- [Figma 导航栏与侧栏](https://help.figma.com/hc/en-us/articles/360039831974-Explore-the-navigation-bar-and-left-sidebar)：侧栏默认可收起，只有选中对象时展开右侧属性栏；取消选择后再次收起。
+- [Figma 工具栏](https://help.figma.com/hc/en-us/articles/360041064174-Access-design-tools-from-the-toolbar) 与 [缩放/视图](https://help.figma.com/hc/en-us/articles/360041065034-Adjust-your-zoom-and-view-options)：选择、手型、缩放和适配画布集中在视口附近，打开面板不应重置用户视图。
+- [Runway Workflows](https://help.runwayml.com/hc/en-us/articles/45763528999699-Introduction-to-Workflows)：滚轮缩放、拖拽平移、Shift 框选、Ctrl/Cmd 多选；批量操作只在多选后出现，运行状态单独跟踪。
+- [Miro 工具栏](https://help.miro.com/hc/en-us/articles/360017730553-Toolbars)：创建工具集中在左侧，选择/手型与右下角导航工具常驻，模板有独立入口。
+- [FLORA 画布](https://docs.flora.ai/editor/canvas.md) 与 [时间线编辑器](https://docs.flora.ai/editor/timeline-editor.md)：多选后显示批量参数，时间线作为底部可调整抽屉，素材拖入时间线即可形成镜头。
+
+当前首轮实现：未选卡片时隐藏右侧空检查器，画布占满主区域；选中后才打开上下文参数栏；画布支持 Shift/Ctrl/Cmd 框选和多选，批量操作随选择出现；时间线改为顶部可展开的底部抽屉入口；已有结果卡片可直接加入时间线，减少进入检查器的步骤；首次布局测量时自动适配旧项目视口，用户后续缩放不会因打开/关闭检查器而重置。
