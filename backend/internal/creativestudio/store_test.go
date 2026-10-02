@@ -9,6 +9,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -630,5 +631,113 @@ func TestNewChildUsesCompletedParentBeforeGraphResultIsSaved(t *testing.T) {
 	files := <-inputs
 	if len(files) != 1 || files[0].ID != completed.Jobs[0].AssetID {
 		t.Fatalf("child did not use the durable parent version: %+v", files)
+	}
+}
+
+func TestResultStorageFailureDistinguishesPaidImagesAndResumableVideo(t *testing.T) {
+	data := pngData(t)
+	for _, tc := range []struct{ kind, failure, expected string }{
+		{"image", "quota", "interrupted"},
+		{"image", "write", "interrupted"},
+		{"image", "kind", "interrupted"},
+		{"video", "quota", "failed"},
+		{"compose", "quota", "failed"},
+	} {
+		t.Run(tc.kind+"/"+tc.failure, func(t *testing.T) {
+			s := testStore(t, executorFunc(func(_ context.Context, job Job, _ []AssetFile, progress func(string, bool) error) (Result, error) {
+				if job.Kind == "video" {
+					if err := progress("resumable-video", false); err != nil {
+						return Result{}, err
+					}
+				}
+				mediaType := "image/png"
+				if tc.failure == "kind" || job.Kind != "image" {
+					mediaType = "video/mp4"
+				}
+				return Result{Data: data, MIME: mediaType}, nil
+			}), Options{})
+			kind := tc.kind
+			if kind == "compose" {
+				kind = "image"
+			}
+			project := saveGraph(t, s, 1, []Node{card("n", kind)}, nil)
+			id := project.Project.ID
+			if tc.kind == "compose" {
+				asset, err := s.PutAsset(1, id, "input.png", "image/png", data)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if _, err := s.Enqueue(1, id, "request", "export", "compose", "", json.RawMessage(`{}`), []string{asset.ID}); err != nil {
+					t.Fatal(err)
+				}
+			} else if _, err := s.Run(1, id, "request", []string{"n"}); err != nil {
+				t.Fatal(err)
+			}
+			if tc.failure == "quota" {
+				s.opts.MaxAssetBytes = 1
+			}
+			if tc.failure == "write" {
+				if err := os.WriteFile(filepath.Join(s.projectDir(projectKey{1, id}), "assets"), []byte("block asset directory"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s.Start()
+			done := waitSnapshot(t, s, 1, id, noActive)
+			if done.Jobs[0].Status != tc.expected {
+				t.Fatalf("incorrect storage failure status: %+v", done.Jobs[0])
+			}
+			if tc.kind == "video" && done.Jobs[0].RemoteID != "resumable-video" {
+				t.Fatal("video retry lost its known remote task")
+			}
+		})
+	}
+}
+
+func TestShutdownStillPersistsRemoteIDReceivedWhileWorkersExit(t *testing.T) {
+	root := t.TempDir()
+	started := make(chan struct{})
+	progressResult := make(chan error, 1)
+	var lateProgress func(string, bool) error
+	s, err := New(root, executorFunc(func(ctx context.Context, _ Job, _ []AssetFile, progress func(string, bool) error) (Result, error) {
+		lateProgress = progress
+		close(started)
+		<-ctx.Done()
+		progressResult <- progress("late-video-id", false)
+		return Result{}, ctx.Err()
+	}), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	project := saveGraph(t, s, 1, []Node{card("v", "video")}, nil)
+	if _, err := s.Run(1, project.Project.ID, "request", []string{"v"}); err != nil {
+		t.Fatal(err)
+	}
+	s.Start()
+	select {
+	case <-started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("executor did not start")
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-progressResult; err != nil {
+		t.Fatalf("remote ID discarded during shutdown: %v", err)
+	}
+	if err := lateProgress("after-unlock", false); !errors.Is(err, ErrClosed) {
+		t.Fatalf("callback accepted after storage lock was released: %v", err)
+	}
+	restarted, err := New(root, unusedExecutor(), Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = restarted.Close() })
+	recovered, err := restarted.Get(1, project.Project.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Jobs[0].Status != "queued" || recovered.Jobs[0].RemoteID != "late-video-id" {
+		t.Fatalf("known task cannot resume after restart: %+v", recovered.Jobs[0])
 	}
 }

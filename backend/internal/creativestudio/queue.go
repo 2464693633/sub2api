@@ -196,6 +196,7 @@ func (s *Store) execute(ctx context.Context, key projectKey, job Job, inputs []A
 		return
 	}
 	var savedAssetID string
+	resultReceived := executionErr == nil
 	if executionErr == nil {
 		asset, err := s.putAsset(key, doc, result.Name, result.MIME, result.Data, job.NodeID, job.RunID)
 		if err != nil {
@@ -218,6 +219,9 @@ func (s *Store) execute(ctx context.Context, key projectKey, job Job, inputs []A
 		}
 	}
 	if executionErr != nil {
+		if resultReceived && target.Kind == "image" {
+			executionErr = fmt.Errorf("%w: 图片已返回但未能保存，请检查用量和服务器存储后决定是否重新生成 / The image was returned but could not be saved; check usage and storage before generating again: %v", ErrUncertain, executionErr)
+		}
 		target.Status = "failed"
 		if errors.Is(executionErr, ErrUncertain) || (errors.Is(executionErr, context.DeadlineExceeded) && target.RemoteID == "" && target.Kind != "compose") {
 			target.Status = "interrupted"
@@ -232,12 +236,25 @@ func (s *Store) execute(ctx context.Context, key projectKey, job Job, inputs []A
 		if savedAssetID != "" {
 			_ = os.Remove(s.assetPath(key, savedAssetID))
 		}
-		// Avoid another POST in this process when persisting completion fails.
-		for i := range original.Jobs {
-			if original.Jobs[i].ID == job.ID {
-				original.Jobs[i].Status = "interrupted"
-				original.Jobs[i].Error = "无法保存任务结果，请检查服务器存储。 / Could not save the task result. Check server storage."
+		// Saving media can push the final manifest over quota. Persist a result
+		// without the new asset when possible, so video retries retain their
+		// remote ID and local exports do not look like uncertain paid requests.
+		fallback := cloneDocument(original)
+		for i := range fallback.Jobs {
+			if fallback.Jobs[i].ID == job.ID {
+				failed := &fallback.Jobs[i]
+				failed.Status = "failed"
+				if failed.Kind == "image" || (failed.Kind == "video" && failed.RemoteID == "") {
+					failed.Status = "interrupted"
+				}
+				failed.Error = "无法保存任务结果，请检查服务器存储。 / Could not save the task result. Check server storage."
+				failed.UpdatedAt = now()
 			}
+		}
+		if err := s.commit(key, fallback); err != nil {
+			// Disk may be unavailable even for the failure record. Prevent another
+			// automatic POST in memory; persisted running state stays recoverable.
+			s.documents[key] = fallback
 		}
 	}
 }
@@ -246,7 +263,13 @@ func (s *Store) recordProgress(key projectKey, jobID, remoteID string, terminal 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
-		return ErrClosed
+		// Close still holds the process lock while joining executors. A video
+		// may receive its remote ID just after cancellation; keep that ID so a
+		// restart can poll it instead of losing track of a paid submission.
+		running, exists := s.active[jobID]
+		if !exists || running.key != key {
+			return ErrClosed
+		}
 	}
 	if len(remoteID) > 1000 {
 		return ErrInvalid

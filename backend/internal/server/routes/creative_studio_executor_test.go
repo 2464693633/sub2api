@@ -108,6 +108,33 @@ func TestCreativeImageGenerationAndReferenceMIME(t *testing.T) {
 	}
 }
 
+func TestCreativeImagePostSuccessFailuresNeedConsciousRetry(t *testing.T) {
+	for name, body := range map[string]string{
+		"invalid JSON":         `not-json`,
+		"missing image":        `{"data":[]}`,
+		"bad base64":           `{"data":[{"b64_json":"%%%"}]}`,
+		"unavailable download": `{"data":[{"url":"file:///not-an-image"}]}`,
+		"invalid media":        `{"data":[{"b64_json":"` + base64.StdEncoding.EncodeToString([]byte("<html>error</html>")) + `"}]}`,
+		"empty base64 data":    `{"data":[{"b64_json":"\n"}]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			calls := 0
+			e := &creativeStudioExecutor{gateway: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				calls++
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			})}
+			_, err := e.image(context.Background(), creativestudio.Job{ID: "image", Prompt: "Product"}, creativeGenerationParams{Model: "gpt-image-2"}, "test-key", nil)
+			if !errors.Is(err, creativestudio.ErrUncertain) {
+				t.Fatalf("possibly paid image would be offered an ordinary retry: %v", err)
+			}
+			if calls != 1 {
+				t.Fatalf("unexpected extra generation: %d", calls)
+			}
+		})
+	}
+}
+
 func TestCreativeVideoPersistsIDBeforePollingAndResumesWithoutPOST(t *testing.T) {
 	media := []byte("\x00\x00\x00\x18ftypmp42\x00\x00\x00\x00mp42isom")
 	for _, resuming := range []bool{false, true} {

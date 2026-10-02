@@ -273,7 +273,7 @@ func (e *creativeStudioExecutor) image(ctx context.Context, job creativestudio.J
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(body, &result); err != nil || len(result.Data) == 0 {
-		return creativestudio.Result{}, errors.New("生成接口未返回图片 / No image was returned")
+		return creativestudio.Result{}, creativeImageResultError(errors.New("生成接口未返回可解析的图片结果 / No usable image result was returned"))
 	}
 	var data []byte
 	if result.Data[0].Base64 != "" {
@@ -282,16 +282,20 @@ func (e *creativeStudioExecutor) image(ctx context.Context, job creativestudio.J
 		data, err = handler.DownloadStudioImageAsset(ctx, result.Data[0].URL)
 	}
 	if err != nil {
-		return creativestudio.Result{}, err
+		return creativestudio.Result{}, creativeImageResultError(err)
 	}
 	if len(data) == 0 || len(data) > 32<<20 {
-		return creativestudio.Result{}, errors.New("图片内容为空或超过 32 MB / Image is empty or exceeds 32 MB")
+		return creativestudio.Result{}, creativeImageResultError(errors.New("图片内容为空或超过 32 MB / Image is empty or exceeds 32 MB"))
 	}
 	mediaType := http.DetectContentType(data)
 	if !strings.HasPrefix(mediaType, "image/") {
-		return creativestudio.Result{}, errors.New("上游未返回有效图片 / Upstream returned invalid image data")
+		return creativestudio.Result{}, creativeImageResultError(errors.New("上游未返回有效图片 / Upstream returned invalid image data"))
 	}
 	return creativestudio.Result{Data: data, MIME: mediaType, Name: "image-" + job.ID + creativeImageExtension(mediaType)}, nil
+}
+
+func creativeImageResultError(err error) error {
+	return fmt.Errorf("%w: 上游可能已生成并计费，但未能取回图片。请检查用量后决定是否重新生成 / The provider may have generated and billed the image. Check usage before generating again: %v", creativestudio.ErrUncertain, err)
 }
 
 func creativeImageExtension(mimeType string) string {
