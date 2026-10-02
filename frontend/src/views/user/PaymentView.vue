@@ -50,8 +50,24 @@
             </div>
             <template v-else>
             <div class="card p-6">
+              <div v-if="rechargeTiers.length" class="mb-5 space-y-2">
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.rechargeTiers') }}</h3>
+                <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('payment.rechargeTiersHint') }}</p>
+                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  <button v-for="tier in rechargeTiers" :key="`${tier.currency}:${tier.amount}`" type="button" data-testid="recharge-tier"
+                    :disabled="!amountFitsMethod(tier.amount, selectedMethod) || selectedLimit?.available === false"
+                    :aria-pressed="validAmount === tier.amount"
+                    class="rounded-xl border-2 p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+                    :class="validAmount === tier.amount ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30' : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
+                    @click="amount = tier.amount">
+                    <span class="block text-base font-semibold text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(tier.amount) }}</span>
+                    <span class="mt-1 block text-sm text-primary-600 dark:text-primary-400">{{ t('payment.tierCredit', { credit: tier.credit_amount.toFixed(2) }) }}</span>
+                  </button>
+                </div>
+              </div>
               <AmountInput
                 v-model="amount"
+                :currency="selectedCurrency"
                 :amounts="[10, 20, 50, 100, 200, 500, 1000, 2000, 5000]"
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
@@ -79,11 +95,12 @@
                   <span class="font-medium text-gray-700 dark:text-gray-300">{{ t('payment.actualPay') }}</span>
                   <span class="text-lg font-bold text-primary-600 dark:text-primary-400">{{ formatSelectedPaymentAmount(totalAmount) }}</span>
                 </div>
-                <div v-if="balanceRechargeMultiplier !== 1" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': feeRate <= 0 }">
+                <div v-if="activeRechargeTier || balanceRechargeMultiplier !== 1" class="flex justify-between" :class="{ 'border-t border-gray-200 pt-2 dark:border-dark-600': feeRate <= 0 }">
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.creditedBalance') }}</span>
                   <span class="text-gray-900 dark:text-white">${{ creditedAmount.toFixed(2) }}</span>
                 </div>
-                <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                <p v-if="activeRechargeTier" class="border-t border-gray-200 pt-2 text-xs text-primary-600 dark:border-dark-600 dark:text-primary-400">{{ t('payment.rechargeTierApplied') }}</p>
+                <p v-else-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
                   {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: balanceRechargeMultiplier.toFixed(2) }) }}
                 </p>
               </div>
@@ -549,7 +566,11 @@ const subscriptionUsdToCnyRate = computed(() => {
   const rate = checkout.value.subscription_usd_to_cny_rate
   return Number.isFinite(rate) && rate > 0 ? rate : 0
 })
-const creditedAmount = computed(() => Math.round((validAmount.value * balanceRechargeMultiplier.value) * 100) / 100)
+const rechargeTiers = computed(() => (checkout.value.balance_recharge_tiers || [])
+  .filter(tier => tier.currency === selectedCurrency.value)
+  .slice().sort((a, b) => a.amount - b.amount))
+const activeRechargeTier = computed(() => rechargeTiers.value.find(tier => tier.amount === validAmount.value))
+const creditedAmount = computed(() => activeRechargeTier.value?.credit_amount ?? Math.round((validAmount.value * balanceRechargeMultiplier.value) * 100) / 100)
 
 // Adaptive grid: center single card, 2-col for 2 plans, 3-col for 3+
 const planGridClass = computed(() => {
@@ -646,12 +667,12 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.ceil(((validAmount.value * feeRate.value) / 100) * 100) / 100
+    ? ceilPaymentAmount((validAmount.value * feeRate.value) / 100, selectedCurrency.value)
     : 0
 )
 const totalAmount = computed(() =>
   feeRate.value > 0 && validAmount.value > 0
-    ? Math.round((validAmount.value + feeAmount.value) * 100) / 100
+    ? roundPaymentAmount(validAmount.value + feeAmount.value, selectedCurrency.value)
     : validAmount.value
 )
 

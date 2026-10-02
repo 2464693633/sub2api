@@ -8299,6 +8299,10 @@
                       }}
                     </p>
                   </div>
+                  <RechargeTiersEditor
+                    v-model="form.payment_balance_recharge_tiers"
+                    class="md:col-span-2"
+                  />
                   <div>
                     <label class="input-label">{{
                       t("admin.settings.payment.subscriptionUsdToCnyRate")
@@ -9170,6 +9174,7 @@
 import { ref, reactive, computed, onMounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
+import RechargeTiersEditor from "@/components/admin/payment/RechargeTiersEditor.vue";
 import {
   appendAuthSourceDefaultsToUpdateRequest,
   buildAuthSourceDefaultsState,
@@ -9202,7 +9207,7 @@ import type {
   NotifyEmailEntry,
   Proxy,
 } from "@/types";
-import type { ProviderInstance } from "@/types/payment";
+import type { ProviderInstance, RechargeTier } from "@/types/payment";
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import Select, { type SelectOption } from "@/components/common/Select.vue";
@@ -10012,6 +10017,7 @@ const form = reactive<SettingsForm>({
   payment_order_timeout_minutes: 30,
   payment_balance_disabled: false,
   payment_balance_recharge_multiplier: 1,
+  payment_balance_recharge_tiers: [] as RechargeTier[],
   payment_subscription_usd_to_cny_rate: 0,
   payment_recharge_fee_rate: 0,
   payment_enabled_types: [],
@@ -11911,6 +11917,7 @@ async function saveSettings() {
       payment_balance_disabled: form.payment_balance_disabled,
       payment_balance_recharge_multiplier:
         Number(form.payment_balance_recharge_multiplier) || 1,
+      payment_balance_recharge_tiers: form.payment_balance_recharge_tiers,
       payment_subscription_usd_to_cny_rate:
         Number(form.payment_subscription_usd_to_cny_rate) || 0,
       payment_recharge_fee_rate: Number(form.payment_recharge_fee_rate) || 0,

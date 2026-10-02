@@ -4,6 +4,7 @@ import PaymentView from '../PaymentView.vue'
 import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -375,6 +376,65 @@ describe('PaymentView subscription plan grid', () => {
 })
 
 describe('PaymentView recharge rate preview', () => {
+  it('rounds offer payment fees up to the selected currency unit', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      recharge_fee_rate: 0.1,
+      balance_recharge_tiers: [{ amount: 100, credit_amount: 1100, currency: 'JPY' }],
+      methods: { stripe: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'JPY' } },
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    await wrapper.get('[data-testid="recharge-tier"]').trigger('click')
+    expect(wrapper.text()).toContain(formatPaymentAmount(101, 'JPY'))
+    expect(wrapper.text()).toContain('$1100.00')
+    wrapper.unmount()
+  })
+
+  it('previews exact currency offers and submits only the payment amount', async () => {
+    routeState.path = '/purchase'
+    routeState.query = {}
+    createOrder.mockReset().mockRejectedValue(new Error('test transport stopped'))
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      balance_recharge_multiplier: 10,
+      recharge_fee_rate: 2.5,
+      balance_recharge_tiers: [
+        { amount: 100, credit_amount: 1100, currency: 'CNY' },
+        { amount: 100, credit_amount: 150, currency: 'USD' },
+      ],
+      methods: {
+        wxpay: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'CNY' },
+        stripe: { ...checkoutInfoFixture().data.methods.wxpay, currency: 'USD' },
+      },
+    }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="recharge-tier"]')).toHaveLength(1)
+    await wrapper.get('[data-testid="recharge-tier"]').trigger('click')
+    expect(wrapper.text()).toContain('$1100.00')
+    expect(wrapper.text()).toContain(formatPaymentAmount(102.5, 'CNY'))
+    expect(wrapper.text()).toContain('payment.rechargeTierApplied')
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ amount: 100, order_type: 'balance' }))
+    expect(createOrder.mock.calls[0][0]).not.toHaveProperty('credit_amount')
+    wrapper.getComponent(PaymentMethodSelector).vm.$emit('select', 'stripe')
+    await flushPromises()
+    expect(wrapper.text()).toContain('$150.00')
+    expect(wrapper.text()).not.toContain('$1100.00')
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 101)
+    await flushPromises()
+    expect(wrapper.text()).toContain('$1010.00')
+    expect(wrapper.text()).not.toContain('payment.rechargeTierApplied')
+    wrapper.unmount()
+  })
+
   it('uses the selected payment method currency in both locale templates', async () => {
     translate.mockClear()
     routeState.path = '/purchase'
