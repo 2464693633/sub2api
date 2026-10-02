@@ -40,6 +40,7 @@ export default {
       sourceSelect: '选择模板源',
     },
     appName: '创作中心【生图+视频】',
+    tabCanvas: '无限画布',
     tabImage: '生图工作台',
     tabVideo: '视频创作台',
     tabPrompts: '提示词库',

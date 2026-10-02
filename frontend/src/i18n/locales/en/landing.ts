@@ -40,6 +40,7 @@ export default {
       sourceSelect: 'Select prompt source',
     },
     appName: 'Creation Studio (Image + Video)',
+    tabCanvas: 'Creative canvas',
     tabImage: 'Image Studio',
     tabVideo: 'Video Studio',
     tabPrompts: 'Prompt Library',

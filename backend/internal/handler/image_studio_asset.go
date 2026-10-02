@@ -49,6 +49,15 @@ var studioAssetClient = &http.Client{
 // studioAssetMaxBytes 单个上游图片的最大字节数。
 const studioAssetMaxBytes = 32 << 20
 
+// DownloadStudioImageAsset lets background studio jobs use the same bounded,
+// allowlisted image download path as the interactive studio.
+func DownloadStudioImageAsset(ctx context.Context, raw string) ([]byte, error) {
+	if _, ok := studioAssetHostAllowed(raw); !ok {
+		return nil, errors.New("unsupported image download URL; select a model that returns image data")
+	}
+	return fetchStudioAssetBytes(ctx, raw)
+}
+
 // studioAssetHostAllowed 仅允许 xAI 图片 CDN 域名。
 func studioAssetHostAllowed(raw string) (string, bool) {
 	u, err := url.Parse(raw)

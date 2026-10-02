@@ -18,6 +18,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/server"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/server/routes"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/google/wire"
@@ -133,6 +134,10 @@ func provideCleanup(
 	pluginManager *service.PluginManager,
 ) func() {
 	return func() {
+		// Join creative jobs while their gateway and billing dependencies are still alive.
+		if err := routes.CloseCreativeStudioWorkers(); err != nil {
+			log.Printf("Creative studio shutdown failed: %v", err)
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

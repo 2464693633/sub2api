@@ -120,6 +120,8 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     su-exec \
+    ffmpeg \
+    font-wqy-zenhei \
     libpq \
     zstd-libs \
     lz4-libs \

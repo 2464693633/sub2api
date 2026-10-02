@@ -22,6 +22,8 @@ RUN apk add --no-cache \
     tzdata \
     curl \
     su-exec \
+    ffmpeg \
+    font-wqy-zenhei \
     libpq \
     zstd-libs \
     lz4-libs \
