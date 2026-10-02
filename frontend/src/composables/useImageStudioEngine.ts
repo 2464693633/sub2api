@@ -11,6 +11,7 @@ import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
 import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
 import { isGrokImageModel } from './studioModels'
+import { openStudioHistoryDb } from './studioHistory'
 
 const t = i18n.global.t
 
@@ -55,8 +56,9 @@ function toOptions(ids: string[]): ImageModelOption[] {
 export interface PromptBox { id: number; text: string; status: 'draft' | 'done' }
 export interface BatchSlot {
   slotId: number
-  status: 'running' | 'done' | 'failed'
+  status: 'queued' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled'
   prompt: string
+  label?: string
   size: string
   actualSize?: string
   blob?: Blob
@@ -90,6 +92,22 @@ export const outputFormat = ref<'png' | 'jpeg' | 'webp'>('png')
 export const clarity = ref<'1k' | '2k' | '4k'>('1k')
 export const size = ref<string>('auto')
 export const quantity = ref(1)
+export const imageSetEnabled = ref(false)
+export const detailPrompts = ref<string[]>([])
+export const MAX_DETAIL_IMAGES = 7
+export const plannedImageCount = computed(() => imageSetEnabled.value
+  ? 1 + detailPrompts.value.filter(text => text.trim()).length
+  : quantity.value)
+export const validImagePlan = computed(() => imageSetEnabled.value
+  ? detailPrompts.value.length <= MAX_DETAIL_IMAGES && plannedImageCount.value > 1
+  : Number.isInteger(quantity.value) && quantity.value >= 1 && quantity.value <= 50)
+
+export function initializeImageSet() {
+  if (!detailPrompts.value.length) {
+    detailPrompts.value = [1, 2, 3, 4].map(n => t(`imageStudio.detailDefault${n}`))
+  }
+  imageSetEnabled.value = true
+}
 
 // ===== 提示词框 =====
 export const promptBoxes = ref<PromptBox[]>([{ id: 1, text: '', status: 'draft' }])
@@ -152,6 +170,8 @@ export const computedSize = computed(() => {
     }
     return 'auto'
   }
+  // The canvas editor supplies explicit pixels; older ratio controls use ':'.
+  if (/^\d+x\d+$/.test(size.value)) return size.value
   const [wStr, hStr] = size.value.split(':')
   const w = Number(wStr)
   const h = Number(hStr)
@@ -267,16 +287,7 @@ export async function loadModels() {
 
 // ===== IndexedDB =====
 function openIdb(owner = sessionOwnerKey()): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(`image-studio-db-${owner}`, 1)
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains('history')) {
-        req.result.createObjectStore('history', { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+  return openStudioHistoryDb('image', owner)
 }
 async function idbPut(item: HistoryItem, owner = sessionOwnerKey()) {
   const db = await openIdb(owner)
@@ -618,14 +629,22 @@ export interface BatchSpec {
   groupId?: number
   platform?: string
 }
-let lastSpec: BatchSpec | null = null
+interface ImageTaskContext {
+  spec: BatchSpec
+  refs: File[]
+  source?: BatchSlot
+  historyId?: number
+}
+const taskContexts = new Map<number, ImageTaskContext>()
+let historySeq = 0
 
 export function cancelBatch() {
   if (generating.value) batchCancelRequested.value = true
 }
 
 export function clearFailed() {
-  batch.value = batch.value.filter(s => s.status !== 'failed')
+  if (generating.value) return
+  batch.value = batch.value.filter(s => !['failed', 'blocked', 'cancelled'].includes(s.status))
 }
 export function removeSlot(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
@@ -674,15 +693,64 @@ export function setRefFromSlot(slotId: number) {
 }
 export async function retrySlot(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot || slot.status !== 'failed' || generating.value || !lastSpec || !isCurrentSession(lastSpec)) return
-  const spec = lastSpec
+  const context = taskContexts.get(slotId)
+  if (!slot || !['failed', 'blocked', 'cancelled'].includes(slot.status) || generating.value || !context || !isCurrentSession(context.spec)) return
+  if (context.source && !context.source.blob) {
+    appStore().showError(t('imageStudio.overviewRequired'))
+    return
+  }
+  slot.status = 'queued'
+  // Retrying the overview resumes only the detail tasks that never ran.
+  const retry = [slot]
+  for (const child of batch.value) {
+    if (taskContexts.get(child.slotId)?.source?.slotId === slot.slotId && child.status === 'blocked') {
+      child.status = 'queued'
+      retry.push(child)
+    }
+  }
+  await runImageQueue(retry, context.spec)
+}
+
+async function saveSlotHistory(slot: BatchSlot, context: ImageTaskContext) {
+  if (!slot.blob || !isCurrentSession(context.spec)) return
+  const spec = context.spec
+  // Reserve distinct IDs even when multiple images finish in one millisecond.
+  context.historyId ??= historySeq = Math.max(Date.now(), historySeq + 1)
+  const item: HistoryItem = {
+    id: context.historyId, ts: Date.now(), model: spec.model, quality: spec.quality,
+    format: spec.format, size: spec.size, actualSize: slot.actualSize,
+    prompt: slot.prompt, mode: spec.mode,
+    images: [{ blob: slot.blob, failed: false }], starred: false
+  }
+  await idbPut(item, spec.owner).catch(() => undefined)
+  if (!isCurrentSession(spec)) return
+  history.value = [item, ...history.value.filter(existing => existing.id !== item.id)]
+  updateStorageMeter()
+}
+
+async function runImageSlot(slot: BatchSlot, context: ImageTaskContext) {
+  const { spec } = context
+  if (context.source) {
+    if (!context.source.blob) {
+      slot.status = 'blocked'
+      slot.error = t('imageStudio.overviewRequired')
+      batch.value = [...batch.value]
+      return
+    }
+    // Every detail uses the same overview, never another detail or a changed
+    // upload. One reference also works with upstreams that limit image count.
+    context.refs = [new File([context.source.blob], `overview.${spec.format}`, {
+      type: context.source.blob.type || `image/${spec.format}`
+    })]
+  }
   slot.status = 'running'
-  const refs = spec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
+  slot.error = undefined
+  batch.value = [...batch.value]
   const started = performance.now()
-  const result = await generateOne(spec, slot.prompt, refs)
-  if (!isCurrentSession(spec) || !batch.value.some(s => s.slotId === slotId)) return
+  const result = await generateOne(spec, slot.prompt, context.refs)
+  if (!isCurrentSession(spec)) return
   const actualSize = result.blob ? await imageSizeOf(result.blob) : undefined
-  if (!isCurrentSession(spec) || !batch.value.some(s => s.slotId === slotId)) return
+  if (!isCurrentSession(spec)) return
   slot.ms = Math.round(performance.now() - started)
   slot.status = result.blob ? 'done' : 'failed'
   slot.error = result.error
@@ -692,11 +760,44 @@ export async function retrySlot(slotId: number) {
     slot.actualSize = actualSize
   }
   batch.value = [...batch.value]
+  if (result.blob) await saveSlotHistory(slot, context)
+}
+
+async function runImageQueue(slots: BatchSlot[], spec: BatchSpec) {
+  generating.value = true
+  batchCancelRequested.value = false
+  startElapsed()
+  let okCount = 0
+  try {
+    for (const slot of slots) {
+      if (!isCurrentSession(spec)) return
+      if (batchCancelRequested.value) {
+        slot.status = 'cancelled'
+        continue
+      }
+      const context = taskContexts.get(slot.slotId)
+      if (!context) continue
+      await runImageSlot(slot, context)
+      if (!isCurrentSession(spec)) return
+      if (slot.status === 'done') okCount++
+    }
+    batch.value = [...batch.value]
+    if (batchCancelRequested.value) {
+      appStore().showSuccess(t('imageStudio.batchCancelled', { ok: okCount }))
+    } else if (okCount > 0) {
+      appStore().showSuccess(t('imageStudio.batchDone', { ok: okCount, total: slots.length }))
+    }
+  } finally {
+    if (isCurrentSession(spec)) {
+      generating.value = false
+      stopElapsed()
+    }
+  }
 }
 
 export async function generateBatch() {
   const box = activeBox.value
-  if (!box || initError.value || !box.text.trim() || generating.value) return
+  if (!box || initError.value || !box.text.trim() || generating.value || !validImagePlan.value) return
   const selectedOption = models.value.find(o => o.id === model.value)
   const spec: BatchSpec = {
     model: model.value,
@@ -709,75 +810,31 @@ export async function generateBatch() {
     groupId: selectedOption?.group_id,
     platform: selectedOption?.platform
   }
-  lastSpec = spec
-  const n = quantity.value
   const promptText = box.text.trim()
   const refs = spec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
+  const setEnabled = imageSetEnabled.value
+  const details = detailPrompts.value.map(text => text.trim()).filter(Boolean)
   batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
-  batch.value = []
-  generating.value = true
-  batchCancelRequested.value = false
-  startElapsed()
-  let okCount = 0
-  try {
-    for (let i = 0; i < n; i++) {
-      // 用户点击停止后不再发起新请求,已完成的图照常入库
-      if (!isCurrentSession(spec)) return
-      if (batchCancelRequested.value) break
-      const slotId = ++slotSeq
-      const slot: BatchSlot = { slotId, status: 'running', prompt: promptText, size: spec.size }
-      batch.value = [...batch.value, slot]
-      const started = performance.now()
-      const result = await generateOne(spec, promptText, refs)
-      if (!isCurrentSession(spec)) return
-      slot.ms = Math.round(performance.now() - started)
-      if (result.blob) {
-        const actualSize = await imageSizeOf(result.blob)
-        if (!isCurrentSession(spec)) return
-        slot.blob = result.blob
-        slot.url = URL.createObjectURL(result.blob)
-        slot.actualSize = actualSize
-        slot.status = 'done'
-        okCount++
-      } else {
-        slot.status = 'failed'
-        slot.error = result.error
-      }
-      batch.value = [...batch.value]
-    }
-    if (batchCancelRequested.value) {
-      appStore().showSuccess(t('imageStudio.batchCancelled', { ok: okCount }))
-    } else if (okCount > 0) {
-      box.status = 'done'
-      appStore().showSuccess(t('imageStudio.batchDone', { ok: okCount, total: n }))
-    }
-  } finally {
-    if (isCurrentSession(spec)) {
-      generating.value = false
-      stopElapsed()
-      const done = batch.value.filter(s => s.status === 'done' && s.blob)
-      if (done.length) {
-        const item: HistoryItem = {
-          id: Date.now(),
-          ts: Date.now(),
-          model: spec.model,
-          quality: spec.quality,
-          format: spec.format,
-          size: spec.size,
-          actualSize: done[0]?.actualSize,
-          prompt: promptText,
-          mode: spec.mode,
-          images: done.map(s => ({ blob: s.blob as Blob, failed: false })),
-          starred: false
-        }
-        await idbPut(item, spec.owner).catch(() => undefined)
-        if (isCurrentSession(spec)) {
-          history.value = [item, ...history.value]
-          updateStorageMeter()
-        }
-      }
-    }
+  taskContexts.clear()
+  const slots: BatchSlot[] = []
+  const add = (text: string, label: string, source?: BatchSlot) => {
+    const slot: BatchSlot = { slotId: ++slotSeq, status: 'queued', prompt: text, label, size: spec.size }
+    slots.push(slot)
+    taskContexts.set(slot.slotId, { spec: source ? { ...spec, mode: 'i2i' } : spec, refs, source })
+    return slot
   }
+  if (setEnabled) {
+    const overview = add(promptText, t('imageStudio.overviewImage'))
+    details.forEach((detail, index) => add(
+      t('imageStudio.detailRequest', { overview: promptText, detail }),
+      t('imageStudio.detailImageN', { n: index + 1 }), overview
+    ))
+  } else {
+    for (let i = 0; i < quantity.value; i++) add(promptText, t('imageStudio.imageN', { n: i + 1 }))
+  }
+  batch.value = slots
+  await runImageQueue(slots, spec)
+  if (isCurrentSession(spec) && slots.every(slot => slot.status === 'done')) box.status = 'done'
 }
 
 /** Stop the old user's queue and remove all in-memory studio data on logout/account change. */
@@ -799,7 +856,10 @@ export function resetImageStudioSession() {
   historySearch.value = ''
   promptBoxes.value = [{ id: ++boxSeq, text: '', status: 'draft' }]
   activeBoxId.value = promptBoxes.value[0].id
-  lastSpec = null
+  taskContexts.clear()
+  imageSetEnabled.value = false
+  detailPrompts.value = []
+  quantity.value = 1
   initError.value = ''
   models.value = toOptions(FALLBACK_MODELS)
   model.value = FALLBACK_MODELS[0]

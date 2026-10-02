@@ -49,8 +49,7 @@ func (h *GatewayHandler) ImageStudioModels(c *gin.Context, apiKeyService *servic
 	seen := map[string]bool{}
 	for i := range groups {
 		g := &groups[i]
-		ids := h.gatewayService.GetAvailableModels(c.Request.Context(), &g.ID, g.Platform)
-		ids = modelListingSource(g.Platform, ids, defaultModelIDsForPlatform(g.Platform))
+		ids := h.studioAvailableModels(c.Request.Context(), g)
 		if g.ModelAllowlistEnabled() {
 			ids = g.ModelAllowlist.FilterForListing(ids)
 		}

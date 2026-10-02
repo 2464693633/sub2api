@@ -116,6 +116,95 @@ describe('studio session and task isolation', () => {
     expect(String(fetcher.mock.calls[0][0])).toContain('/tasks/existing-job')
   })
 
+  it.each(['failed', 'error', 'expired', 'cancelled'])('resubmits a video after upstream status %s', async status => {
+    vi.useFakeTimers()
+    let submissions = 0
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) =>
+      options?.method === 'POST'
+        ? response({ id: `job-${++submissions}` })
+        : response({ status, error: 'upstream terminal failure' }))
+    vi.stubGlobal('fetch', fetcher)
+    const video = await import('../useVideoStudioEngine')
+    video.models.value = [{ id: 'original-video', group_id: 20, group_name: 'video' }]
+    video.model.value = 'original-video'
+    video.prompt.value = 'original prompt'
+    video.videoSize.value = '720x1280'
+    video.mode.value = 'i2v'
+    const reference = new File(['image'], 'ref.png', { type: 'image/png' })
+    video.refImages.value = [{ file: reference, url: 'blob:reference' }]
+    // Keep FileReader deterministic while exercising the actual submit/retry flow.
+    vi.stubGlobal('FileReader', class {
+      result = 'data:image/png;base64,aW1hZ2U='
+      onload?: () => void
+      readAsDataURL() { this.onload?.() }
+    })
+
+    video.submitBatch()
+    await vi.advanceTimersByTimeAsync(5000)
+    const task = video.tasks.value[0]
+    expect(task.status).toBe('failed')
+    expect(submissions).toBe(1)
+    video.model.value = 'different-video'
+    video.prompt.value = 'changed draft'
+    video.refImages.value = []
+    video.retryTask(task.taskId)
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const posts = fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')
+    expect(posts).toHaveLength(2)
+    expect(posts[1][1]?.body).toBe(posts[0][1]?.body)
+    expect(JSON.parse(String(posts[1][1]?.body))).toMatchObject({
+      model: 'original-video', prompt: 'original prompt', size: '720x1280',
+      image_url: 'data:image/png;base64,aW1hZ2U='
+    })
+    expect(posts[1][1]?.headers).toMatchObject({ 'X-Video-Studio-Group': '20' })
+    expect(fetcher.mock.calls.some(([url]) => url.endsWith('/tasks/job-2'))).toBe(true)
+  })
+
+  it('resumes polling after transport failures without creating another video', async () => {
+    vi.useFakeTimers()
+    const fetcher = vi.fn(async (_url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return response({ id: 'original-job' })
+      throw new Error('network unavailable')
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const video = await import('../useVideoStudioEngine')
+    video.prompt.value = 'test'
+    video.submitBatch()
+    await vi.advanceTimersByTimeAsync(15000)
+    const task = video.tasks.value[0]
+    expect(task.status).toBe('failed')
+
+    video.retryTask(task.taskId)
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(task.status).toBe('failed')
+    expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/tasks/original-job'))).toHaveLength(6)
+  })
+
+  it('retries only the download after a completed video cannot be fetched', async () => {
+    vi.useFakeTimers()
+    const fetcher = vi.fn(async (url: string, options?: RequestInit) => {
+      if (options?.method === 'POST') return response({ id: 'completed-job' })
+      if (url.endsWith('/content')) throw new Error('download failed')
+      return response({ status: 'completed' })
+    })
+    vi.stubGlobal('fetch', fetcher)
+    const video = await import('../useVideoStudioEngine')
+    video.prompt.value = 'test'
+    video.submitBatch()
+    await vi.advanceTimersByTimeAsync(35000)
+    const task = video.tasks.value[0]
+    expect(task.status).toBe('failed')
+    expect(task.upstreamDone).toBe(true)
+
+    video.retryTask(task.taskId)
+    await vi.advanceTimersByTimeAsync(30000)
+    expect(fetcher.mock.calls.filter(([, options]) => options?.method === 'POST')).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/tasks/completed-job'))).toHaveLength(1)
+    expect(fetcher.mock.calls.filter(([url]) => url.endsWith('/content'))).toHaveLength(6)
+  })
+
   it('uses the original video model and group when retrying submission', async () => {
     const fetcher = vi.fn().mockRejectedValue(new Error('transport failure'))
     vi.stubGlobal('fetch', fetcher)

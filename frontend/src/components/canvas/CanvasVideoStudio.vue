@@ -6,6 +6,7 @@
         <span class="text-sm font-semibold">{{ t('canvas.genRecords') }}</span>
         <span class="text-xs text-gray-400">{{ history.length }}</span>
       </div>
+      <StudioLegacyHistory kind="video" @imported="loadHistory" />
       <div class="max-h-44 min-h-0 flex-1 space-y-2 overflow-y-auto pr-1 lg:max-h-none">
         <div v-if="history.length === 0" class="flex h-40 items-center justify-center rounded-lg border border-dashed border-gray-200 text-xs text-gray-400 dark:border-dark-700">{{ t('canvas.noRecords') }}</div>
         <div
@@ -175,6 +176,7 @@
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import StudioLegacyHistory from './StudioLegacyHistory.vue'
 import {
   RESOLUTIONS, SECONDS, SIZE_PRESETS,
   models, model, initError, retryInit,

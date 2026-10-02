@@ -10,6 +10,7 @@ import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
 import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
 import { isGrokImageModel } from './studioModels'
+import { openStudioHistoryDb } from './studioHistory'
 
 const t = i18n.global.t
 
@@ -63,6 +64,7 @@ export interface VideoTask {
   billingNote?: string
   groupId?: number
   upstreamDone?: boolean
+  upstreamFailed?: boolean
   videoSize?: string
   mode?: 't2v' | 'i2v'
   refImage?: File
@@ -364,6 +366,7 @@ async function runTask(task: VideoTask) {
         return
       }
       if (phase === 'failed') {
+        task.upstreamFailed = true
         const raw = statusRaw.error
         task.error = typeof raw === 'string' ? raw : (raw?.message || t('videoStudio.generateFailed'))
         task.status = 'failed'
@@ -478,6 +481,13 @@ export function retryTask(taskId: number) {
   if (!isCurrentSession(task)) return
   task.videoSize ||= 'auto'
   task.mode ||= 't2v'
+  // Only a confirmed upstream terminal failure requires a new generation.
+  // Polling/network failures retain the remote task to avoid duplicate billing.
+  if (task.upstreamFailed) {
+    task.remoteId = ''
+    task.upstreamDone = false
+    task.upstreamFailed = false
+  }
   // 上游已生成(已计费)的任务:重试仅重新下载,不会重复提交计费
   if (task.upstreamDone && task.remoteId) {
     task.status = 'processing'
@@ -506,16 +516,7 @@ export function clearFailed() {
 
 // ===== IndexedDB(视频库) =====
 function openIdb(owner = sessionOwnerKey()): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open(`video-studio-db-${owner}`, 1)
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains('history')) {
-        req.result.createObjectStore('history', { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+  return openStudioHistoryDb('video', owner)
 }
 async function idbPut(item: VideoHistoryItem, owner = sessionOwnerKey()) {
   const db = await openIdb(owner)
