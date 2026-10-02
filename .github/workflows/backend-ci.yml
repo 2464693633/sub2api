@@ -44,6 +44,10 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # The GitHub-hosted runner has a separate budget from the local server.
+      NODE_OPTIONS: --max-old-space-size=4096
     steps:
       - uses: actions/checkout@v6
       - name: Setup pnpm
@@ -59,8 +63,14 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Frontend typecheck and critical vitest
-        run: make test-frontend
+      - name: Full frontend typecheck
+        working-directory: frontend
+        run: pnpm exec vue-tsc -b --force --pretty false
+      - name: Frontend lint
+        working-directory: frontend
+        run: pnpm run lint:check
+      - name: Critical frontend tests
+        run: make test-frontend-critical
 
   golangci-lint:
     runs-on: ubuntu-latest

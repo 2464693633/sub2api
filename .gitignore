@@ -124,6 +124,9 @@ CLAUDE.md
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!frontend/scripts/
+frontend/scripts/*
+!frontend/scripts/build-low-memory.mjs
 .code-review-state
 #openspec/
 code-reviews/
@@ -133,6 +136,8 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/recharge-offers.md
+!docs/build-low-memory.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
