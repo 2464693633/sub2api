@@ -16,6 +16,7 @@ type Capabilities struct {
 	Qualities        []string `json:"qualities"`
 	Formats          []string `json:"formats"`
 	Seconds          []int    `json:"seconds"`
+	MaxSeconds       int      `json:"max_seconds,omitempty"`
 	Resolutions      []string `json:"resolutions"`
 	CustomSize       bool     `json:"custom_size"`
 	CustomQuality    bool     `json:"custom_quality"`
@@ -37,12 +38,17 @@ func ModelCapabilities(kind, model, platform string) Capabilities {
 		caps.CustomQuality = false
 		caps.CustomFormat = false
 		caps.Seconds = []int{4, 6, 8, 10}
+		caps.MaxSeconds = 30
 		caps.Resolutions = []string{"480p", "720p", "1080p"}
 		caps.CustomSeconds = true
 		caps.CustomResolution = true
 		caps.Notes = []string{"当前视频网关使用 Grok 接口，工作台时长范围为 1–30 秒；未知模型由上游判断 / Video uses the Grok gateway; studio duration is 1–30 seconds; unknown models depend on the provider"}
 		if platform == "grok" || strings.HasPrefix(model, "grok-") {
 			caps.Profile = "grok-video"
+		}
+		if model == "grok-imagine-video" || model == "grok-imagine-video-1.5" {
+			caps.MaxSeconds = 15
+			caps.Notes = []string{"Grok Imagine Video 时长范围为 1–15 秒；参考图选择自动画幅可保持原始比例 / Grok Imagine Video supports 1–15 seconds; automatic aspect ratio preserves the reference image proportions"}
 		}
 		return caps
 	}
@@ -122,8 +128,8 @@ func ValidateGenerationParams(kind string, raw json.RawMessage, references int) 
 	if len(caps.Qualities) > 0 && !caps.CustomQuality && !allowed(params.Quality, caps.Qualities) {
 		return fmt.Errorf("%w: 模型不支持所选质量 / Unsupported model quality", ErrInvalid)
 	}
-	if kind == "video" && (params.Seconds < 1 || params.Seconds > 30) {
-		return fmt.Errorf("%w: 视频时长必须为 1–30 秒 / Video duration must be 1–30 seconds", ErrInvalid)
+	if kind == "video" && (params.Seconds < 1 || params.Seconds > caps.MaxSeconds) {
+		return fmt.Errorf("%w: 视频时长必须为 1–%d 秒 / Video duration must be 1–%d seconds", ErrInvalid, caps.MaxSeconds, caps.MaxSeconds)
 	}
 	return nil
 }

@@ -26,6 +26,7 @@ export interface StudioSettings {
 export interface StudioCapabilities {
   profile: string
   max_references: number
+  max_seconds?: number
   sizes: string[]
   qualities: string[]
   formats: string[]

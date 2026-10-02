@@ -153,7 +153,7 @@
 
 项目 JSON 新增可选的 `settings`：`subject`、`style`、`image_params`、`video_params`。卡片 `data.paramsMode` 可为 `project` 或 `custom`；缺失时按旧版独立参数处理。`data.preferredAssetId` 保存满意版本，时间线 `cover_asset_id` 保存封面；二者均校验属于当前用户的当前项目，且素材类型正确。
 
-- `GET /api/v1/studio/projects/capabilities?kind=image|video&model=...&platform=...` 返回当前工作台参数建议、可编辑控制和参考数量。
+- `GET /api/v1/studio/projects/capabilities?kind=image|video&model=...&platform=...` 返回当前工作台参数建议、可编辑控制和参考数量；视频 `max_seconds` 为该模型可提交的时长上限。已知 `grok-imagine-video`、`grok-imagine-video-1.5` 上限为 15 秒，未知模型保留工作台 30 秒总上限，是否支持仍由上游判断。
 - `POST /api/v1/studio/projects/:project/preflight` 接收 `{node_ids, revision}`，返回 `valid`、包含前置步骤的 `counts`、实际提示词／参数／输入来源，以及按卡片归属的 `errors`。旧版本号返回冲突，预检不写入任务。
 - 生成接口和预检使用相同的依赖规划器；入队前会再次验证当前用户允许的图片／视频分组。自定义模型别名不因未出现在默认模型列表而被预检拒绝。
 - 视频参数在画布项目中仍保存为 `seconds` 和 `size`。发送到当前 Grok 视频网关时转换为官方 `duration`、`aspect_ratio`（例如 `1280x720` 转为 `16:9`），参考图使用 `image.url`。原网关解析器兼容顶层 `image_url`，但它只用 `duration` 读取生成时长，不能用 `seconds` 代替。
@@ -181,3 +181,18 @@
 - 当前能力只读验收：`gpt-image-2` 返回 `gpt-image`，最多 8 张参考图；`grok-imagine-video` 返回 `grok-video`，最多 1 张参考图，建议时长 4/6/8/10 秒。
 - 回滚程序与校验清单：`/root/sub2api-deploy-backups/20261002T160357Z-creative-round2`。
 - 第二轮没有自动调用收费图片或视频模型；真实样片需用户明确确认后再执行。
+
+## 真实样片验收与参数依据（2026-10-02）
+
+用户批准继续后，使用正常画布项目和计费网关提交了「手提包整体图 → 四张细节图 → 视频镜头」流程。整体图及四张参考细节图均成功，结果为 1024×1024 JPEG，并已保存在服务器项目素材中。首批两个视频镜头使用 `grok-imagine-video`、4 秒、480p、16:9 和单张 JPEG data URI 参考图，均在创建任务阶段收到中转上游 HTTP 400，未返回远端任务编号。本地预检及权限检查通过；中转原始错误仅为 `xAI upstream returned status 400`，没有具体参数原因，不能据此认定是哪一字段不受支持，也不能宣称视频样片链路已通过。
+
+截至本次只读诊断，本机没有已完成的该模型视频用量记录可用于比对。真实验收不会重做五张成功图片；视频后续尝试只使用已有素材，并逐镜头确认结果，避免无依据地重复提交整组任务。
+
+参数限制依据为 2026-10-02 读取的 [xAI Video Generation 文档](https://docs.x.ai/developers/model-capabilities/video/generation)：
+
+- `Configuration → Duration` 明确写明："Control video length with the duration parameter. The allowed range is 1–15 seconds." 工作台据此收紧上述两个已知模型的生成时长；超过上限会在整批任务入队前拒绝，前置图片也不会因此产生调用。
+- `Aspect Ratio` 说明图生视频默认继承输入图片的比例，显式传入 `aspect_ratio` 会覆盖并拉伸图片。方形商品参考图建议选择「自动」画幅，保持主体比例；最终横竖版可在时间线导出时等比缩放并留边。
+- `Resolution` 列出 480p 为默认分辨率，720p、1080p 的可用范围随模型及生成模式变化。实际中转模型映射可能进一步限制支持范围。
+- [Image-to-Video 文档](https://docs.x.ai/developers/model-capabilities/video/image-to-video) 明确接受公开图片 URL 和 `data:image/jpeg;base64,...`；REST 示例使用 `image: {url: ...}` 及 `duration`。因此首批 400 没有证据要求回退到旧 `seconds`／`image_url` 字段。
+
+真实样片最终结果：项目 `edb006c2e47f47736ea59c657517b624` 保留五张成功图片及失败视频记录。补充尝试了一个 `grok-imagine-video-1.5`、4 秒、480p、自动画幅镜头，同样在创建阶段收到 HTTP 400；因此停止继续试错，没有将静态图合成误报为 AI 视频生成成功。五张图片通过时间线成功导出 10.021 秒、1280×720 的 MP4 预览，含 H.264 主视频、AAC 音轨、字幕及独立 JPEG 封面流。账单记录 116–120 各为 0.05，合计 0.25；没有新增视频用量账单。线上真实项目页面及时间线预览均已在浏览器打开，未发生 JavaScript 错误。
