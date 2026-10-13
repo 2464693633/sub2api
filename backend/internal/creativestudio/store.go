@@ -16,7 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -86,7 +85,7 @@ func New(root string, executor Executor, options Options) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+	if err = lockStorageFile(lock); err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("%w: storage directory already in use", ErrBusy)
 	}
@@ -94,7 +93,7 @@ func New(root string, executor Executor, options Options) (*Store, error) {
 	s := &Store{root: root, executor: executor, opts: options, lock: lock, documents: make(map[projectKey]*document), documentBytes: make(map[projectKey]int64), active: make(map[string]execution), wake: make(chan struct{}, 1), ctx: ctx, cancel: cancel}
 	if err = s.load(); err != nil {
 		cancel()
-		_ = syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		_ = unlockStorageFile(lock)
 		_ = lock.Close()
 		return nil, err
 	}
@@ -524,7 +523,7 @@ func (s *Store) Close() error {
 	}
 	s.mu.Unlock()
 	s.wg.Wait()
-	if err := syscall.Flock(int(s.lock.Fd()), syscall.LOCK_UN); err != nil {
+	if err := unlockStorageFile(s.lock); err != nil {
 		_ = s.lock.Close()
 		return err
 	}
