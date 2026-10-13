@@ -368,7 +368,7 @@ func (e *creativeStudioExecutor) video(ctx context.Context, job creativestudio.J
 		}
 		// Persist before the first poll. Retrying a poll or download keeps this ID.
 		if err := progress(remoteID, false); err != nil {
-			return creativestudio.Result{}, err
+			return creativestudio.Result{}, fmt.Errorf("%w: 视频已提交，但任务编号未能保存，请检查服务器存储后再重试 / Video was submitted but its task ID could not be saved; check server storage before retrying: %w", creativestudio.ErrUncertain, err)
 		}
 	}
 	if strings.ContainsAny(remoteID, "/\\?#\r\n") || len(remoteID) > 240 || remoteID == "." || remoteID == ".." {

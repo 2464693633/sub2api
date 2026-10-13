@@ -3,12 +3,14 @@ import { creativeStudioAPI as api, type StudioProject, type StudioAsset, type St
 import type { CreativeCanvasKind, CreativeCanvasNode } from '@/types/creativeCanvas'
 import { sessionOwnerKey } from './studioSession'
 import { isGrokImageModel } from './studioModels'
+import { readVideoDuration } from './studioMedia'
 import type { QuickComposeFlow, QuickComposeInput } from '@/types/creativeQuickCompose'
 
 type Translate = (key: string, args?: Record<string, unknown>) => string
 interface PendingRun { requestId: string; nodeIds: string[]; revision: number }
 const uid = () => typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `c-${Date.now()}-${Math.random().toString(36).slice(2)}`
 const active = (job: StudioJob) => ['queued', 'waiting', 'running'].includes(job.status)
+const timelineLimit = 12
 export const emptyTimeline = (): StudioTimeline => ({ clips: [], size: '1280x720' })
 
 /** Exclude renderer state, object URLs and credentials from drafts and server storage. */
@@ -63,6 +65,9 @@ export function useCreativeStudio(tr: Translate) {
   let pollTimer: ReturnType<typeof setTimeout> | undefined
   let savePromise: Promise<boolean> | undefined
   const previewPromises = new Map<string, Promise<string>>()
+  const durationPromises = new Map<string, Promise<number>>()
+  let autoTimelinePromise: Promise<void> | undefined
+  let autoTimelineFull = false
   const selected = computed<CreativeCanvasNode | undefined>(() =>
     project.value?.nodes.find((n: CreativeCanvasNode) => n.id === selectedId.value))
   const running = computed(() => jobs.value.filter(active))
@@ -92,6 +97,8 @@ export function useCreativeStudio(tr: Translate) {
     for (const url of Object.values(previewUrls.value)) URL.revokeObjectURL(url)
     previewUrls.value = {}
     previewPromises.clear()
+    durationPromises.clear()
+    autoTimelinePromise = undefined; autoTimelineFull = false
     project.value = null
     assets.value = []; jobs.value = []; selectedId.value = null
     preflight.value = null
@@ -127,23 +134,22 @@ export function useCreativeStudio(tr: Translate) {
       }
       node.data.previewUrl = node.data.assetId ? previewUrls.value[node.data.assetId] : undefined
     }
-    // Quick compose can opt into a hands-off first cut. Consume each node ID
-    // after its first successful result so polling the same snapshot never
-    // duplicates a clip. The consumed IDs are removed from the saved project,
-    // which also makes the behavior safe across reloads and multiple tabs.
-    const autoIds = new Set(p.timeline?.auto_add_node_ids || [])
-    if (autoIds.size) {
-      const clips = p.timeline!.clips
-      for (const node of p.nodes) {
-        if (!autoIds.has(node.id) || !node.data.assetId || node.data.status !== 'succeeded') continue
-        if (!clips.some(clip => clip.asset_id === node.data.assetId)) {
-          clips.push({ id: uid(), asset_id: node.data.assetId, title: node.data.title, start: 0, duration: 4 })
-        }
-        autoIds.delete(node.id)
-      }
-      p.timeline!.auto_add_node_ids = autoIds.size ? [...autoIds] : undefined
-    }
+    addAutomaticTimeline()
     void loadImagePreviews()
+  }
+  function addAutomaticTimeline() {
+    const p = project.value
+    if (!p?.timeline?.auto_add_node_ids?.length || autoTimelinePromise) return
+    const ticket = epoch
+    autoTimelinePromise = (async () => {
+      for (const node of p.nodes) {
+        if (!current(ticket) || project.value !== p) return
+        if (!p.timeline?.auto_add_node_ids?.includes(node.id) || !node.data.assetId || node.data.status !== 'succeeded') continue
+        // Serialize metadata reads and consume IDs only after successful insertion.
+        // Full timelines retain pending results for the next save or poll.
+        await insertTimeline(node.data.assetId, node.data.title, undefined, node.id)
+      }
+    })().finally(() => { if (current(ticket)) autoTimelinePromise = undefined })
   }
   async function preview(assetId: string) {
     if (previewUrls.value[assetId]) return previewUrls.value[assetId]!
@@ -348,8 +354,13 @@ export function useCreativeStudio(tr: Translate) {
     selected.value.data.preferredAssetId = selected.value.data.preferredAssetId === asset.id ? undefined : asset.id
     if (selected.value.data.preferredAssetId) useVersion(asset)
   }
-  function addSelectedTimeline() {
-    for (const node of selectedNodes.value) if (node.data.assetId) addTimeline(node.data.assetId, node.data.title)
+  async function addSelectedTimeline() {
+    const ticket = epoch
+    const selected = selectedNodes.value.map(n => ({ assetId: n.data.assetId, title: n.data.title }))
+    for (const node of selected) {
+      if (!current(ticket)) return
+      if (node.assetId) await addTimeline(node.assetId, node.title)
+    }
   }
   function runCounts(ids = pendingNodeIds.value) {
     const planned = new Set<string>()
@@ -589,18 +600,69 @@ export function useCreativeStudio(tr: Translate) {
       notice.value = tr('imported')
     })
   }
+  function videoDuration(assetId: string) {
+    const existing = durationPromises.get(assetId)
+    if (existing) return existing
+    const ticket = epoch, signal = controller.signal
+    const promise = preview(assetId).then(url => {
+      if (!current(ticket) || !url) throw new DOMException('Aborted', 'AbortError')
+      return readVideoDuration(url, signal)
+    }).catch(e => {
+      if (current(ticket)) durationPromises.delete(assetId)
+      throw e
+    })
+    durationPromises.set(assetId, promise)
+    return promise
+  }
+  async function insertTimeline(assetId: string, title: string, index?: number, autoNodeId?: string) {
+    const p = project.value, ticket = epoch
+    const asset = assets.value.find(a => a.id === assetId && a.kind !== 'audio')
+    if (!p || !asset || !current(ticket)) return false
+    p.timeline ||= emptyTimeline()
+    const stillWanted = () => current(ticket) && project.value === p && (!autoNodeId || (
+      p.timeline?.auto_add_node_ids?.includes(autoNodeId) && p.nodes.some(n => n.id === autoNodeId && n.data.assetId === assetId && n.data.status === 'succeeded')
+    ))
+    const consume = () => {
+      if (!autoNodeId) return
+      const remaining = p.timeline!.auto_add_node_ids?.filter(id => id !== autoNodeId)
+      p.timeline!.auto_add_node_ids = remaining?.length ? remaining : undefined
+    }
+    const alreadyAdded = () => !!autoNodeId && p.timeline!.clips.some(c => c.asset_id === assetId)
+    const hasRoom = () => {
+      if (p.timeline!.clips.length < timelineLimit) { autoTimelineFull = false; return true }
+      if (autoNodeId) {
+        if (!autoTimelineFull) notice.value = tr('timelineFull')
+        autoTimelineFull = true
+      } else error.value = tr('timelineFull')
+      return false
+    }
+    if (!stillWanted()) return false
+    if (alreadyAdded()) { consume(); return true }
+    if (!hasRoom()) return false
+    let duration = 4
+    if (asset.kind === 'video') {
+      try { duration = Math.min(duration, await videoDuration(assetId)) }
+      catch { if (stillWanted()) error.value = tr('timelineVideoUnavailable'); return false }
+      if (!stillWanted()) return false
+      if (duration < 1) { error.value = tr('timelineVideoTooShort'); return false }
+    }
+    // A user may have edited the timeline or selected another result while
+    // metadata was loading. Recheck both deduplication and capacity at insertion.
+    if (alreadyAdded()) { consume(); return true }
+    if (!hasRoom()) return false
+    const clips = p.timeline!.clips
+    const target = Number.isInteger(index) ? Math.max(0, Math.min(index!, clips.length)) : clips.length
+    clips.splice(target, 0, { id: uid(), asset_id: assetId, title, start: 0, duration })
+    consume()
+    return true
+  }
   function addTimeline(assetId: string, title = '', index?: number) {
-    if (!project.value || !assets.value.some(a => a.id === assetId && a.kind !== 'audio')) return
-    project.value.timeline ||= emptyTimeline()
-    if (project.value.timeline.clips.length >= 12) { error.value = tr('timelineFull'); return }
-    const clip = { id: uid(), asset_id: assetId, title, start: 0, duration: 4 }
-    const target = Number.isInteger(index) ? Math.max(0, Math.min(index!, project.value.timeline.clips.length)) : project.value.timeline.clips.length
-    project.value.timeline.clips.splice(target, 0, clip)
+    return insertTimeline(assetId, title, index)
   }
   async function render() {
     await action(async ticket => {
       const value = JSON.parse(JSON.stringify(timeline.value)) as StudioTimeline
-      if (!value.clips.length || value.clips.length > 12 || value.clips.some(c => !Number.isFinite(c.duration) || c.duration < 1 || c.duration > 30 || !Number.isFinite(c.start) || c.start < 0) || value.clips.reduce((sum, c) => sum + c.duration, 0) > 90) throw new Error(tr('renderInvalid'))
+      if (!value.clips.length || value.clips.length > timelineLimit || value.clips.some(c => !Number.isFinite(c.duration) || c.duration < 1 || c.duration > 30 || !Number.isFinite(c.start) || c.start < 0) || value.clips.reduce((sum, c) => sum + c.duration, 0) > 90) throw new Error(tr('renderInvalid'))
       if (!await save() || !current(ticket)) return
       // Identical timelines share one request until the server confirms reception.
       const pendingKey = `${key(project.value!.id)}:export`

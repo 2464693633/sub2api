@@ -1,6 +1,8 @@
 export const creativeStudioMessages = {
   zh: {
     timelineFull: '时间线最多添加 12 个镜头，请先移除部分镜头。',
+    timelineVideoUnavailable: '无法读取视频时长，请稍后重试或检查原文件。',
+    timelineVideoTooShort: '视频不足 1 秒，无法加入时间线。',
     projectSettings: "项目创作设置",
     projectSettingsHint: "主体、风格与统一参数",
     subject: "统一主体描述",
@@ -103,6 +105,8 @@ export const creativeStudioMessages = {
   },
   en: {
     timelineFull: 'A timeline supports up to 12 shots. Remove a shot before adding more.',
+    timelineVideoUnavailable: 'Could not read the video duration. Retry or check the original file.',
+    timelineVideoTooShort: 'The video must be at least 1 second long to add it to the timeline.',
     projectSettings: "Project settings",
     projectSettingsHint: "Shared subject, style and parameters",
     subject: "Shared subject",

@@ -109,7 +109,7 @@ func (s *Store) dispatch() bool {
 			}
 		}
 		if changed {
-			if err := s.commit(key, doc); err != nil {
+			if err := s.commitJobState(key, doc); err != nil {
 				continue
 			}
 		}
@@ -143,7 +143,7 @@ func (s *Store) dispatch() bool {
 			break
 		}
 	}
-	if err := s.commit(selected.key, doc); err != nil {
+	if err := s.commitJobState(selected.key, doc); err != nil {
 		return false
 	}
 	ctx, cancel := context.WithCancel(s.ctx)
@@ -244,14 +244,14 @@ func (s *Store) execute(ctx context.Context, key projectKey, job Job, inputs []A
 			if fallback.Jobs[i].ID == job.ID {
 				failed := &fallback.Jobs[i]
 				failed.Status = "failed"
-				if failed.Kind == "image" || (failed.Kind == "video" && failed.RemoteID == "") {
+				if errors.Is(executionErr, ErrUncertain) || failed.Kind == "image" || (failed.Kind == "video" && failed.RemoteID == "") {
 					failed.Status = "interrupted"
 				}
 				failed.Error = "无法保存任务结果，请检查服务器存储。 / Could not save the task result. Check server storage."
 				failed.UpdatedAt = now()
 			}
 		}
-		if err := s.commit(key, fallback); err != nil {
+		if err := s.commitJobState(key, fallback); err != nil {
 			// Disk may be unavailable even for the failure record. Prevent another
 			// automatic POST in memory; persisted running state stays recoverable.
 			s.documents[key] = fallback
@@ -292,7 +292,13 @@ func (s *Store) recordProgress(key projectKey, jobID, remoteID string, terminal 
 		}
 		job.UpstreamTerminal = terminal
 		job.UpdatedAt = now()
-		return s.commit(key, doc)
+		if err := s.commitJobState(key, doc); err != nil {
+			// Retain the receipt even if the disk is unavailable. Completion or a
+			// later retry can persist it; losing it here would allow another POST.
+			s.documents[key] = doc
+			return fmt.Errorf("%w: could not persist upstream task state: %w", ErrUncertain, err)
+		}
+		return nil
 	}
 	return ErrNotFound
 }

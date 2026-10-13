@@ -366,7 +366,7 @@ func (s *Store) Cancel(userID int64, projectID, jobID string) (Snapshot, error) 
 	if !found {
 		return Snapshot{}, ErrNotFound
 	}
-	if err := s.commit(key, doc); err != nil {
+	if err := s.commitJobState(key, doc); err != nil {
 		return Snapshot{}, err
 	}
 	if running, exists := s.active[jobID]; exists {

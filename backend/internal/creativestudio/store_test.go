@@ -10,6 +10,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -322,6 +323,178 @@ func TestVideoRetryDistinguishesTerminalFailure(t *testing.T) {
 			remote := <-seen
 			if (terminal && remote != "") || (!terminal && remote != "remote-123") {
 				t.Fatalf("wrong remote task reuse: terminal=%v remote=%s", terminal, remote)
+			}
+		})
+	}
+}
+
+func TestVideoProgressSurvivesQuotaAndResumesWithoutResubmission(t *testing.T) {
+	for _, restart := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restart=%v", restart), func(t *testing.T) {
+			remoteID := strings.Repeat("r", 200)
+			var submissions atomic.Int32
+			progressResult := make(chan error, 1)
+			seen := make(chan string, 1)
+			var s *Store
+			executor := executorFunc(func(ctx context.Context, job Job, _ []AssetFile, progress func(string, bool) error) (Result, error) {
+				if job.RemoteID != "" {
+					seen <- job.RemoteID
+					return Result{}, errors.New("observed resumed poll")
+				}
+				submissions.Add(1)
+				s.mu.Lock()
+				s.opts.MaxUserBytes = s.documentBytes[projectKey{job.UserID, job.ProjectID}] + 100
+				s.mu.Unlock()
+				err := progress(remoteID, false)
+				progressResult <- err
+				if err != nil {
+					return Result{}, err
+				}
+				if restart {
+					<-ctx.Done()
+				}
+				return Result{}, errors.New("poll interrupted")
+			})
+			s = testStore(t, executor, Options{})
+			project := saveGraph(t, s, 1, []Node{card("v", "video")}, nil)
+			id := project.Project.ID
+			if _, err := s.Run(1, id, "request", []string{"v"}); err != nil {
+				t.Fatal(err)
+			}
+			s.Start()
+			select {
+			case err := <-progressResult:
+				if err != nil {
+					t.Fatalf("quota discarded a paid task receipt: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Fatal("executor did not record progress")
+			}
+			if _, err := s.Create(1, "over quota"); !errors.Is(err, ErrQuota) {
+				t.Fatalf("new work bypassed the quota: %v", err)
+			}
+			if restart {
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+				restarted, err := New(s.root, executor, s.opts)
+				if err != nil {
+					t.Fatalf("full quota blocked recovery: %v", err)
+				}
+				t.Cleanup(func() { _ = restarted.Close() })
+				restarted.Start()
+				waitSnapshot(t, restarted, 1, id, noActive)
+			} else {
+				done := waitSnapshot(t, s, 1, id, noActive)
+				if done.Jobs[0].RemoteID != remoteID {
+					t.Fatalf("receipt lost on completion: %+v", done.Jobs[0])
+				}
+				s.mu.Lock()
+				s.opts.MaxUserBytes = 1 << 30
+				s.mu.Unlock()
+				if _, err := s.Retry(1, id, done.Jobs[0].ID); err != nil {
+					t.Fatal(err)
+				}
+				waitSnapshot(t, s, 1, id, noActive)
+			}
+			select {
+			case resumedID := <-seen:
+				if resumedID != remoteID {
+					t.Fatalf("wrong receipt on resume: %q", resumedID)
+				}
+			default:
+				t.Fatal("known video was not resumed")
+			}
+			if submissions.Load() != 1 {
+				t.Fatalf("paid video submitted %d times", submissions.Load())
+			}
+		})
+	}
+}
+
+func TestVideoProgressWriteFailureRetainsReceiptAndProtectsRecovery(t *testing.T) {
+	for _, recovery := range []string{"before-completion", "before-retry", "after-restart"} {
+		t.Run(recovery, func(t *testing.T) {
+			var submissions atomic.Int32
+			progressResult := make(chan error, 1)
+			var manifest string
+			restore := func() error {
+				if err := os.Remove(manifest); err != nil {
+					return err
+				}
+				return os.Rename(manifest+".saved", manifest)
+			}
+			s := testStore(t, executorFunc(func(_ context.Context, job Job, _ []AssetFile, progress func(string, bool) error) (Result, error) {
+				if job.RemoteID != "" {
+					return Result{}, errors.New("observed resumed poll")
+				}
+				submissions.Add(1)
+				// An existing directory prevents atomic replacement even when tests
+				// run as root, while preserving the last durable running record.
+				if err := os.Rename(manifest, manifest+".saved"); err != nil {
+					return Result{}, err
+				}
+				if err := os.Mkdir(manifest, 0700); err != nil {
+					return Result{}, err
+				}
+				err := progress("paid-video-123", false)
+				progressResult <- err
+				if recovery == "before-completion" {
+					err = errors.Join(err, restore())
+				}
+				return Result{}, err
+			}), Options{})
+			project := saveGraph(t, s, 1, []Node{card("v", "video")}, nil)
+			id := project.Project.ID
+			manifest = filepath.Join(s.projectDir(projectKey{1, id}), "project.json")
+			if _, err := s.Run(1, id, "request", []string{"v"}); err != nil {
+				t.Fatal(err)
+			}
+			s.Start()
+			done := waitSnapshot(t, s, 1, id, noActive)
+			select {
+			case err := <-progressResult:
+				if !errors.Is(err, ErrUncertain) {
+					t.Fatalf("unsafe progress error: %v", err)
+				}
+			default:
+				t.Fatal("executor never recorded progress")
+			}
+			if done.Jobs[0].RemoteID != "paid-video-123" || done.Jobs[0].Status != "interrupted" {
+				t.Fatalf("write failure discarded the receipt: %+v", done.Jobs[0])
+			}
+			if recovery != "before-completion" {
+				if err := restore(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if recovery == "after-restart" {
+				if err := s.Close(); err != nil {
+					t.Fatal(err)
+				}
+				restarted, err := New(s.root, unusedExecutor(), Options{})
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = restarted.Close() })
+				recovered, err := restarted.Get(1, id)
+				if err != nil || recovered.Jobs[0].Status != "interrupted" {
+					t.Fatalf("unknown submission would be resent after restart: %+v, %v", recovered.Jobs, err)
+				}
+			} else {
+				if recovery == "before-completion" {
+					data, err := os.ReadFile(manifest)
+					if err != nil || !bytes.Contains(data, []byte("paid-video-123")) {
+						t.Fatalf("transient failure did not persist the retained receipt: %s, %v", data, err)
+					}
+				}
+				if _, err := s.Retry(1, id, done.Jobs[0].ID); err != nil {
+					t.Fatal(err)
+				}
+				waitSnapshot(t, s, 1, id, noActive)
+			}
+			if submissions.Load() != 1 {
+				t.Fatalf("paid video submitted %d times", submissions.Load())
 			}
 		})
 	}

@@ -3,12 +3,15 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { creativeStudioAPI as api, type StudioSnapshot, type StudioProject, type StudioAsset, type StudioJob } from '@/api/creativeStudio'
 import { useCreativeStudio, persistedProject } from '../useCreativeStudio'
+import { readVideoDuration } from '../studioMedia'
 import type { QuickComposeInput } from '@/types/creativeQuickCompose'
 
 vi.mock('@/api/creativeStudio', () => ({ creativeStudioAPI: Object.fromEntries(['list','create','get','save','remove','upload','asset','run','retry','cancel','render','models','preflight'].map(name => [name, vi.fn()])) }))
+vi.mock('../studioMedia', () => ({ readVideoDuration: vi.fn() }))
 const copy = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 const node = { id: 'image-1', type: 'image' as const, position: { x: 50, y: 80 }, data: { kind: 'image' as const, title: 'overview', prompt: 'leather bag', params: { model: 'gpt-image-2', group_id: 20, size: 'auto', quality: 'auto', format: 'png', seconds: 6, resolution: '720p' } } }
 const imageAsset = (id: string): StudioAsset => ({ id, kind: 'image', name: `${id}.png`, mime: 'image/png', size: 10, created_at: 100, node_id: node.id })
+const videoAsset = (id: string): StudioAsset => ({ ...imageAsset(id), kind: 'video', name: `${id}.mp4`, mime: 'video/mp4' })
 function deferred<T>() {
   let resolve!: (value: T) => void
   const promise = new Promise<T>(yes => { resolve = yes })
@@ -39,6 +42,7 @@ beforeEach(() => {
     return copy(server)
   })
   vi.mocked(api.asset).mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
+  vi.mocked(readVideoDuration).mockResolvedValue(2)
   vi.mocked(api.preflight).mockImplementation(async (_id, ids, revision) => ({ revision, valid: true, counts: { image: ids.length, video: 0, total: ids.length }, nodes: [], errors: [] }))
   vi.mocked(api.run).mockImplementation(async () => copy(server))
   vi.mocked(api.render).mockImplementation(async () => copy(server))
@@ -258,7 +262,7 @@ describe('creative studio persistence and workflows', () => {
     studio.selectedId.value = node.id
     studio.markPreferred(server.assets[0]!)
     studio.selectNodes([node.id])
-    studio.addSelectedTimeline()
+    await studio.addSelectedTimeline()
     await studio.save()
     expect(server.project.nodes[0]!.data.preferredAssetId).toBe('preferred')
     expect(server.project.timeline!.clips[0]!.asset_id).toBe('preferred')
@@ -282,6 +286,136 @@ describe('creative studio persistence and workflows', () => {
     const result = persistedProject(p)
     expect(JSON.stringify(result)).not.toContain('blob:')
     expect(result.nodes[0]!.data).not.toHaveProperty('error')
+  })
+})
+
+describe('timeline insertion', () => {
+  function completed(asset: StudioAsset) {
+    server.assets.push(asset)
+    server.project.nodes[0]!.type = asset.kind as 'image' | 'video'
+    server.project.nodes[0]!.data.kind = asset.kind as 'image' | 'video'
+    server.project.timeline!.auto_add_node_ids = [node.id]
+    server.jobs = [{ id: 'completed-job', run_id: 'run-1', node_id: node.id, kind: asset.kind, status: 'succeeded', prompt: 'bag', params: node.data.params, asset_id: asset.id, created_at: 20, updated_at: 30 }]
+  }
+
+  it.each([1, 2, 2.5, 3])('uses the actual %s-second video length for automatic shots', async duration => {
+    completed(videoAsset('short-video'))
+    vi.mocked(readVideoDuration).mockResolvedValue(duration)
+    const studio = await start()
+    expect(studio.timeline.value.clips).toEqual([expect.objectContaining({ asset_id: 'short-video', start: 0, duration })])
+    expect(api.asset).toHaveBeenCalledWith('project-1', 'short-video', expect.any(AbortSignal), false)
+    expect(studio.timeline.value.auto_add_node_ids).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(studio.timeline.value.clips).toHaveLength(1)
+    expect(readVideoDuration).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([1, 2, 3, 8])('bounds manual shots by the source duration (%s seconds), including uploads', async duration => {
+    server.assets = [{ ...videoAsset('uploaded'), node_id: undefined }]
+    vi.mocked(readVideoDuration).mockResolvedValue(duration)
+    const studio = await start()
+    expect(await studio.addTimeline('uploaded', 'caption')).toBe(true)
+    expect(studio.timeline.value.clips[0]).toMatchObject({ asset_id: 'uploaded', title: 'caption', start: 0, duration: Math.min(4, duration) })
+  })
+
+  it('retains automatic results at 12 shots and adds them once when space is freed', async () => {
+    server.assets = [imageAsset('imported')]
+    server.project.timeline!.auto_add_node_ids = [node.id]
+    const studio = await start()
+    for (let i = 0; i < 12; i++) await studio.addTimeline('imported')
+    await studio.save()
+    completed(imageAsset('new-result'))
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(studio.timeline.value.clips).toHaveLength(12)
+    expect(studio.timeline.value.auto_add_node_ids).toEqual([node.id])
+    expect(studio.notice.value).toBe('timelineFull')
+    // Repeated polls do not replace unrelated notices with the capacity message.
+    studio.notice.value = 'another notice'
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(studio.notice.value).toBe('another notice')
+    studio.timeline.value.clips.pop()
+    await studio.save(); await flushPromises()
+    expect(studio.timeline.value.clips).toHaveLength(12)
+    expect(studio.timeline.value.clips.filter(c => c.asset_id === 'new-result')).toHaveLength(1)
+    expect(studio.timeline.value.auto_add_node_ids).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(4500)
+    wrappers[0]!.unmount(); wrappers = []
+    const reopened = await start()
+    expect(reopened.timeline.value.clips).toHaveLength(12)
+    expect(reopened.timeline.value.auto_add_node_ids).toBeUndefined()
+  })
+
+  it('consumes an automatic result already present in a full timeline', async () => {
+    completed(imageAsset('already-added'))
+    server.project.timeline!.clips = Array.from({ length: 12 }, (_, i) => ({ id: `clip-${i}`, asset_id: 'already-added', title: '', start: 0, duration: 4 }))
+    const studio = await start()
+    expect(studio.timeline.value.clips).toHaveLength(12)
+    expect(studio.timeline.value.auto_add_node_ids).toBeUndefined()
+    expect(studio.notice.value).not.toBe('timelineFull')
+  })
+
+  it('rechecks capacity after metadata loads and deduplicates pending automatic inserts', async () => {
+    completed(videoAsset('pending-video'))
+    server.assets.push(imageAsset('imported'))
+    const metadata = deferred<number>()
+    vi.mocked(readVideoDuration).mockReturnValue(metadata.promise)
+    const studio = await start()
+    for (let i = 0; i < 12; i++) await studio.addTimeline('imported')
+    await vi.advanceTimersByTimeAsync(9000)
+    expect(readVideoDuration).toHaveBeenCalledTimes(1)
+    metadata.resolve(2); await flushPromises()
+    expect(studio.timeline.value.clips).toHaveLength(12)
+    expect(studio.timeline.value.auto_add_node_ids).toEqual([node.id])
+    studio.timeline.value.clips.pop()
+    await studio.save(); await flushPromises()
+    expect(studio.timeline.value.clips).toHaveLength(12)
+    expect(studio.timeline.value.clips.at(-1)).toMatchObject({ asset_id: 'pending-video', duration: 2 })
+    expect(readVideoDuration).toHaveBeenCalledTimes(1)
+  })
+
+  it.each(['project', 'session'])('discards a pending video insertion after changing %s', async change => {
+    server.assets = [videoAsset('pending-video')]
+    const metadata = deferred<number>()
+    vi.mocked(readVideoDuration).mockReturnValue(metadata.promise)
+    const studio = await start()
+    const adding = studio.addTimeline('pending-video')
+    await flushPromises()
+    const signal = vi.mocked(readVideoDuration).mock.calls[0]![1]
+    if (change === 'project') {
+      vi.mocked(api.get).mockResolvedValueOnce({ ...copy(server), project: { ...copy(server.project), id: 'project-2' }, assets: [] })
+      await studio.open('project-2')
+    } else window.dispatchEvent(new Event('studio-session-ended'))
+    expect(signal.aborted).toBe(true)
+    metadata.resolve(2)
+    expect(await adding).toBe(false)
+    expect(studio.timeline.value.clips).toHaveLength(0)
+    expect(studio.error.value).toBe('')
+  })
+
+  it('keeps the automatic result pending when its selected version changes during metadata loading', async () => {
+    completed(videoAsset('first-video'))
+    server.assets.push(videoAsset('chosen-version'))
+    const metadata = deferred<number>()
+    vi.mocked(readVideoDuration).mockReturnValueOnce(metadata.promise)
+    const studio = await start()
+    studio.selectedId.value = node.id
+    studio.useVersion(server.assets[1]!)
+    metadata.resolve(2); await flushPromises()
+    expect(studio.timeline.value.clips).toHaveLength(0)
+    expect(studio.timeline.value.auto_add_node_ids).toEqual([node.id])
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(studio.timeline.value.clips).toEqual([expect.objectContaining({ asset_id: 'chosen-version', duration: 2 })])
+  })
+
+  it('leaves failed metadata reads retryable and rejects sources shorter than one second', async () => {
+    server.assets = [videoAsset('video')]
+    vi.mocked(readVideoDuration).mockRejectedValueOnce(new Error('decode failed')).mockResolvedValueOnce(0.5)
+    const studio = await start()
+    expect(await studio.addTimeline('video')).toBe(false)
+    expect(studio.error.value).toBe('timelineVideoUnavailable')
+    expect(await studio.addTimeline('video')).toBe(false)
+    expect(studio.error.value).toBe('timelineVideoTooShort')
+    expect(studio.timeline.value.clips).toHaveLength(0)
   })
 })
 

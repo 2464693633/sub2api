@@ -157,7 +157,7 @@ func (s *Store) load() error {
 				}
 			}
 			if changed {
-				if err := s.persist(key, &doc); err != nil {
+				if err := s.commitJobState(key, &doc); err != nil {
 					return err
 				}
 			}
@@ -232,6 +232,9 @@ func (s *Store) persist(key projectKey, doc *document) error {
 	if used > s.opts.MaxUserBytes {
 		return ErrQuota
 	}
+	return s.writeDocument(key, data)
+}
+func (s *Store) writeDocument(key projectKey, data []byte) error {
 	if err := atomicWrite(filepath.Join(s.projectDir(key), "project.json"), data); err != nil {
 		return err
 	}
@@ -265,6 +268,22 @@ func (s *Store) commit(key projectKey, doc *document) error {
 	s.documents[key] = doc
 	return nil
 }
+
+// commitJobState persists only bounded state changes to already admitted jobs.
+// A full media quota must not discard paid task IDs or prevent recovery and
+// cancellation. New jobs, assets and project edits still go through commit.
+func (s *Store) commitJobState(key projectKey, doc *document) error {
+	data, err := json.Marshal(doc)
+	if err != nil {
+		return err
+	}
+	if err := s.writeDocument(key, data); err != nil {
+		return err
+	}
+	s.documents[key] = doc
+	return nil
+}
+
 func (s *Store) notify() {
 	select {
 	case s.wake <- struct{}{}:

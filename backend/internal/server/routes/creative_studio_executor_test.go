@@ -183,6 +183,30 @@ func TestCreativeVideoPersistsIDBeforePollingAndResumesWithoutPOST(t *testing.T)
 	}
 }
 
+func TestCreativeVideoProgressFailureNeedsConsciousRetry(t *testing.T) {
+	for _, failure := range []error{creativestudio.ErrQuota, os.ErrPermission} {
+		t.Run(failure.Error(), func(t *testing.T) {
+			var requests []string
+			e := &creativeStudioExecutor{gateway: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests = append(requests, r.Method+" "+r.URL.Path)
+				_, _ = w.Write([]byte(`{"id":"paid-video-123"}`))
+			})}
+			_, err := e.video(context.Background(), creativestudio.Job{}, creativeGenerationParams{Seconds: 2}, "key", nil, func(id string, terminal bool) error {
+				if id != "paid-video-123" || terminal {
+					t.Fatalf("incorrect receipt: %q, terminal=%v", id, terminal)
+				}
+				return failure
+			})
+			if !errors.Is(err, creativestudio.ErrUncertain) || !errors.Is(err, failure) {
+				t.Fatalf("post-submission storage failure is not protected: %v", err)
+			}
+			if !reflect.DeepEqual(requests, []string{"POST /v1/videos"}) {
+				t.Fatalf("executor continued after losing its receipt: %+v", requests)
+			}
+		})
+	}
+}
+
 func TestCreativeVideoTerminalAndDownloadFailures(t *testing.T) {
 	for _, terminalStatus := range []string{"failed", "expired", "cancelled", "canceled"} {
 		t.Run(terminalStatus, func(t *testing.T) {
