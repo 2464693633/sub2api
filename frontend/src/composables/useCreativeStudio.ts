@@ -63,7 +63,8 @@ export function useCreativeStudio(tr: Translate) {
   let pollTimer: ReturnType<typeof setTimeout> | undefined
   let savePromise: Promise<boolean> | undefined
   const previewPromises = new Map<string, Promise<string>>()
-  const selected = computed(() => project.value?.nodes.find(n => n.id === selectedId.value))
+  const selected = computed<CreativeCanvasNode | undefined>(() =>
+    project.value?.nodes.find((n: CreativeCanvasNode) => n.id === selectedId.value))
   const running = computed(() => jobs.value.filter(active))
   const exports = computed(() => jobs.value.filter(j => j.kind === 'compose'))
   const selectedNodes = computed(() => project.value?.nodes.filter(n => n.selected) || [])
