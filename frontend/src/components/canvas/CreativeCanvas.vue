@@ -49,12 +49,14 @@
             :selected="id === selectedNodeId || selected"
             :readonly="readonly"
             @run="emit('run', id)"
+            @review="emit('review', id)"
             @derive="emit('derive', { id, kind: $event })"
             @duplicate="emit('duplicate', id)"
             @remove="emit('remove', id)"
             @edit-prompt="emit('edit', { id, prompt: $event })"
             @preview="emit('preview', id)"
             @add-timeline="emit('addTimeline', id)"
+            @drag-timeline="emit('dragTimeline', { id, event: $event })"
           />
         </template>
       </VueFlow>
@@ -110,12 +112,14 @@ const emit = defineEmits<{
   template: []
   arrange: []
   run: [id: string]
+  review: [id: string]
   duplicate: [id: string]
   remove: [id: string]
   derive: [request: { id: string; kind: 'image' | 'video' }]
   edit: [request: { id: string; prompt: string }]
   preview: [id: string]
   addTimeline: [id: string]
+  dragTimeline: [payload: { id: string; event: DragEvent }]
 }>()
 
 const { t: canvasT } = useI18n({ useScope: 'local', messages: creativeCanvasMessages })

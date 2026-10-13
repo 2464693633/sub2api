@@ -68,6 +68,8 @@ export interface StudioTimeline {
   size: '1280x720' | '720x1280' | '720x720'
   audio_asset_id?: string
   cover_asset_id?: string
+  /** Quick compose nodes whose first successful result should be added once. */
+  auto_add_node_ids?: string[]
 }
 export interface StudioProject {
   id: string
@@ -93,6 +95,8 @@ export interface StudioJob {
   remote_id?: string
   error?: string
   upstream_terminal?: boolean
+  /** ID of the prerequisite job that caused this job to fail before execution. */
+  blocked_by?: string
   created_at: number
   updated_at: number
 }

@@ -329,6 +329,19 @@ describe('quick compose project creation', () => {
     expect(api.run).not.toHaveBeenCalled()
   })
 
+  it('adds completed quick compose results to the timeline once after polling', async () => {
+    const studio = await start()
+    const flow = (await studio.createQuickCompose({ ...input(0, 'none'), autoTimeline: true }))!
+    const nodeId = flow.nodeIds[0]!
+    server.assets = [{ ...imageAsset('auto-result'), node_id: nodeId }]
+    server.jobs = [{ id: 'auto-job', run_id: 'auto-run', node_id: nodeId, kind: 'image', status: 'succeeded', prompt: 'bag', params: node.data.params, asset_id: 'auto-result', created_at: 20, updated_at: 30 }]
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(studio.timeline.value.clips).toHaveLength(1)
+    expect(studio.timeline.value.clips[0]!.asset_id).toBe('auto-result')
+    await vi.advanceTimersByTimeAsync(4500)
+    expect(studio.timeline.value.clips).toHaveLength(1)
+  })
+
   it('retains the new flow and its IDs after save failure, then saves and submits that flow', async () => {
     const studio = await start()
     vi.mocked(api.save).mockRejectedValueOnce(new Error('save failed'))

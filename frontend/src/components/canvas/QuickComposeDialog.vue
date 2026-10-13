@@ -34,6 +34,7 @@
         </section>
 
         <div class="compose-summary" aria-live="polite"><span class="summary-step"><strong>{{ counts.image }}</strong> {{ tr('imageUnit') }}</span><span v-if="counts.video" class="summary-arrow" aria-hidden="true">→</span><span v-if="counts.video" class="summary-step"><strong>{{ counts.video }}</strong> {{ tr('videoUnit') }}</span><span class="summary-total">{{ tr('steps', { n: counts.total }) }}</span></div>
+        <label class="auto-timeline"><input v-model="draft.autoTimeline" type="checkbox" /> <span>{{ tr('autoTimeline') }}</span></label>
 
         <section class="compose-section models-section" :aria-labelledby="`${fieldId}-models`">
           <div class="section-heading"><h3 :id="`${fieldId}-models`">{{ tr('models') }}</h3><button type="button" class="advanced-toggle" :aria-expanded="advanced" :aria-controls="`${fieldId}-advanced`" @click="advanced = !advanced">{{ tr('advanced') }} <span aria-hidden="true">{{ advanced ? '−' : '+' }}</span></button></div>
@@ -84,6 +85,7 @@ const { t: tr } = useI18n({ useScope: 'local', messages: {
     videos: '让图片动起来', videoHint: '图片完成后自动继续', videoPlan: '视频生成方案',
     video_none: '只要图片', video_none_hint: '之后也可以添加视频', video_two: '精选镜头', video_two_hint: '生成 {n} 段视频', video_all: '每张都做视频', video_all_hint: '生成 {n} 段视频',
     imageUnit: '张图片', videoUnit: '段视频', steps: '共 {n} 个生成步骤',
+    autoTimeline: '生成完成后自动整理到时间线',
     models: '使用模型', advanced: '高级参数', imageModel: '图片', videoModel: '视频',
     overview: '整体画面与构图', overviewPlaceholder: '例如：完整展示主体，三分之四视角，主体居中，画面留白。',
     missingModels: '部分模型不可用，请检查工作台分组权限或重新选择模型。仍可先创建流程。',
@@ -102,6 +104,7 @@ const { t: tr } = useI18n({ useScope: 'local', messages: {
     videos: 'Bring images to life', videoHint: 'Starts when the images are ready', videoPlan: 'Video plan',
     video_none: 'Images only', video_none_hint: 'You can add video later', video_two: 'Selected shots', video_two_hint: 'Generate {n} videos', video_all: 'Animate every image', video_all_hint: 'Generate {n} videos',
     imageUnit: 'images', videoUnit: 'videos', steps: '{n} generation steps',
+    autoTimeline: 'Add completed results to the timeline automatically',
     models: 'Models', advanced: 'Advanced settings', imageModel: 'Images', videoModel: 'Video',
     overview: 'Overview framing', overviewPlaceholder: 'For example: show the whole subject, three-quarter view, centered with room around it.',
     missingModels: 'Some models are unavailable. Check studio group access or select another model. You can still create the workflow.',
@@ -124,7 +127,7 @@ const uniqueModels = (models: StudioModel[]) => [...new Map(models.filter(model 
 const uniqueImageModels = computed(() => uniqueModels(props.imageModels))
 const uniqueVideoModels = computed(() => uniqueModels(props.videoModels))
 const baseParams = (): StudioParams => ({ model: '', group_id: 0, size: 'auto', quality: 'auto', format: 'png', seconds: 6, resolution: '720p' })
-const draft = ref<QuickComposeInput>({ subject: '', style: '', overview: '', detailCount: 4, videoMode: 'two', imageParams: baseParams(), videoParams: baseParams() })
+const draft = ref<QuickComposeInput>({ subject: '', style: '', overview: '', detailCount: 4, videoMode: 'two', autoTimeline: true, imageParams: baseParams(), videoParams: baseParams() })
 const locked = computed(() => props.busy || props.prepared)
 const counts = computed(() => quickComposeCounts(draft.value.detailCount, draft.value.videoMode))
 const hasSubject = computed(() => props.prepared || !!draft.value.subject.trim())
@@ -149,7 +152,7 @@ async function open() {
   if (props.busy) return
   if (!props.prepared) {
     draft.value = {
-      subject: props.defaults?.subject || '', style: props.defaults?.style || '', overview: '', detailCount: 4, videoMode: 'two',
+      subject: props.defaults?.subject || '', style: props.defaults?.style || '', overview: '', detailCount: 4, videoMode: 'two', autoTimeline: true,
       imageParams: initialParams(props.defaults?.image_params, props.imageModels), videoParams: initialParams(props.defaults?.video_params, props.videoModels)
     }
     advanced.value = false
@@ -204,6 +207,8 @@ defineExpose({ open, close })
 .video-options strong { color: var(--cs-text); font-size: 12px; font-weight: 600; }
 .video-options span { font-size: 10px; line-height: 1.5; }
 .compose-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 11px; margin-top: 18px; padding: 13px 15px; border-radius: 9px; background: var(--cs-surface); font-size: 11px; }
+.auto-timeline { display:flex;align-items:center;gap:7px;margin-top:12px;font-size:11px;color:var(--cs-muted);cursor:pointer; }
+.auto-timeline input { width:14px;height:14px;accent-color:#0f766e; }
 .summary-step strong { margin-right: 2px; font-size: 17px; color: #0f766e; }
 .summary-arrow { color: #94a3b8; }
 .summary-total { margin-left: auto; color: var(--cs-muted); font-size: 10px; }

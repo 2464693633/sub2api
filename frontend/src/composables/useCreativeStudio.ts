@@ -126,6 +126,22 @@ export function useCreativeStudio(tr: Translate) {
       }
       node.data.previewUrl = node.data.assetId ? previewUrls.value[node.data.assetId] : undefined
     }
+    // Quick compose can opt into a hands-off first cut. Consume each node ID
+    // after its first successful result so polling the same snapshot never
+    // duplicates a clip. The consumed IDs are removed from the saved project,
+    // which also makes the behavior safe across reloads and multiple tabs.
+    const autoIds = new Set(p.timeline?.auto_add_node_ids || [])
+    if (autoIds.size) {
+      const clips = p.timeline!.clips
+      for (const node of p.nodes) {
+        if (!autoIds.has(node.id) || !node.data.assetId || node.data.status !== 'succeeded') continue
+        if (!clips.some(clip => clip.asset_id === node.data.assetId)) {
+          clips.push({ id: uid(), asset_id: node.data.assetId, title: node.data.title, start: 0, duration: 4 })
+        }
+        autoIds.delete(node.id)
+      }
+      p.timeline!.auto_add_node_ids = autoIds.size ? [...autoIds] : undefined
+    }
     void loadImagePreviews()
   }
   async function preview(assetId: string) {
@@ -420,7 +436,7 @@ export function useCreativeStudio(tr: Translate) {
       if (!current(ticket)) return
       const next = snapshot.project
       next.settings = { subject: draft.subject.trim(), style: draft.style.trim(), image_params: draft.imageParams, video_params: draft.videoParams }
-      next.timeline = emptyTimeline()
+      next.timeline = { ...emptyTimeline(), auto_add_node_ids: draft.autoTimeline === false ? undefined : [] }
       next.nodes = []; next.edges = []
       const make = (kind: 'image' | 'video', title: string, prompt: string, x: number, y: number) => {
         const node: CreativeCanvasNode = { id: uid(), type: kind, position: { x, y }, data: {
@@ -444,7 +460,8 @@ export function useCreativeStudio(tr: Translate) {
           draft.detailCount > 2 ? 1170 : draft.detailCount ? 800 : 430, 50 + index * 410)
         link(source.id, video.id)
       })
-      const flow = { projectId: next.id, nodeIds: next.nodes.map(n => n.id) }
+      if (draft.autoTimeline !== false) next.timeline!.auto_add_node_ids = next.nodes.filter(n => n.type !== 'text').map(n => n.id)
+      const flow = { projectId: next.id, nodeIds: next.nodes.map(n => n.id), graphSignature: signature(next), autoTimeline: draft.autoTimeline !== false }
       // Install a recoverable local draft before saving its graph. A failed
       // save must return these IDs so retry never creates a second flow.
       reset(); ticket = epoch
@@ -571,11 +588,13 @@ export function useCreativeStudio(tr: Translate) {
       notice.value = tr('imported')
     })
   }
-  function addTimeline(assetId: string, title = '') {
+  function addTimeline(assetId: string, title = '', index?: number) {
     if (!project.value || !assets.value.some(a => a.id === assetId && a.kind !== 'audio')) return
     project.value.timeline ||= emptyTimeline()
     if (project.value.timeline.clips.length >= 12) { error.value = tr('timelineFull'); return }
-    project.value.timeline.clips.push({ id: uid(), asset_id: assetId, title, start: 0, duration: 4 })
+    const clip = { id: uid(), asset_id: assetId, title, start: 0, duration: 4 }
+    const target = Number.isInteger(index) ? Math.max(0, Math.min(index!, project.value.timeline.clips.length)) : project.value.timeline.clips.length
+    project.value.timeline.clips.splice(target, 0, clip)
   }
   async function render() {
     await action(async ticket => {
@@ -618,5 +637,6 @@ export function useCreativeStudio(tr: Translate) {
     window.removeEventListener('beforeunload', beforeUnload)
   })
   return { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
-    initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft }
+    initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft,
+    projectSignature: () => project.value ? signature(project.value) : '' }
 }

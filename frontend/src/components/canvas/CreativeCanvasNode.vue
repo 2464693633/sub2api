@@ -41,8 +41,8 @@
     </div>
 
     <footer class="creative-node-actions nodrag">
-      <button v-if="kind !== 'text'" type="button" class="creative-node-action creative-node-run" :disabled="readonly || active" @click.stop="emit('run')">{{ runLabel }}</button>
-      <button v-if="kind !== 'text' && data.assetId" type="button" class="creative-node-action creative-node-timeline-action" :disabled="readonly" @click.stop="emit('addTimeline')">+ {{ canvasT('board.timeline') }}</button>
+      <button v-if="kind !== 'text'" type="button" class="creative-node-action creative-node-run" :disabled="readonly || active" @click.stop="runOrReview">{{ runLabel }}</button>
+      <button v-if="kind !== 'text' && data.assetId" type="button" class="creative-node-action creative-node-timeline-action" :disabled="readonly" draggable="true" @dragstart.stop="emit('dragTimeline', $event)" @click.stop="emit('addTimeline')">+ {{ canvasT('board.timeline') }}</button>
       <button v-if="kind === 'text'" type="button" class="creative-node-action" :disabled="readonly" @click.stop="emit('derive', 'image')">+ {{ canvasT('board.fromText') }}</button>
       <template v-if="kind === 'image'">
         <button type="button" class="creative-node-action" :disabled="readonly" @click.stop="emit('derive', 'image')">+ {{ canvasT('board.details') }}</button>
@@ -68,18 +68,27 @@ const props = withDefaults(defineProps<{
 }>(), { selected: false, readonly: false })
 const emit = defineEmits<{
   run: []
+  review: []
   derive: [kind: 'image' | 'video']
   duplicate: []
   remove: []
   editPrompt: [prompt: string]
   preview: []
   addTimeline: []
+  dragTimeline: [event: DragEvent]
 }>()
 const { t: canvasT } = useI18n({ useScope: 'local', messages: creativeCanvasMessages })
 const active = computed(() => ['running', 'queued', 'waiting'].includes(props.data.status || ''))
 const statusLabel = computed(() => canvasT(`board.${props.data.status || 'draft'}`))
-const runLabel = computed(() => props.data.status === 'failed' || props.data.status === 'cancelled' || props.data.status === 'interrupted'
-  ? canvasT('board.retry') : props.data.assetId ? canvasT('board.regenerate') : active.value ? statusLabel.value : canvasT('board.run'))
+const runLabel = computed(() => props.data.status === 'interrupted'
+  ? canvasT('board.reviewRetry')
+  : props.data.status === 'failed' || props.data.status === 'cancelled'
+    ? canvasT('board.retry')
+    : props.data.assetId ? canvasT('board.regenerate') : active.value ? statusLabel.value : canvasT('board.run'))
+function runOrReview() {
+  if (props.data.status === 'interrupted') emit('review')
+  else emit('run')
+}
 </script>
 
 <style scoped>

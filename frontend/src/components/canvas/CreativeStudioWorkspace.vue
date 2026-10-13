@@ -41,7 +41,7 @@
       <div class="workspace-actions workspace-toolbar">
         <div class="view-switch"><button type="button" :aria-pressed="boardMode === 'canvas'" @click="boardMode = 'canvas'">{{ tr('workspace') }}</button><button type="button" :aria-pressed="boardMode === 'list'" @click="boardMode = 'list'">{{ tr('cardList') }}</button></div>
         <button type="button" @click="selectNodes(project.nodes.map(n => n.id))">{{ tr('selectAll') }}</button><button v-if="selectedNodes.length" type="button" @click="selectNodes([])">{{ tr('clearSelection') }}</button>
-        <span class="muted toolbar-summary">{{ tr('plannedCounts', plannedCounts) }}</span><button type="button" :disabled="busy || !pendingNodeIds.length" @click="checkPlan()">{{ tr('checkPlan') }}</button>
+        <span class="muted toolbar-summary">{{ tr('plannedCounts', plannedCounts) }} · {{ tr('progressSummary', workflowProgress) }}</span><button type="button" :disabled="busy || !pendingNodeIds.length" @click="checkPlan()">{{ tr('checkPlan') }}</button>
         <button type="button" class="timeline-toggle" :aria-expanded="timelineDockOpen" @click="timelineDockOpen = !timelineDockOpen">▤ {{ tr('timeline') }} · {{ timeline.clips.length }}</button>
       </div>
       <div v-if="selectedNodes.length" class="batch-actions">
@@ -62,15 +62,15 @@
           v-model:viewport="project.viewport" :selected-node-id="selectedId" :readonly="saveState === 'conflict'"
           @select="selectedId = $event" @add="addAndFocus($event)" @open-assets="showAssets"
           @template="addTemplate" @arrange="arrangeBoard" @run="runNode($event)" @duplicate="duplicate"
-          @remove="remove" @derive="deriveAndFocus($event.id, $event.kind)" @edit="editPrompt" @preview="previewNode"
-          @add-timeline="addNodeToTimeline"
+          @remove="remove" @derive="deriveAndFocus($event.id, $event.kind)" @edit="editPrompt" @preview="previewNode" @review="focusNode"
+          @add-timeline="addNodeToTimeline" @drag-timeline="startNodeTimelineDrag"
         />
         <section v-else class="card-list" :aria-label="tr('cardList')">
           <div class="button-row"><button type="button" @click="addAndFocus('text')">+ {{ tr('text') }}</button><button type="button" @click="addAndFocus('image')">+ {{ tr('images') }}</button><button type="button" @click="addAndFocus('video')">+ {{ tr('videos') }}</button><button type="button" @click="showAssets">{{ tr('assets') }}</button><button type="button" @click="addTemplate">{{ tr('detailsTemplate') }}</button></div>
           <article v-for="node in project.nodes" :key="node.id" class="list-card" :class="{ chosen: selectedId === node.id }">
             <input v-model="node.selected" type="checkbox" :aria-label="tr('selectCard', { title: node.data.title })" />
             <button type="button" class="list-card-main" @click="focusNode(node.id)"><img v-if="node.type === 'image' && node.data.previewUrl" :src="node.data.previewUrl" :alt="node.data.title" /><span v-else class="list-card-kind">{{ node.type === 'image' ? '▧' : node.type === 'video' ? '▷' : 'T' }}</span><span><strong>{{ node.data.title }}</strong><small>{{ node.data.prompt || project.settings?.subject || tr('promptPlaceholder') }}</small><span class="muted">{{ tr(node.data.status || 'draft') }}</span></span></button>
-            <button v-if="node.type !== 'text'" type="button" :disabled="busy || ['queued','waiting','running'].includes(node.data.status || '')" @click="runNode(node.id)">{{ ['failed','cancelled'].includes(node.data.status || '') ? tr('retry') : node.data.assetId ? tr('rerun') : tr('run') }}</button>
+            <button v-if="node.type !== 'text'" type="button" :disabled="busy || ['queued','waiting','running'].includes(node.data.status || '')" @click="runListAction(node)">{{ node.data.status === 'interrupted' ? tr('reviewRetry') : ['failed','cancelled'].includes(node.data.status || '') ? tr('retry') : node.data.assetId ? tr('rerun') : tr('run') }}</button>
           </article><p v-if="!project.nodes.length" class="muted">{{ tr('selectHint') }}</p>
         </section>
         <aside v-if="selected" ref="inspector" class="inspector" :aria-label="tr('inspector')">
@@ -109,7 +109,7 @@
         </aside>
       </div>
 
-      <details class="timeline-panel" :open="timelineDockOpen" @toggle="timelineDockOpen = ($event.target as HTMLDetailsElement).open">
+      <details class="timeline-panel" :open="timelineDockOpen" @toggle="timelineDockOpen = ($event.target as HTMLDetailsElement).open" @dragover.prevent @drop.prevent="dropTimeline">
         <summary><span>▤ {{ tr('timeline') }}</span><span class="muted">{{ timeline.clips.length }} {{ tr('clip') }} · {{ totalDuration }}s</span></summary>
         <div class="timeline-controls">
           <select v-model="timeline.size" :aria-label="tr('size')"><option value="1280x720">16:9 · 720p</option><option value="720x1280">9:16 · 720p</option><option value="720x720">1:1 · 720p</option></select>
@@ -119,10 +119,10 @@
           <label class="soundtrack">{{ tr('cover') }}<select v-model="timeline.cover_asset_id" :aria-label="tr('cover')"><option value="">{{ tr('noCover') }}</option><option v-for="asset in assets.filter(a => a.kind === 'image')" :key="asset.id" :value="asset.id">{{ asset.name }}</option></select></label>
           <button type="button" class="primary export-button" :disabled="busy || !timeline.clips.length || saveState === 'conflict'" @click="render">↓ {{ tr('render') }}</button>
         </div>
-        <p v-if="!timeline.clips.length" class="timeline-empty">{{ tr('timelineEmpty') }}</p>
+        <p v-if="!timeline.clips.length" class="timeline-empty">{{ tr('timelineEmpty') }}<br /><small>{{ tr('timelineDropHint') }}</small></p>
         <div v-else class="clips">
-          <article v-for="(clip, index) in timeline.clips" :key="clip.id" class="clip">
-            <div class="clip-top"><span class="clip-number">{{ String(index + 1).padStart(2, '0') }}</span><span>{{ assetById(clip.asset_id)?.kind === 'image' ? '▧' : '▷' }}</span><button type="button" :disabled="index === 0" :aria-label="tr('moveLeft')" @click="moveClip(index, -1)">←</button><button type="button" :disabled="index === timeline.clips.length - 1" :aria-label="tr('moveRight')" @click="moveClip(index, 1)">→</button><button type="button" :aria-label="tr('remove')" @click="timeline.clips.splice(index, 1)">×</button></div>
+          <article v-for="(clip, index) in timeline.clips" :key="clip.id" class="clip" draggable="true" @dragstart="startClipDrag(index, $event)" @dragover.prevent @drop.prevent.stop="dropClip(index, $event)">
+            <div class="clip-top"><span class="clip-number">{{ String(index + 1).padStart(2, '0') }}</span><span class="clip-grip" :title="tr('dragToReorder')" aria-hidden="true">⠿</span><span>{{ assetById(clip.asset_id)?.kind === 'image' ? '▧' : '▷' }}</span><button type="button" :disabled="index === 0" :aria-label="tr('moveLeft')" @click="moveClip(index, -1)">←</button><button type="button" :disabled="index === timeline.clips.length - 1" :aria-label="tr('moveRight')" @click="moveClip(index, 1)">→</button><button type="button" :aria-label="tr('remove')" @click="timeline.clips.splice(index, 1)">×</button></div>
             <img v-if="previewUrls[clip.asset_id] && assetById(clip.asset_id)?.kind === 'image'" :src="previewUrls[clip.asset_id]" :alt="clip.title" class="clip-thumb" />
             <p class="clip-asset" :title="assetById(clip.asset_id)?.name">{{ assetById(clip.asset_id)?.name }}</p>
             <label>{{ tr('caption') }}<input v-model="clip.title" maxlength="160" /></label>
@@ -132,7 +132,7 @@
         <p class="muted timeline-help">{{ tr('renderHint') }}</p>
         <div v-if="exports.length" class="export-list"><h3>{{ tr('exports') }}</h3><div v-for="job in exports" :key="job.id" class="job-row"><span>{{ date(job.created_at) }}</span><span>{{ tr(job.status) }}</span><span v-if="job.error" class="error">{{ job.error }}</span><button v-if="job.asset_id" type="button" @click="previewAsset(job.asset_id)">{{ tr('preview') }}</button><button v-if="job.asset_id" type="button" :disabled="busy" @click="downloadById(job.asset_id)">{{ tr('download') }}</button><button v-if="['failed','interrupted'].includes(job.status)" type="button" :disabled="busy" @click="jobAction(job, 'retry')">{{ tr('retry') }}</button></div></div>
       </details>
-      <details v-if="jobs.some(j => j.kind !== 'compose')" class="task-panel"><summary>{{ tr('taskList') }} · {{ jobs.filter(j => j.kind !== 'compose').length }}</summary><div v-for="job in jobs.filter(j => j.kind !== 'compose').slice(0, 60)" :key="job.id" class="job-row"><button type="button" @click="selectedId = job.node_id">{{ project.nodes.find(n => n.id === job.node_id)?.data.title || job.node_id.slice(0, 8) }}</button><span>{{ tr(job.status) }}</span><span v-if="job.error" class="error">{{ job.error }}</span><button v-if="['waiting','queued'].includes(job.status)" type="button" :disabled="busy" @click="jobAction(job, 'cancel')">{{ tr('stopQueue') }}</button></div></details>
+      <details v-if="jobs.some(j => j.kind !== 'compose')" class="task-panel"><summary>{{ tr('taskList') }} · {{ jobs.filter(j => j.kind !== 'compose').length }}</summary><div v-for="job in jobs.filter(j => j.kind !== 'compose').slice(0, 60)" :key="job.id" class="job-row"><button type="button" @click="focusNode(job.node_id)">{{ project.nodes.find(n => n.id === job.node_id)?.data.title || job.node_id.slice(0, 8) }}</button><span>{{ tr(job.status) }}</span><span v-if="job.blocked_by" class="warning">{{ tr('blockedBy') }}</span><span v-if="job.error" class="error">{{ job.error }}</span><button v-if="job.blocked_by && blockedJob(job)" type="button" :disabled="busy" @click="jobAction(blockedJob(job)!, 'retry')">{{ tr('retryPrerequisite') }}</button><button v-else-if="['failed','cancelled'].includes(job.status)" type="button" :disabled="busy" @click="jobAction(job, 'retry')">{{ tr('retry') }}</button><button v-else-if="job.status === 'interrupted'" type="button" :disabled="busy" @click="focusNode(job.node_id)">{{ tr('reviewRetry') }}</button><button v-else-if="['waiting','queued','running'].includes(job.status)" type="button" :disabled="busy" @click="jobAction(job, 'cancel')">{{ job.status === 'running' ? tr('stopGeneration') : tr('stopQueue') }}</button></div></details>
     </template>
 
     <CreativeTimelinePreview v-if="project" ref="timelinePlayer" :key="project.id" :timeline="timeline" :assets="assets" :resolve-preview="preview" />
@@ -167,13 +167,13 @@ import type { QuickComposeInput, QuickComposeFlow } from '@/types/creativeQuickC
 import { creativeStudioMessages } from './creativeStudioMessages'
 import { useCreativeStudio } from '@/composables/useCreativeStudio'
 import { sessionOwnerKey } from '@/composables/studioSession'
-import type { CreativeCanvasKind } from '@/types/creativeCanvas'
+import type { CreativeCanvasKind, CreativeCanvasNode } from '@/types/creativeCanvas'
 import { creativeStudioAPI } from '@/api/creativeStudio'
-import type { StudioAsset } from '@/api/creativeStudio'
+import type { StudioAsset, StudioJob } from '@/api/creativeStudio'
 
 const { t: tr, locale } = useI18n({ useScope: 'local', messages: creativeStudioMessages })
 const { projects, project, assets, jobs, imageModels, videoModels, selectedId, selected, loading, busy, error, notice, saveState, pendingRun, previewUrls, running, exports, timeline, preflight, selectedNodes, pendingNodeIds, effectiveParams, setParamsMode, applyProjectDefaults, selectNodes, markPreferred, addSelectedTimeline, runCounts, checkPlan,
-  initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft } = useCreativeStudio(tr)
+  initialize, create, createQuickCompose, deleteProject, open, save, preview, add, derive, template, remove, duplicate, arrange, run, runNode, jobAction, useVersion, addAssetNode, upload, addTimeline, render, download, exportDraft, projectSignature } = useCreativeStudio(tr)
 const board = ref<InstanceType<typeof CreativeCanvas>>()
 const inspector = ref<HTMLElement>()
 const boardMode = ref<'canvas' | 'list'>(window.innerWidth < 760 ? 'list' : 'canvas')
@@ -188,6 +188,13 @@ const comparisonUrls = ref<Record<string, string>>({})
 const comparisonError = ref('')
 let comparisonController: AbortController | undefined
 const plannedCounts = computed(() => runCounts())
+const workflowProgress = computed(() => {
+  const nodes = project.value?.nodes.filter(node => node.type !== 'text') || []
+  const done = nodes.filter(node => node.data.status === 'succeeded' && !!node.data.assetId).length
+  const active = nodes.filter(node => ['queued', 'waiting', 'running'].includes(node.data.status || '')).length
+  const failed = nodes.filter(node => ['failed', 'cancelled', 'interrupted'].includes(node.data.status || '')).length
+  return { done, total: nodes.length, active, failed }
+})
 const fileInput = ref<HTMLInputElement>()
 const audioInput = ref<HTMLInputElement>()
 const deleteDialog = ref<HTMLDialogElement>()
@@ -212,6 +219,11 @@ const totalDuration = computed(() => Math.round(timeline.value.clips.reduce((sum
 const assetById = (id: string) => assets.value.find(a => a.id === id)
 const date = (value: number) => new Date(value).toLocaleString(locale.value === 'zh' ? 'zh-CN' : 'en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 async function focusNode(id: string) { selectedId.value = id; await nextTick(); if (boardMode.value === 'list' && window.innerWidth < 760) inspector.value?.scrollIntoView({ behavior: 'smooth', block: 'start' }); else void board.value?.focusNode(id) }
+function blockedJob(job: StudioJob) { return job.blocked_by ? jobs.value.find(candidate => candidate.id === job.blocked_by) : undefined }
+function runListAction(node: CreativeCanvasNode) {
+  if (node.data.status === 'interrupted') void focusNode(node.id)
+  else void runNode(node.id)
+}
 async function addAndFocus(kind: CreativeCanvasKind) { const node = add(kind); if (node) await focusNode(node.id) }
 async function deriveAndFocus(id: string, kind: 'image' | 'video') { const node = derive(id, kind); if (node) await focusNode(node.id) }
 async function deriveSelected() { const ids = selectedImages.value.map(n => n.id); ids.forEach(id => derive(id, 'video')); await nextTick(); void board.value?.fitView() }
@@ -256,6 +268,7 @@ function openQuickCompose() {
   quickDialog.value?.open()
 }
 function quickFlowHasJobs(flow: QuickComposeFlow) { return jobs.value.some(job => flow.nodeIds.includes(job.node_id)) }
+function quickFlowChanged(flow: QuickComposeFlow) { return !!flow.graphSignature && flow.projectId === project.value?.id && projectSignature() !== flow.graphSignature }
 async function submitQuickCompose(input: QuickComposeInput, generate: boolean) {
   if (quickBusy.value || busy.value || loading.value) return
   quickBusy.value = true; quickError.value = ''
@@ -273,6 +286,17 @@ async function submitQuickCompose(input: QuickComposeInput, generate: boolean) {
       quickDialog.value?.close(); quickFlow.value = undefined
       notice.value = tr('quickAlreadySubmitted'); return
     }
+    // A create-only flow is intentionally editable on the canvas. Continue
+    // with the current unfinished cards when that graph changed, so deleted
+    // cards are never submitted and newly added cards are not silently lost.
+    if (quickFlowChanged(flow)) {
+      if (!generate) { quickError.value = tr('quickFlowChanged'); return }
+      const currentIds = [...pendingNodeIds.value]
+      if (!currentIds.length) { quickError.value = tr('nothingPending'); return }
+      if (flow.autoTimeline !== false && project.value?.timeline) project.value.timeline.auto_add_node_ids = currentIds
+      flow.nodeIds = currentIds
+      flow.graphSignature = projectSignature()
+    }
     await nextTick()
     await board.value?.fitView()
     if (disposed || sessionOwnerKey() !== owner || flow.projectId !== project.value?.id) return
@@ -284,14 +308,52 @@ async function submitQuickCompose(input: QuickComposeInput, generate: boolean) {
       quickError.value = error.value || tr('saveError'); return
     }
     quickDialog.value?.close()
-    quickFlow.value = undefined
-    if (!generate) notice.value = tr('quickDraftReady')
+    if (generate) quickFlow.value = undefined
+    else notice.value = tr('quickDraftReady')
   } finally { quickBusy.value = false }
 }
 function moveClip(index: number, offset: number) {
   const clips = timeline.value.clips
   const [clip] = clips.splice(index, 1)
   if (clip) clips.splice(index + offset, 0, clip)
+}
+function startNodeTimelineDrag(payload: { id: string; event: DragEvent }) {
+  const node = project.value?.nodes.find(item => item.id === payload.id)
+  if (!node?.data.assetId || !payload.event.dataTransfer) return
+  payload.event.dataTransfer.effectAllowed = 'copy'
+  payload.event.dataTransfer.setData('creative-asset', JSON.stringify({ assetId: node.data.assetId, title: node.data.title }))
+  timelineDockOpen.value = true
+}
+function startClipDrag(index: number, event: DragEvent) {
+  if ((event.target as HTMLElement | null)?.closest('input,button,select,label')) {
+    event.preventDefault()
+    return
+  }
+  if (!event.dataTransfer) return
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('creative-clip-index', String(index))
+}
+function dropClip(targetIndex: number, event: DragEvent) {
+  const transfer = event.dataTransfer
+  if (!transfer) return
+  const rawIndex = transfer.getData('creative-clip-index')
+  if (rawIndex !== '') {
+    const sourceIndex = Number(rawIndex)
+    if (Number.isInteger(sourceIndex) && sourceIndex >= 0 && sourceIndex < timeline.value.clips.length && sourceIndex !== targetIndex) {
+      const [clip] = timeline.value.clips.splice(sourceIndex, 1)
+      if (clip) timeline.value.clips.splice(sourceIndex < targetIndex ? targetIndex - 1 : targetIndex, 0, clip)
+    }
+    return
+  }
+  dropTimeline(event, targetIndex)
+}
+function dropTimeline(event: DragEvent, index?: number) {
+  const raw = event.dataTransfer?.getData('creative-asset')
+  if (!raw) return
+  try {
+    const value = JSON.parse(raw) as { assetId?: string; title?: string }
+    if (value.assetId) addTimeline(value.assetId, value.title || '', index)
+  } catch { /* ignore unrelated drops */ }
 }
 function retrySelected() { if (selectedJob.value) void jobAction(selectedJob.value, 'retry') }
 async function uploadFiles(event: Event) {
@@ -436,7 +498,9 @@ summary > span + span { margin-left: 14px; font-weight: 400; }
 .export-button { margin-left: auto; }
 .timeline-empty { border: 1px dashed var(--cs-border); text-align: center; color: var(--cs-muted); padding: 22px 10px; border-radius: 8px; }
 .clips { display: flex; gap: 10px; overflow-x: auto; padding-bottom: 10px; }
-.clip { flex: 0 0 222px; padding: 10px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface); }
+.clip { flex: 0 0 222px; padding: 10px; border: 1px solid var(--cs-border); border-radius: 9px; background: var(--cs-surface); cursor: grab; }
+.clip:active { cursor: grabbing; }
+.clip-grip { color: var(--cs-muted); font-size: 16px; line-height: 1; }
 .clip-number { font-size: 15px; font-weight: 600; color: #0f766e; margin-right: auto; }
 .clip-top button { padding: 3px 7px; }
 .clip-thumb { width: 100%; height: 92px; object-fit: cover; border-radius: 5px; margin-top: 8px; }
