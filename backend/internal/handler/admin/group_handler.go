@@ -185,23 +185,23 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
-	Name                            string                        `json:"name" binding:"required"`
-	Description                     string                        `json:"description"`
-	I18n                            service.GroupI18n             `json:"i18n"` // 名称与描述的界面语言译文
-	Platform                        string                        `json:"platform" binding:"omitempty,group_platform"`
-	RateMultiplier                  float64                       `json:"rate_multiplier"`
-	ReturnBillableUsage             bool                          `json:"return_billable_usage"`
-	IsExclusive                     bool                          `json:"is_exclusive"`
-	SubscriptionType                string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD                   optionalLimitField            `json:"daily_limit_usd"`
-	WeeklyLimitUSD                  optionalLimitField            `json:"weekly_limit_usd"`
-	MonthlyLimitUSD                 optionalLimitField            `json:"monthly_limit_usd"`
-	LongContextPricingEnabled       bool                          `json:"long_context_pricing_enabled"`
-	ModelPricing                    []service.ChannelModelPricing `json:"model_pricing"`
-	InputTokenMultiplier            *float64                      `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	OutputTokenMultiplier           *float64                      `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheCreationTokenMultiplier    *float64                      `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheReadTokenMultiplier        *float64                      `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	Name                         string                        `json:"name" binding:"required"`
+	Description                  string                        `json:"description"`
+	I18n                         service.GroupI18n             `json:"i18n"` // 名称与描述的界面语言译文
+	Platform                     string                        `json:"platform" binding:"omitempty,group_platform"`
+	RateMultiplier               float64                       `json:"rate_multiplier"`
+	ReturnBillableUsage          bool                          `json:"return_billable_usage"`
+	IsExclusive                  bool                          `json:"is_exclusive"`
+	SubscriptionType             string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD                optionalLimitField            `json:"daily_limit_usd"`
+	WeeklyLimitUSD               optionalLimitField            `json:"weekly_limit_usd"`
+	MonthlyLimitUSD              optionalLimitField            `json:"monthly_limit_usd"`
+	LongContextPricingEnabled    bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing                 []service.ChannelModelPricing `json:"model_pricing"`
+	InputTokenMultiplier         *float64                      `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	OutputTokenMultiplier        *float64                      `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	CacheCreationTokenMultiplier *float64                      `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	CacheReadTokenMultiplier     *float64                      `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
@@ -265,55 +265,55 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
-	Name                            string                         `json:"name"`
-	Description                     *string                        `json:"description"`
-	I18n                            *service.GroupI18n             `json:"i18n"` // 缺省不修改，传入则整体替换
-	Platform                        string                         `json:"platform" binding:"omitempty,group_platform"`
-	RateMultiplier                  *float64                       `json:"rate_multiplier"`
-	ReturnBillableUsage             *bool                          `json:"return_billable_usage"`
-	IsExclusive                     *bool                          `json:"is_exclusive"`
-	Status                          string                         `json:"status" binding:"omitempty,oneof=active inactive"`
-	SubscriptionType                string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
-	DailyLimitUSD                   optionalLimitField             `json:"daily_limit_usd"`
-	WeeklyLimitUSD                  optionalLimitField             `json:"weekly_limit_usd"`
-	MonthlyLimitUSD                 optionalLimitField             `json:"monthly_limit_usd"`
-	LongContextPricingEnabled       *bool                          `json:"long_context_pricing_enabled"`
-	ModelPricing                    *[]service.ChannelModelPricing `json:"model_pricing"`
-	InputTokenMultiplier            *float64                       `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	OutputTokenMultiplier           *float64                       `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheCreationTokenMultiplier    *float64                       `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
-	CacheReadTokenMultiplier        *float64                       `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	Name                         string                         `json:"name"`
+	Description                  *string                        `json:"description"`
+	I18n                         *service.GroupI18n             `json:"i18n"` // 缺省不修改，传入则整体替换
+	Platform                     string                         `json:"platform" binding:"omitempty,group_platform"`
+	RateMultiplier               *float64                       `json:"rate_multiplier"`
+	ReturnBillableUsage          *bool                          `json:"return_billable_usage"`
+	IsExclusive                  *bool                          `json:"is_exclusive"`
+	Status                       string                         `json:"status" binding:"omitempty,oneof=active inactive"`
+	SubscriptionType             string                         `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
+	DailyLimitUSD                optionalLimitField             `json:"daily_limit_usd"`
+	WeeklyLimitUSD               optionalLimitField             `json:"weekly_limit_usd"`
+	MonthlyLimitUSD              optionalLimitField             `json:"monthly_limit_usd"`
+	LongContextPricingEnabled    *bool                          `json:"long_context_pricing_enabled"`
+	ModelPricing                 *[]service.ChannelModelPricing `json:"model_pricing"`
+	InputTokenMultiplier         *float64                       `json:"input_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	OutputTokenMultiplier        *float64                       `json:"output_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	CacheCreationTokenMultiplier *float64                       `json:"cache_creation_token_multiplier" binding:"omitempty,gte=0,lte=100"`
+	CacheReadTokenMultiplier     *float64                       `json:"cache_read_token_multiplier" binding:"omitempty,gte=0,lte=100"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
-	AllowImageGeneration            *bool                          `json:"allow_image_generation"`
-	AllowBatchImageGeneration       *bool                          `json:"allow_batch_image_generation"`
-	ImageRateIndependent            *bool                          `json:"image_rate_independent"`
-	ImageRateMultiplier             *float64                       `json:"image_rate_multiplier"`
-	BatchImageDiscountMultiplier    *float64                       `json:"batch_image_discount_multiplier"`
-	BatchImageHoldMultiplier        *float64                       `json:"batch_image_hold_multiplier"`
-	VideoRateIndependent            *bool                          `json:"video_rate_independent"`
-	VideoRateMultiplier             *float64                       `json:"video_rate_multiplier"`
-	PeakRateEnabled                 *bool                          `json:"peak_rate_enabled"`
-	PeakStart                       *string                        `json:"peak_start"`
-	PeakEnd                         *string                        `json:"peak_end"`
-	PeakRateMultiplier              *float64                       `json:"peak_rate_multiplier"`
-	ProfitControlEnabled            *bool                          `json:"profit_control_enabled"`
-	ProfitMinMargin                 *float64                       `json:"profit_min_margin"`
-	ProfitSafetyBuffer              *float64                       `json:"profit_safety_buffer"`
-	ImagePrice1K                    *float64                       `json:"image_price_1k"`
-	ImagePrice2K                    *float64                       `json:"image_price_2k"`
-	ImagePrice4K                    *float64                       `json:"image_price_4k"`
-	VideoPrice480P                  *float64                       `json:"video_price_480p"`
-	VideoPrice720P                  *float64                       `json:"video_price_720p"`
-	VideoPrice1080P                 *float64                       `json:"video_price_1080p"`
+	AllowImageGeneration            *bool                         `json:"allow_image_generation"`
+	AllowBatchImageGeneration       *bool                         `json:"allow_batch_image_generation"`
+	ImageRateIndependent            *bool                         `json:"image_rate_independent"`
+	ImageRateMultiplier             *float64                      `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier    *float64                      `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        *float64                      `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent            *bool                         `json:"video_rate_independent"`
+	VideoRateMultiplier             *float64                      `json:"video_rate_multiplier"`
+	PeakRateEnabled                 *bool                         `json:"peak_rate_enabled"`
+	PeakStart                       *string                       `json:"peak_start"`
+	PeakEnd                         *string                       `json:"peak_end"`
+	PeakRateMultiplier              *float64                      `json:"peak_rate_multiplier"`
+	ProfitControlEnabled            *bool                         `json:"profit_control_enabled"`
+	ProfitMinMargin                 *float64                      `json:"profit_min_margin"`
+	ProfitSafetyBuffer              *float64                      `json:"profit_safety_buffer"`
+	ImagePrice1K                    *float64                      `json:"image_price_1k"`
+	ImagePrice2K                    *float64                      `json:"image_price_2k"`
+	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	VideoPrice480P                  *float64                      `json:"video_price_480p"`
+	VideoPrice720P                  *float64                      `json:"video_price_720p"`
+	VideoPrice1080P                 *float64                      `json:"video_price_1080p"`
 	VideoModelPrices                map[string]map[string]float64 `json:"video_model_prices,omitempty"`
-	WebSearchPricePerCall           *float64                       `json:"web_search_price_per_call"`
-	SearchPricePer1k                *float64                       `json:"search_price_per_1k"`
-	AudioRealtimePricePerMin        *float64                       `json:"audio_realtime_price_per_min"`
-	AudioTtsPricePerMillionChars    *float64                       `json:"audio_tts_price_per_million_chars"`
-	AudioSttPricePerHour            *float64                       `json:"audio_stt_price_per_hour"`
-	ClaudeCodeOnly                  *bool                          `json:"claude_code_only"`
-	FallbackGroupID                 *int64                         `json:"fallback_group_id"`
-	FallbackGroupIDOnInvalidRequest *int64                         `json:"fallback_group_id_on_invalid_request"`
+	WebSearchPricePerCall           *float64                      `json:"web_search_price_per_call"`
+	SearchPricePer1k                *float64                      `json:"search_price_per_1k"`
+	AudioRealtimePricePerMin        *float64                      `json:"audio_realtime_price_per_min"`
+	AudioTtsPricePerMillionChars    *float64                      `json:"audio_tts_price_per_million_chars"`
+	AudioSttPricePerHour            *float64                      `json:"audio_stt_price_per_hour"`
+	ClaudeCodeOnly                  *bool                         `json:"claude_code_only"`
+	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
+	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
 	// 模型路由配置（仅 anthropic 平台使用）
 	ModelRouting        map[string][]int64 `json:"model_routing"`
 	ModelRoutingEnabled *bool              `json:"model_routing_enabled"`

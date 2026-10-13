@@ -154,7 +154,7 @@ func TestOpenAIBillableUsageChangesOnlyCustomerActualCost(t *testing.T) {
 	cost, err := svc.calculateOpenAIRecordUsageCostWithBillable(
 		context.Background(), &OpenAIForwardResult{Model: "claude-sonnet-4"},
 		&APIKey{Group: &Group{}}, []string{"claude-sonnet-4"},
-		1, 1, 1, 1, raw, billable, "", &longContextBilling, time.Time{},
+		1, 1, 1, 1, raw, billable, "", &longContextBilling, false, time.Time{},
 	)
 
 	require.NoError(t, err)
