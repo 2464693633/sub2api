@@ -94,6 +94,8 @@ RUN apk add --no-cache \
     tzdata \
     curl \
     su-exec \
+    ffmpeg \
+    font-wqy-zenhei \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user

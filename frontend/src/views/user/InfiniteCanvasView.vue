@@ -21,7 +21,8 @@
 
       <!-- 内容区 -->
       <div class="min-h-0 flex-1 p-2 sm:p-3">
-        <CanvasImageStudio v-if="activeTab === 'image'" class="h-full" />
+        <CreativeStudioWorkspace v-if="activeTab === 'canvas'" />
+        <CanvasImageStudio v-else-if="activeTab === 'image'" class="h-full" />
         <CanvasVideoStudio v-else-if="activeTab === 'video'" class="h-full" />
         <CanvasPromptLibrary v-else-if="activeTab === 'prompts'" class="h-full" />
         <CanvasAssets v-else-if="activeTab === 'assets'" class="h-full" />
@@ -32,7 +33,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, defineAsyncComponent } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -43,6 +44,7 @@ import CanvasAssets from '@/components/canvas/CanvasAssets.vue'
 import CanvasConfig from '@/components/canvas/CanvasConfig.vue'
 import { activeTab } from '@/composables/useInfiniteCanvas'
 
+const CreativeStudioWorkspace = defineAsyncComponent(() => import('@/components/canvas/CreativeStudioWorkspace.vue'))
 const { t } = useI18n()
 const route = useRoute()
 
@@ -52,6 +54,7 @@ function openStandalone() {
 }
 
 const TABS = [
+  { value: 'canvas' as const, label: 'canvas.tabCanvas' },
   { value: 'image' as const, label: 'canvas.tabImage' },
   { value: 'video' as const, label: 'canvas.tabVideo' },
   { value: 'prompts' as const, label: 'canvas.tabPrompts' },

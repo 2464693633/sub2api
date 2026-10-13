@@ -102,16 +102,16 @@ func RegisterVideoStudioRoutes(
 		return apiKeyService.EnsureVideoStudioKeyForGroup(c.Request.Context(), userID, chosen.ID)
 	}
 
-	relay := func(canonicalPath string, pathSuffix string, target gin.HandlerFunc) gin.HandlerFunc {
-		return func(c *gin.Context) {
+	relay := func(canonicalPath string, pathSuffix string, target gin.HandlerFunc) []gin.HandlerFunc {
+		prepare := func(c *gin.Context) {
 			subject, ok := middleware.GetAuthSubjectFromContext(c)
 			if !ok {
-				c.JSON(http.StatusUnauthorized, gin.H{"message": "User not authenticated"})
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"message": "User not authenticated"})
 				return
 			}
 			apiKey, err := resolveStudioKey(c, subject.UserID)
 			if err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": err.Error()})
 				return
 			}
 
@@ -125,23 +125,12 @@ func RegisterVideoStudioRoutes(
 			}
 			defer func() { c.Request.URL.Path = origPath }()
 			c.Request.Header.Set("Authorization", "Bearer "+apiKey.Key)
-
-			bodyLimit(c)
-			clientRequestID(c)
-			opsErrorLogger(c)
-			endpointNorm(c)
-			apiKeyAuth(c)
-			if c.IsAborted() {
-				return
-			}
-			billableUsageResponse(c)
-			groupModelAllowlist(c)
-			compositeTarget(c)
-			requireGroup(c)
-			if c.IsAborted() {
-				return
-			}
-			target(c)
+			c.Next()
+		}
+		return []gin.HandlerFunc{
+			prepare, bodyLimit, clientRequestID, opsErrorLogger, endpointNorm,
+			gin.HandlerFunc(apiKeyAuth), billableUsageResponse, groupModelAllowlist,
+			compositeTarget, requireGroup, target,
 		}
 	}
 
@@ -152,9 +141,9 @@ func RegisterVideoStudioRoutes(
 	{
 		studio.GET("/models", relay("/v1/models", "", func(c *gin.Context) {
 			h.Gateway.VideoStudioModels(c, apiKeyService)
-		}))
-		studio.POST("/generations", relay(handler.EndpointVideos, "", videoTarget))
-		studio.GET("/tasks/:request_id", relay("/v1/videos", "", videoStatusTarget))
-		studio.GET("/tasks/:request_id/content", relay("/v1/videos", "/content", videoContentTarget))
+		})...)
+		studio.POST("/generations", relay(handler.EndpointVideos, "", videoTarget)...)
+		studio.GET("/tasks/:request_id", relay("/v1/videos", "", videoStatusTarget)...)
+		studio.GET("/tasks/:request_id/content", relay("/v1/videos", "/content", videoContentTarget)...)
 	}
 }

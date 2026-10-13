@@ -785,6 +785,10 @@ func (s *OpenAIGatewayService) ForwardGrokMedia(
 	if err != nil {
 		return nil, err
 	}
+	body, err = adaptGrokVideoReferenceForAccount(account, endpoint, body)
+	if err != nil {
+		return nil, err
+	}
 
 	var bodyReader io.Reader
 	if endpoint.RequiresRequestBody() {
@@ -945,6 +949,14 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 		return nil, err
 	}
+	publicContent := false
+	if contentURL == "" {
+		contentURL, err = grokMediaPublicVideoContentURL(statusBody, requestID)
+		if err != nil {
+			return nil, err
+		}
+		publicContent = contentURL != ""
+	}
 	signedContent := contentURL != ""
 	if !signedContent {
 		contentURL, err = buildGrokMediaURL(account, s.cfg, GrokMediaEndpointVideoContent, requestID)
@@ -978,9 +990,20 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		account.ApplyHeaderOverrides(contentReq.Header)
 	}
 
-	contentResp, err := s.httpUpstream.Do(contentReq, proxyURL, account.ID, account.Concurrency)
+	var contentResp *http.Response
+	if publicContent {
+		// Public relay assets must use their own guarded transport. In particular,
+		// never pass account credentials, header overrides, or the account proxy.
+		contentReq.Header.Set("User-Agent", "Go-http-client/1.1")
+		contentResp, err = grokMediaPublicVideoClient.Do(contentReq)
+	} else {
+		contentResp, err = s.httpUpstream.Do(contentReq, proxyURL, account.ID, account.Concurrency)
+	}
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
+		if publicContent {
+			return nil, fmt.Errorf("grok public video download failed: %s", sanitizeStreamError(err))
+		}
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
 	defer func() { _ = contentResp.Body.Close() }()
@@ -989,10 +1012,29 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		return nil, fmt.Errorf("grok media signed content redirect is not allowed")
 	}
 	if contentResp.StatusCode >= 400 && contentResp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		if publicContent {
+			return nil, fmt.Errorf("grok public video download returned status %d", contentResp.StatusCode)
+		}
 		return s.handleGrokMediaErrorResponse(ctx, contentResp, c, account, contentRequestID, "")
 	}
+	billingStatusBody := statusBody
+	if publicContent && contentResp.StatusCode != http.StatusRequestedRangeNotSatisfiable {
+		if err := validateGrokMediaPublicVideoResponse(contentResp); err != nil {
+			return nil, err
+		}
+		// Prepare the billing snapshot before committing the response. It is used
+		// only after the successful body copy below, so a failed public download
+		// cannot turn a noncanonical status into a billable completion.
+		billingStatusBody, err = grokMediaPublicVideoBillingStatus(statusBody, contentURL)
+		if err != nil {
+			return nil, err
+		}
+		contentResp.Body = http.MaxBytesReader(nil, contentResp.Body, grokMediaPublicVideoMaxBytes)
+	}
 
-	s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, ""), account, contentResp.Header, contentResp.StatusCode)
+	if !publicContent {
+		s.updateGrokUsageFromResponse(withGrokTeamRateLimitModel(ctx, ""), account, contentResp.Header, contentResp.StatusCode)
+	}
 	if err := writeGrokMediaContentResponse(c, contentResp); err != nil {
 		return nil, err
 	}
@@ -1005,7 +1047,10 @@ func (s *OpenAIGatewayService) forwardGrokMediaVideoContent(
 		ResponseHeaders: contentResp.Header.Clone(),
 		Duration:        time.Since(startTime),
 	}
-	if billed := ExtractGrokVideoBillingFromStatusBody(statusBody, nil, requestID); billed != nil {
+	if publicContent && contentResp.StatusCode == http.StatusRequestedRangeNotSatisfiable {
+		return result, nil
+	}
+	if billed := ExtractGrokVideoBillingFromStatusBody(billingStatusBody, nil, requestID); billed != nil {
 		result.ResponseID = firstNonEmpty(billed.ResponseID, strings.TrimSpace(requestID))
 		result.Model = billed.Model
 		result.BillingModel = billed.BillingModel

@@ -1023,13 +1023,14 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			}
 			resetFactor := 0.0
 			if weights.Reset > 0 && hasResetSample {
-				if end := item.account.SessionWindowEnd; end != nil && now.Before(*end) {
+				if end, ok := openAISchedulingResetWindowEnd(item.account, now); ok {
 					if maxResetRemaining > minResetRemaining {
 						resetFactor = 1 - clamp01((end.Sub(now).Seconds()-minResetRemaining)/(maxResetRemaining-minResetRemaining))
 					} else {
 						// 所有有窗口的账号剩余时间相同：一律给满分，让其优于无窗口账号。
 						resetFactor = 1
-					}				}
+					}
+				}
 			}
 			quotaHeadroomFactor := 0.0
 			if weights.QuotaHeadroom > 0 {
@@ -1847,6 +1848,11 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest) (bool, string) {
 	if account == nil {
 		return false, "account_nil"
+	}
+	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
+		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
+			return false, "account_model_not_owned"
+		}
 	}
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"

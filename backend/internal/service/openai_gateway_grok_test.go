@@ -1800,13 +1800,13 @@ func TestForwardGrokMediaVideoMutationEndpoints(t *testing.T) {
 	}
 }
 
-func TestGrokMediaVideoRequestBindingIsScopedToUserAndAPIKey(t *testing.T) {
+func TestGrokMediaVideoRequestBindingIsScopedToUserAndGroupAcrossAPIKeys(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/video-request-123", nil)
 	c.Request.Header.Set("session_id", "shared-client-session")
 	groupID := int64(7)
-	cache := &stubGatewayCache{}
+	cache := &mapGatewayCache{data: make(map[string]int64)}
 	svc := &OpenAIGatewayService{cache: cache}
 	const userID int64 = 41
 	const apiKeyID int64 = 51
@@ -1826,6 +1826,11 @@ func TestGrokMediaVideoRequestBindingIsScopedToUserAndAPIKey(t *testing.T) {
 	require.Zero(t, accountID)
 
 	accountID, err = svc.ResolveGrokMediaVideoRequestAccount(ctx, &groupID, "video-request-123", userID, apiKeyID+1)
+	require.NoError(t, err)
+	require.Equal(t, int64(63), accountID)
+
+	otherGroupID := groupID + 1
+	accountID, err = svc.ResolveGrokMediaVideoRequestAccount(ctx, &otherGroupID, "video-request-123", userID, apiKeyID)
 	require.Error(t, err)
 	require.Zero(t, accountID)
 }

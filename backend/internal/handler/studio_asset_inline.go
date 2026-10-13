@@ -26,8 +26,8 @@ const studioAssetBufferLimit = 32 << 20
 // StudioAssetBuffer 拦截 gin 响应写入,延迟落盘。
 type StudioAssetBuffer struct {
 	gin.ResponseWriter
-	buf        bytes.Buffer
-	status     int
+	buf         bytes.Buffer
+	status      int
 	passthrough bool
 }
 
@@ -52,10 +52,10 @@ func FinalizeStudioAssetInline(c *gin.Context, buf *StudioAssetBuffer) {
 
 	if final, changed := inlineGrokImageAssets(c, body); changed {
 		body = final
-		buf.ResponseWriter.Header().Del("Content-Length")
+		buf.Header().Del("Content-Length")
 	}
 
-	header := buf.ResponseWriter.Header()
+	header := buf.Header()
 	if header.Get("Content-Type") == "" {
 		header.Set("Content-Type", "application/json")
 	}
@@ -117,7 +117,7 @@ func (b *StudioAssetBuffer) WriteHeader(code int) {
 // 用 map 泛型操作保留上游响应的全部未知字段。
 func inlineGrokImageAssets(c *gin.Context, body []byte) ([]byte, bool) {
 	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) == 0 || trimmed[0] != '{' || !(bytes.Contains(body, []byte("imgen.")) || bytes.Contains(body, []byte(".r2.dev"))) {
+	if len(trimmed) == 0 || trimmed[0] != '{' || (!bytes.Contains(body, []byte("imgen.")) && !bytes.Contains(body, []byte(".r2.dev"))) {
 		return body, false
 	}
 	decoder := json.NewDecoder(bytes.NewReader(trimmed))

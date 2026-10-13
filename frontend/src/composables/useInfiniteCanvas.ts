@@ -21,7 +21,7 @@ export interface PromptItem {
 }
 
 // ===== 状态 =====
-export const activeTab = ref<'image' | 'video' | 'prompts' | 'assets' | 'config'>('image')
+export const activeTab = ref<'canvas' | 'image' | 'video' | 'prompts' | 'assets' | 'config'>('canvas')
 
 export const prompts = ref<PromptItem[]>([])
 

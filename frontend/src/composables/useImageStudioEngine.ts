@@ -9,6 +9,9 @@ import { computed, ref } from 'vue'
 import JSZip from 'jszip'
 import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
+import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
+import { isGrokImageModel } from './studioModels'
+import { openStudioHistoryDb } from './studioHistory'
 
 const t = i18n.global.t
 
@@ -53,8 +56,9 @@ function toOptions(ids: string[]): ImageModelOption[] {
 export interface PromptBox { id: number; text: string; status: 'draft' | 'done' }
 export interface BatchSlot {
   slotId: number
-  status: 'running' | 'done' | 'failed'
+  status: 'queued' | 'running' | 'done' | 'failed' | 'blocked' | 'cancelled'
   prompt: string
+  label?: string
   size: string
   actualSize?: string
   blob?: Blob
@@ -88,6 +92,22 @@ export const outputFormat = ref<'png' | 'jpeg' | 'webp'>('png')
 export const clarity = ref<'1k' | '2k' | '4k'>('1k')
 export const size = ref<string>('auto')
 export const quantity = ref(1)
+export const imageSetEnabled = ref(false)
+export const detailPrompts = ref<string[]>([])
+export const MAX_DETAIL_IMAGES = 7
+export const plannedImageCount = computed(() => imageSetEnabled.value
+  ? 1 + detailPrompts.value.filter(text => text.trim()).length
+  : quantity.value)
+export const validImagePlan = computed(() => imageSetEnabled.value
+  ? detailPrompts.value.length <= MAX_DETAIL_IMAGES && plannedImageCount.value > 1
+  : Number.isInteger(quantity.value) && quantity.value >= 1 && quantity.value <= 50)
+
+export function initializeImageSet() {
+  if (!detailPrompts.value.length) {
+    detailPrompts.value = [1, 2, 3, 4].map(n => t(`imageStudio.detailDefault${n}`))
+  }
+  imageSetEnabled.value = true
+}
 
 // ===== 提示词框 =====
 export const promptBoxes = ref<PromptBox[]>([{ id: 1, text: '', status: 'draft' }])
@@ -109,6 +129,7 @@ export const batchCancelRequested = ref(false)
 export const elapsed = ref(0)
 let slotSeq = 0
 let elapsedTimer: number | null = null
+let sessionEpoch = 0
 
 // ===== 历史 =====
 export const history = ref<HistoryItem[]>([])
@@ -121,10 +142,19 @@ function appStore() {
   return useAppStore()
 }
 
-// 每次调用现读 localStorage:token 刷新后旧值不能被缓存(computed 会永久缓存导致 401)
-function sessionAuthHeader(): Record<string, string> {
-  const token = localStorage.getItem('auth_token') || ''
-  return { Authorization: `Bearer ${token}` }
+interface StudioSession { owner: string; sessionEpoch: number }
+
+function currentSession(): StudioSession {
+  return { owner: sessionOwnerKey(), sessionEpoch }
+}
+
+function isCurrentSession(session: StudioSession): boolean {
+  return session.sessionEpoch === sessionEpoch && session.owner === sessionOwnerKey()
+}
+
+function sessionAuthHeader(session: StudioSession): Record<string, string> {
+  if (!isCurrentSession(session)) throw new StudioSessionChangedError()
+  return { Authorization: `Bearer ${localStorage.getItem('auth_token') || ''}` }
 }
 
 function gatewayBase(): string {
@@ -140,6 +170,8 @@ export const computedSize = computed(() => {
     }
     return 'auto'
   }
+  // The canvas editor supplies explicit pixels; older ratio controls use ':'.
+  if (/^\d+x\d+$/.test(size.value)) return size.value
   const [wStr, hStr] = size.value.split(':')
   const w = Number(wStr)
   const h = Number(hStr)
@@ -219,20 +251,23 @@ export function retryInit() {
   void loadModels()
 }
 export async function loadModels() {
+  const session = currentSession()
   initError.value = ''
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
     const res = await fetch(`${gatewayBase()}/api/v1/image-studio/models`, {
-      headers: sessionAuthHeader(),
+      headers: sessionAuthHeader(session),
       signal: controller.signal
     })
     window.clearTimeout(timer)
     const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: ImageModelOption[] } | null
+    if (!isCurrentSession(session)) return
     if (!res.ok) {
       throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
     }
-    const options = (body?.data || []).filter(o => o && o.id && IMAGE_MODEL_PATTERN.test(o.id))
+    const options = (body?.data || []).filter(o => o && o.id &&
+      (IMAGE_MODEL_PATTERN.test(o.id) || (o.platform === 'grok' && isGrokImageModel(o.id))))
     if (!options.length) {
       initError.value = t('imageStudio.noImageModels')
       return
@@ -240,6 +275,7 @@ export async function loadModels() {
     models.value = options
     if (!models.value.some(o => o.id === model.value)) model.value = models.value[0]?.id || FALLBACK_MODELS[0]
   } catch (err: unknown) {
+    if (!isCurrentSession(session)) return
     const msg = err instanceof DOMException && err.name === 'AbortError'
       ? t('imageStudio.timeout')
       : (err instanceof Error ? err.message : t('imageStudio.noKeys'))
@@ -250,20 +286,11 @@ export async function loadModels() {
 }
 
 // ===== IndexedDB =====
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('image-studio-db', 1)
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains('history')) {
-        req.result.createObjectStore('history', { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+function openIdb(owner = sessionOwnerKey()): Promise<IDBDatabase> {
+  return openStudioHistoryDb('image', owner)
 }
-async function idbPut(item: HistoryItem) {
-  const db = await openIdb()
+async function idbPut(item: HistoryItem, owner = sessionOwnerKey()) {
+  const db = await openIdb(owner)
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('history', 'readwrite')
     tx.objectStore('history').put(item)
@@ -272,8 +299,8 @@ async function idbPut(item: HistoryItem) {
   })
   db.close()
 }
-async function idbPutMany(items: HistoryItem[]) {
-  const db = await openIdb()
+async function idbPutMany(items: HistoryItem[], owner = sessionOwnerKey()) {
+  const db = await openIdb(owner)
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('history', 'readwrite')
     const store = tx.objectStore('history')
@@ -283,8 +310,8 @@ async function idbPutMany(items: HistoryItem[]) {
   })
   db.close()
 }
-async function idbAll(): Promise<HistoryItem[]> {
-  const db = await openIdb()
+async function idbAll(owner = sessionOwnerKey()): Promise<HistoryItem[]> {
+  const db = await openIdb(owner)
   const items = await new Promise<HistoryItem[]>((resolve, reject) => {
     const req = db.transaction('history', 'readonly').objectStore('history').getAll()
     req.onsuccess = () => resolve(req.result as HistoryItem[])
@@ -315,20 +342,24 @@ async function idbClear() {
 }
 
 export async function loadHistory() {
+  const session = currentSession()
   try {
-    const items = await idbAll()
+    const items = await idbAll(session.owner)
+    if (!isCurrentSession(session)) return
     // 过滤早期版本写入的不完整记录(缺少 images 数组会导致渲染崩溃)
     history.value = items
       .filter(it => it && Array.isArray(it.images))
       .sort((a, b) => b.ts - a.ts)
   } catch {
-    history.value = []
+    if (isCurrentSession(session)) history.value = []
   }
 }
 
 export function updateStorageMeter() {
+  const session = currentSession()
   if (navigator.storage?.estimate) {
     void navigator.storage.estimate().then(est => {
+      if (!isCurrentSession(session)) return
       storageUsed.value = est.usage ?? 0
       storageQuota.value = est.quota ?? 0
     })
@@ -391,6 +422,7 @@ export function restoreHistory(item: HistoryItem) {
 // ===== ZIP 导出 / 导入 =====
 export async function exportZip() {
   if (!history.value.length) return
+  const session = currentSession()
   const zip = new JSZip()
   const metas: Record<string, unknown>[] = []
   for (const item of history.value) {
@@ -412,6 +444,7 @@ export async function exportZip() {
   }
   zip.file('meta.json', JSON.stringify(metas, null, 2))
   const blob = await zip.generateAsync({ type: 'blob' })
+  if (!isCurrentSession(session)) return
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -422,6 +455,7 @@ export async function exportZip() {
 export async function onImportZipChange(event: Event) {
   const input = event.target as HTMLInputElement
   if (!input.files || !input.files[0]) return
+  const session = currentSession()
   try {
     const zip = await JSZip.loadAsync(input.files[0])
     let metas: Record<string, unknown>[] = []
@@ -463,15 +497,19 @@ export async function onImportZipChange(event: Event) {
       })
     }
     if (items.length) {
-      await idbPutMany(items)
+      if (!isCurrentSession(session)) return
+      await idbPutMany(items, session.owner)
+      if (!isCurrentSession(session)) return
       await loadHistory()
+      if (!isCurrentSession(session)) return
       appStore().showSuccess(t('imageStudio.importDone', { n: items.length }))
       updateStorageMeter()
     }
   } catch {
-    appStore().showError(t('imageStudio.importFailed'))
+    if (isCurrentSession(session)) appStore().showError(t('imageStudio.importFailed'))
+  } finally {
+    input.value = ''
   }
-  input.value = ''
 }
 
 // ===== 生成 =====
@@ -481,14 +519,15 @@ function blobFromB64(b64: string): Blob {
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
   return new Blob([bytes], { type: 'image/png' })
 }
-async function blobFromUrl(url: string): Promise<Blob> {
+async function blobFromUrl(url: string, session: StudioSession): Promise<Blob> {
+  if (!isCurrentSession(session)) throw new StudioSessionChangedError()
   // 优先直连;上游 CDN 无 CORS 头(如 imgen.x.ai)时走后端代理下载
   try {
     const res = await fetch(url)
     if (res.ok) return await res.blob()
   } catch { /* CORS/网络错误,走代理 */ }
   const proxied = await fetch(`${gatewayBase()}/api/v1/image-studio/asset?u=${encodeURIComponent(url)}`, {
-    headers: sessionAuthHeader()
+    headers: sessionAuthHeader(session)
   })
   if (!proxied.ok) throw new Error(`asset proxy HTTP ${proxied.status}`)
   return await proxied.blob()
@@ -508,11 +547,11 @@ async function imageSizeOf(blob: Blob): Promise<string> {
 
 async function generateOne(spec: BatchSpec, promptText: string, refList: File[]): Promise<{ blob: Blob | null; error?: string }> {
   // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
-  const headers = sessionAuthHeader()
-  const opt = models.value.find(o => o.id === spec.model)
-  if (opt && opt.group_id > 0) headers['X-Image-Studio-Group'] = String(opt.group_id)
+  if (!isCurrentSession(spec)) return { blob: null }
+  const headers = sessionAuthHeader(spec)
+  if (spec.groupId && spec.groupId > 0) headers['X-Image-Studio-Group'] = String(spec.groupId)
   // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
-  const isGrok = opt?.platform ? opt.platform === 'grok' : /grok/i.test(spec.model)
+  const isGrok = spec.platform ? spec.platform === 'grok' : /grok/i.test(spec.model)
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 300000)
   try {
@@ -555,6 +594,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
       })
     }
     const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string; data?: Array<{ b64_json?: string; url?: string }> } | null
+    if (!isCurrentSession(spec)) return { blob: null }
     if (!res.ok) {
       const msg = body?.error?.message || body?.message || t('imageStudio.generateFailed')
       return { blob: null, error: msg }
@@ -564,7 +604,7 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
     const first = data[0]
     const blob = first?.b64_json
       ? blobFromB64(first.b64_json)
-      : (first?.url ? await blobFromUrl(first.url) : null)
+      : (first?.url ? await blobFromUrl(first.url, spec) : null)
     if (!blob) return { blob: null, error: t('imageStudio.generateFailed') }
     return { blob }
   } catch (err: unknown) {
@@ -584,15 +624,27 @@ export interface BatchSpec {
   quality: 'auto' | 'high' | 'medium' | 'low'
   format: 'png' | 'jpeg' | 'webp'
   size: string
+  owner: string
+  sessionEpoch: number
+  groupId?: number
+  platform?: string
 }
-let lastSpec: BatchSpec | null = null
+interface ImageTaskContext {
+  spec: BatchSpec
+  refs: File[]
+  source?: BatchSlot
+  historyId?: number
+}
+const taskContexts = new Map<number, ImageTaskContext>()
+let historySeq = 0
 
 export function cancelBatch() {
   if (generating.value) batchCancelRequested.value = true
 }
 
 export function clearFailed() {
-  batch.value = batch.value.filter(s => s.status !== 'failed')
+  if (generating.value) return
+  batch.value = batch.value.filter(s => !['failed', 'blocked', 'cancelled'].includes(s.status))
 }
 export function removeSlot(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
@@ -641,91 +693,178 @@ export function setRefFromSlot(slotId: number) {
 }
 export async function retrySlot(slotId: number) {
   const slot = batch.value.find(s => s.slotId === slotId)
-  if (!slot || generating.value || !lastSpec) return
+  const context = taskContexts.get(slotId)
+  if (!slot || !['failed', 'blocked', 'cancelled'].includes(slot.status) || generating.value || !context || !isCurrentSession(context.spec)) return
+  if (context.source && !context.source.blob) {
+    appStore().showError(t('imageStudio.overviewRequired'))
+    return
+  }
+  slot.status = 'queued'
+  // Retrying the overview resumes only the detail tasks that never ran.
+  const retry = [slot]
+  for (const child of batch.value) {
+    if (taskContexts.get(child.slotId)?.source?.slotId === slot.slotId && child.status === 'blocked') {
+      child.status = 'queued'
+      retry.push(child)
+    }
+  }
+  await runImageQueue(retry, context.spec)
+}
+
+async function saveSlotHistory(slot: BatchSlot, context: ImageTaskContext) {
+  if (!slot.blob || !isCurrentSession(context.spec)) return
+  const spec = context.spec
+  // Reserve distinct IDs even when multiple images finish in one millisecond.
+  context.historyId ??= historySeq = Math.max(Date.now(), historySeq + 1)
+  const item: HistoryItem = {
+    id: context.historyId, ts: Date.now(), model: spec.model, quality: spec.quality,
+    format: spec.format, size: spec.size, actualSize: slot.actualSize,
+    prompt: slot.prompt, mode: spec.mode,
+    images: [{ blob: slot.blob, failed: false }], starred: false
+  }
+  await idbPut(item, spec.owner).catch(() => undefined)
+  if (!isCurrentSession(spec)) return
+  history.value = [item, ...history.value.filter(existing => existing.id !== item.id)]
+  updateStorageMeter()
+}
+
+async function runImageSlot(slot: BatchSlot, context: ImageTaskContext) {
+  const { spec } = context
+  if (context.source) {
+    if (!context.source.blob) {
+      slot.status = 'blocked'
+      slot.error = t('imageStudio.overviewRequired')
+      batch.value = [...batch.value]
+      return
+    }
+    // Every detail uses the same overview, never another detail or a changed
+    // upload. One reference also works with upstreams that limit image count.
+    context.refs = [new File([context.source.blob], `overview.${spec.format}`, {
+      type: context.source.blob.type || `image/${spec.format}`
+    })]
+  }
   slot.status = 'running'
-  const refs = lastSpec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
+  slot.error = undefined
+  batch.value = [...batch.value]
   const started = performance.now()
-  const result = await generateOne(lastSpec, slot.prompt, refs)
+  const result = await generateOne(spec, slot.prompt, context.refs)
+  if (!isCurrentSession(spec)) return
+  const actualSize = result.blob ? await imageSizeOf(result.blob) : undefined
+  if (!isCurrentSession(spec)) return
   slot.ms = Math.round(performance.now() - started)
   slot.status = result.blob ? 'done' : 'failed'
   slot.error = result.error
   if (result.blob) {
     slot.blob = result.blob
     slot.url = URL.createObjectURL(result.blob)
-    slot.actualSize = await imageSizeOf(result.blob)
+    slot.actualSize = actualSize
   }
   batch.value = [...batch.value]
+  if (result.blob) await saveSlotHistory(slot, context)
 }
 
-export async function generateBatch() {
-  const box = activeBox.value
-  if (!box || initError.value || !box.text.trim() || generating.value) return
-  const spec: BatchSpec = {
-    model: model.value,
-    mode: mode.value,
-    quality: quality.value,
-    format: outputFormat.value,
-    size: computedSize.value
-  }
-  lastSpec = spec
-  const n = quantity.value
-  const promptText = box.text.trim()
-  const refs = spec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
-  batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
-  batch.value = []
+async function runImageQueue(slots: BatchSlot[], spec: BatchSpec) {
   generating.value = true
   batchCancelRequested.value = false
   startElapsed()
   let okCount = 0
   try {
-    for (let i = 0; i < n; i++) {
-      // 用户点击停止后不再发起新请求,已完成的图照常入库
-      if (batchCancelRequested.value) break
-      const slotId = ++slotSeq
-      const slot: BatchSlot = { slotId, status: 'running', prompt: promptText, size: spec.size }
-      batch.value = [...batch.value, slot]
-      const started = performance.now()
-      const result = await generateOne(spec, promptText, refs)
-      slot.ms = Math.round(performance.now() - started)
-      if (result.blob) {
-        slot.blob = result.blob
-        slot.url = URL.createObjectURL(result.blob)
-        slot.actualSize = await imageSizeOf(result.blob)
-        slot.status = 'done'
-        okCount++
-      } else {
-        slot.status = 'failed'
-        slot.error = result.error
+    for (const slot of slots) {
+      if (!isCurrentSession(spec)) return
+      if (batchCancelRequested.value) {
+        slot.status = 'cancelled'
+        continue
       }
-      batch.value = [...batch.value]
+      const context = taskContexts.get(slot.slotId)
+      if (!context) continue
+      await runImageSlot(slot, context)
+      if (!isCurrentSession(spec)) return
+      if (slot.status === 'done') okCount++
     }
+    batch.value = [...batch.value]
     if (batchCancelRequested.value) {
       appStore().showSuccess(t('imageStudio.batchCancelled', { ok: okCount }))
     } else if (okCount > 0) {
-      box.status = 'done'
-      appStore().showSuccess(t('imageStudio.batchDone', { ok: okCount, total: n }))
+      appStore().showSuccess(t('imageStudio.batchDone', { ok: okCount, total: slots.length }))
     }
   } finally {
-    generating.value = false
-    stopElapsed()
-    const done = batch.value.filter(s => s.status === 'done' && s.blob)
-    if (done.length) {
-      const item: HistoryItem = {
-        id: Date.now(),
-        ts: Date.now(),
-        model: spec.model,
-        quality: spec.quality,
-        format: spec.format,
-        size: spec.size,
-        actualSize: done[0]?.actualSize,
-        prompt: promptText,
-        mode: spec.mode,
-        images: done.map(s => ({ blob: s.blob as Blob, failed: false })),
-        starred: false
-      }
-      await idbPut(item).catch(() => undefined)
-      history.value = [item, ...history.value]
-      updateStorageMeter()
+    if (isCurrentSession(spec)) {
+      generating.value = false
+      stopElapsed()
     }
   }
+}
+
+export async function generateBatch() {
+  const box = activeBox.value
+  if (!box || initError.value || !box.text.trim() || generating.value || !validImagePlan.value) return
+  const selectedOption = models.value.find(o => o.id === model.value)
+  const spec: BatchSpec = {
+    model: model.value,
+    mode: mode.value,
+    quality: quality.value,
+    format: outputFormat.value,
+    size: computedSize.value,
+    owner: sessionOwnerKey(),
+    sessionEpoch,
+    groupId: selectedOption?.group_id,
+    platform: selectedOption?.platform
+  }
+  const promptText = box.text.trim()
+  const refs = spec.mode === 'i2i' ? refItems.value.map(r => r.file) : []
+  const setEnabled = imageSetEnabled.value
+  const details = detailPrompts.value.map(text => text.trim()).filter(Boolean)
+  batch.value.forEach(s => { if (s.url) URL.revokeObjectURL(s.url) })
+  taskContexts.clear()
+  const slots: BatchSlot[] = []
+  const add = (text: string, label: string, source?: BatchSlot) => {
+    const slot: BatchSlot = { slotId: ++slotSeq, status: 'queued', prompt: text, label, size: spec.size }
+    slots.push(slot)
+    taskContexts.set(slot.slotId, { spec: source ? { ...spec, mode: 'i2i' } : spec, refs, source })
+    return slot
+  }
+  if (setEnabled) {
+    const overview = add(promptText, t('imageStudio.overviewImage'))
+    details.forEach((detail, index) => add(
+      t('imageStudio.detailRequest', { overview: promptText, detail }),
+      t('imageStudio.detailImageN', { n: index + 1 }), overview
+    ))
+  } else {
+    for (let i = 0; i < quantity.value; i++) add(promptText, t('imageStudio.imageN', { n: i + 1 }))
+  }
+  batch.value = slots
+  await runImageQueue(slots, spec)
+  if (isCurrentSession(spec) && slots.every(slot => slot.status === 'done')) box.status = 'done'
+}
+
+/** Stop the old user's queue and remove all in-memory studio data on logout/account change. */
+export function resetImageStudioSession() {
+  sessionEpoch++
+  batchCancelRequested.value = true
+  generating.value = false
+  elapsed.value = 0
+  storageUsed.value = 0
+  storageQuota.value = 0
+  stopElapsed()
+  batch.value.forEach(slot => { if (slot.url) URL.revokeObjectURL(slot.url) })
+  batch.value = []
+  refItems.value.forEach(item => URL.revokeObjectURL(item.url))
+  refItems.value = []
+  objectUrlCache.forEach(url => URL.revokeObjectURL(url))
+  objectUrlCache.clear()
+  history.value = []
+  historySearch.value = ''
+  promptBoxes.value = [{ id: ++boxSeq, text: '', status: 'draft' }]
+  activeBoxId.value = promptBoxes.value[0].id
+  taskContexts.clear()
+  imageSetEnabled.value = false
+  detailPrompts.value = []
+  quantity.value = 1
+  initError.value = ''
+  models.value = toOptions(FALLBACK_MODELS)
+  model.value = FALLBACK_MODELS[0]
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('studio-session-ended', resetImageStudioSession)
 }

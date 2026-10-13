@@ -8,6 +8,9 @@
 import { computed, ref } from 'vue'
 import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
+import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
+import { isGrokImageModel } from './studioModels'
+import { openStudioHistoryDb } from './studioHistory'
 
 const t = i18n.global.t
 
@@ -61,6 +64,12 @@ export interface VideoTask {
   billingNote?: string
   groupId?: number
   upstreamDone?: boolean
+  upstreamFailed?: boolean
+  videoSize?: string
+  mode?: 't2v' | 'i2v'
+  refImage?: File
+  owner?: string
+  sessionEpoch?: number
 }
 export interface VideoHistoryItem {
   id: number
@@ -97,14 +106,25 @@ export const historySearch = ref('')
 export const storageUsed = ref(0)
 export const storageQuota = ref(0)
 let taskSeq = 0
+let sessionEpoch = 0
 const objectUrlCache = new Map<number, string>()
 
 function appStore() {
   return useAppStore()
 }
-function sessionAuthHeader(): { Authorization: string } {
-  const token = localStorage.getItem('auth_token') || ''
-  return { Authorization: `Bearer ${token}` }
+interface StudioSession { owner?: string; sessionEpoch?: number }
+
+function currentSession(): StudioSession {
+  return { owner: sessionOwnerKey(), sessionEpoch }
+}
+
+function isCurrentSession(session: StudioSession): boolean {
+  return session.sessionEpoch === sessionEpoch && session.owner === sessionOwnerKey()
+}
+
+function sessionAuthHeader(session: StudioSession): { Authorization: string } {
+  if (!isCurrentSession(session)) throw new StudioSessionChangedError()
+  return { Authorization: `Bearer ${localStorage.getItem('auth_token') || ''}` }
 }
 function api(path: string) {
   return `${window.location.origin}${path}`
@@ -127,23 +147,26 @@ export function retryInit() {
   void loadModels()
 }
 export async function loadModels() {
+  const session = currentSession()
   initError.value = ''
   try {
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 15000)
     const res = await fetch(api('/api/v1/video-studio/models'), {
-      headers: sessionAuthHeader(),
+      headers: sessionAuthHeader(session),
       signal: controller.signal
     })
     window.clearTimeout(timer)
     const body = await res.json().catch(() => null) as { message?: string; error?: { message?: string }; data?: VideoModelOption[] } | null
+    if (!isCurrentSession(session)) return
     if (!res.ok) {
       throw new Error(body?.message || body?.error?.message || `HTTP ${res.status}`)
     }
-    const options = (body?.data || []).filter(o => o && o.id && VIDEO_MODEL_PATTERN.test(o.id) && !/image/i.test(o.id))
+    const options = (body?.data || []).filter(o => o && o.id && VIDEO_MODEL_PATTERN.test(o.id) && !/image/i.test(o.id) && !isGrokImageModel(o.id))
     models.value = options.length ? options : toOptions(FALLBACK_VIDEO_MODELS)
     if (!models.value.some(o => o.id === model.value)) model.value = models.value[0]?.id || FALLBACK_VIDEO_MODELS[0]
   } catch (err: unknown) {
+    if (!isCurrentSession(session)) return
     const msg = err instanceof DOMException && err.name === 'AbortError'
       ? t('imageStudio.timeout')
       : (err instanceof Error ? err.message : t('videoStudio.initFailed'))
@@ -185,23 +208,29 @@ async function fileToDataUrl(file: File): Promise<string> {
   })
 }
 
-async function submitTask(promptText: string): Promise<{ remoteId: string }> {
+async function submitTask(task: VideoTask): Promise<{ remoteId: string }> {
   const payload: Record<string, unknown> = {
-    model: model.value,
-    prompt: promptText,
-    seconds: seconds.value,
-    resolution: resolution.value
+    model: task.model,
+    prompt: task.prompt,
+    duration: task.seconds,
+    resolution: task.resolution
   }
-  if (videoSize.value !== 'auto') payload.resolution = resolution.value
-  if (mode.value === 'i2v' && refImages.value.length) {
-    payload.image_url = await fileToDataUrl(refImages.value[0].file)
+  if (task.videoSize && task.videoSize !== 'auto') {
+    const [width, height] = task.videoSize.split('x').map(Number)
+    if (width > 0 && height > 0) {
+      const gcd = (a: number, b: number): number => b ? gcd(b, a % b) : a
+      const factor = gcd(width, height)
+      payload.aspect_ratio = `${width / factor}:${height / factor}`
+    }
   }
+  if (task.mode === 'i2v' && task.refImage) {
+    payload.image = { url: await fileToDataUrl(task.refImage) }
+  }
+  // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
+  const headers: Record<string, string> = { ...sessionAuthHeader(task), 'Content-Type': 'application/json' }
+  if (task.groupId && task.groupId > 0) headers['X-Video-Studio-Group'] = String(task.groupId)
   const controller = new AbortController()
   const timer = window.setTimeout(() => controller.abort(), 120000)
-  // 按模型所属分组路由:工作台密钥每分组一把,X 头让 relay 选对应密钥/分组
-  const headers: Record<string, string> = { ...sessionAuthHeader(), 'Content-Type': 'application/json' }
-  const opt = models.value.find(o => o.id === model.value)
-  if (opt && opt.group_id > 0) headers['X-Video-Studio-Group'] = String(opt.group_id)
   try {
     const res = await fetch(api('/api/v1/video-studio/generations'), {
       method: 'POST',
@@ -245,7 +274,7 @@ function taskGroupHeaders(task: VideoTask): Record<string, string> {
 
 async function pollTask(task: VideoTask): Promise<{ phase: VideoTask['status']; statusRaw: TaskStatus }> {
   const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(task.remoteId)}`), {
-    headers: { ...sessionAuthHeader(), ...taskGroupHeaders(task) }
+    headers: { ...sessionAuthHeader(task), ...taskGroupHeaders(task) }
   })
   const body = await res.json().catch(() => null) as (TaskStatus & { error?: { message?: string }; message?: string }) | null
   if (!res.ok) {
@@ -258,12 +287,14 @@ async function fetchVideoBlob(task: VideoTask): Promise<Blob> {
   // 大视频(15s/1080p 可达数十 MB)经网关转发较慢:单次 10 分钟,失败自动重试 3 次
   let lastErr: unknown = new Error(t('videoStudio.contentFailed'))
   for (let attempt = 0; attempt < 3; attempt++) {
+    if (!isCurrentSession(task)) throw new StudioSessionChangedError()
     if (attempt > 0) await new Promise(r => setTimeout(r, attempt * 10000))
+    if (!isCurrentSession(task)) throw new StudioSessionChangedError()
     const controller = new AbortController()
     const timer = window.setTimeout(() => controller.abort(), 600000)
     try {
       const res = await fetch(api(`/api/v1/video-studio/tasks/${encodeURIComponent(task.remoteId)}/content`), {
-        headers: { ...sessionAuthHeader(), ...taskGroupHeaders(task) },
+        headers: { ...sessionAuthHeader(task), ...taskGroupHeaders(task) },
         signal: controller.signal
       })
       if (!res.ok) {
@@ -272,6 +303,7 @@ async function fetchVideoBlob(task: VideoTask): Promise<Blob> {
       }
       return await res.blob()
     } catch (err) {
+      if (!isCurrentSession(task)) throw new StudioSessionChangedError()
       lastErr = err instanceof DOMException && err.name === 'AbortError'
         ? new Error(t('videoStudio.downloadTimeout'))
         : err
@@ -295,22 +327,34 @@ async function runTask(task: VideoTask) {
   let lastProgressAt = Date.now()
   let pollErrors = 0
   try {
-    const { remoteId } = await submitTask(task.prompt)
-    task.remoteId = remoteId
-    tasks.value = [...tasks.value]
+    let pollImmediately = Boolean(task.remoteId)
+    if (!task.remoteId) {
+      const { remoteId } = await submitTask(task)
+      if (!isCurrentSession(task)) return
+      task.remoteId = remoteId
+      tasks.value = [...tasks.value]
+    }
     const deadline = Date.now() + POLL_TIMEOUT_MS
     for (;;) {
+      if (!isCurrentSession(task)) return
       if (stoppedTasks.has(task.taskId)) throw new Error(t('videoStudio.stoppedWaiting'))
       if (Date.now() > deadline) throw new Error(t('videoStudio.pollTimeout'))
       if (Date.now() - lastProgressAt > NO_PROGRESS_TIMEOUT_MS) throw new Error(t('videoStudio.noProgress'))
-      await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
+      if (!pollImmediately) await new Promise(r => setTimeout(r, POLL_INTERVAL_MS))
+      pollImmediately = false
+      if (!isCurrentSession(task)) return
       if (stoppedTasks.has(task.taskId)) throw new Error(t('videoStudio.stoppedWaiting'))
       let phase: VideoTask['status']
       let statusRaw: TaskStatus
       try {
-        ;({ phase, statusRaw } = await pollTask(task))
+        const polled = await pollTask(task)
+        if (!isCurrentSession(task)) return
+        if (stoppedTasks.has(task.taskId)) throw new Error(t('videoStudio.stoppedWaiting'))
+        phase = polled.phase
+        statusRaw = polled.statusRaw
         pollErrors = 0
       } catch (pollErr) {
+        if (!isCurrentSession(task)) return
         // 网络抖动容错:连续多次失败才判死
         pollErrors++
         if (pollErrors >= MAX_POLL_ERRORS) throw pollErr
@@ -329,6 +373,7 @@ async function runTask(task: VideoTask) {
         return
       }
       if (phase === 'failed') {
+        task.upstreamFailed = true
         const raw = statusRaw.error
         task.error = typeof raw === 'string' ? raw : (raw?.message || t('videoStudio.generateFailed'))
         task.status = 'failed'
@@ -339,6 +384,7 @@ async function runTask(task: VideoTask) {
       tasks.value = [...tasks.value]
     }
   } catch (e) {
+    if (!isCurrentSession(task)) return
     task.status = 'failed'
     task.error = errText(e)
     tasks.value = [...tasks.value]
@@ -382,6 +428,9 @@ export function submitBatch() {
   generating.value = true
   const created: VideoTask[] = []
   const selectedOption = models.value.find(o => o.id === model.value)
+  const owner = sessionOwnerKey()
+  const batchEpoch = sessionEpoch
+  const refImage = mode.value === 'i2v' ? refImages.value[0]?.file : undefined
   for (let i = 0; i < n; i++) {
     const task: VideoTask = {
       taskId: ++taskSeq,
@@ -392,13 +441,19 @@ export function submitBatch() {
       seconds: seconds.value,
       resolution: resolution.value,
       submittedAt: Date.now(),
-      groupId: selectedOption && selectedOption.group_id > 0 ? selectedOption.group_id : undefined
+      groupId: selectedOption && selectedOption.group_id > 0 ? selectedOption.group_id : undefined,
+      videoSize: videoSize.value,
+      mode: mode.value,
+      refImage,
+      owner,
+      sessionEpoch: batchEpoch
     }
     created.push(task)
   }
   tasks.value = [...created, ...tasks.value]
   // 并发提交:每张独立异步跑,引擎单例保证切页继续
   void Promise.all(created.map(tk => runTask(tk))).finally(() => {
+    if (!isCurrentSession({ owner, sessionEpoch: batchEpoch })) return
     generating.value = false
     const ok = created.filter(tk => tk.status === 'done').length
     if (ok > 0) appStore().showSuccess(t('videoStudio.batchDone', { ok, total: n }))
@@ -409,6 +464,7 @@ export function submitBatch() {
 async function finishDownload(task: VideoTask) {
   try {
     const blob = await fetchVideoBlob(task)
+    if (!isCurrentSession(task)) return
     task.blob = blob
     task.videoUrl = URL.createObjectURL(blob)
     task.status = 'done'
@@ -416,6 +472,7 @@ async function finishDownload(task: VideoTask) {
     tasks.value = [...tasks.value]
     await saveHistory(task)
   } catch (e) {
+    if (!isCurrentSession(task)) return
     task.status = 'failed'
     task.error = errText(e)
     tasks.value = [...tasks.value]
@@ -425,6 +482,19 @@ async function finishDownload(task: VideoTask) {
 export function retryTask(taskId: number) {
   const task = tasks.value.find(tk => tk.taskId === taskId)
   if (!task || task.status !== 'failed') return
+  // Tasks created by older builds do not have session snapshot fields.
+  task.sessionEpoch ??= sessionEpoch
+  task.owner ||= sessionOwnerKey()
+  if (!isCurrentSession(task)) return
+  task.videoSize ||= 'auto'
+  task.mode ||= 't2v'
+  // Only a confirmed upstream terminal failure requires a new generation.
+  // Polling/network failures retain the remote task to avoid duplicate billing.
+  if (task.upstreamFailed) {
+    task.remoteId = ''
+    task.upstreamDone = false
+    task.upstreamFailed = false
+  }
   // 上游已生成(已计费)的任务:重试仅重新下载,不会重复提交计费
   if (task.upstreamDone && task.remoteId) {
     task.status = 'processing'
@@ -452,20 +522,11 @@ export function clearFailed() {
 }
 
 // ===== IndexedDB(视频库) =====
-function openIdb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const req = indexedDB.open('video-studio-db', 1)
-    req.onupgradeneeded = () => {
-      if (!req.result.objectStoreNames.contains('history')) {
-        req.result.createObjectStore('history', { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => reject(req.error)
-  })
+function openIdb(owner = sessionOwnerKey()): Promise<IDBDatabase> {
+  return openStudioHistoryDb('video', owner)
 }
-async function idbPut(item: VideoHistoryItem) {
-  const db = await openIdb()
+async function idbPut(item: VideoHistoryItem, owner = sessionOwnerKey()) {
+  const db = await openIdb(owner)
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction('history', 'readwrite')
     tx.objectStore('history').put(item)
@@ -474,8 +535,8 @@ async function idbPut(item: VideoHistoryItem) {
   })
   db.close()
 }
-async function idbAll(): Promise<VideoHistoryItem[]> {
-  const db = await openIdb()
+async function idbAll(owner = sessionOwnerKey()): Promise<VideoHistoryItem[]> {
+  const db = await openIdb(owner)
   const items = await new Promise<VideoHistoryItem[]>((resolve, reject) => {
     const req = db.transaction('history', 'readonly').objectStore('history').getAll()
     req.onsuccess = () => resolve(req.result as VideoHistoryItem[])
@@ -506,7 +567,7 @@ async function idbClear() {
 }
 
 async function saveHistory(task: VideoTask) {
-  if (!task.blob) return
+  if (!task.blob || !isCurrentSession(task)) return
   const item: VideoHistoryItem = {
     id: Date.now(),
     ts: Date.now(),
@@ -518,25 +579,31 @@ async function saveHistory(task: VideoTask) {
     sizeMB: Number((task.blob.size / 1024 / 1024).toFixed(1)),
     starred: false
   }
-  await idbPut(item).catch(() => undefined)
+  const owner = task.owner || sessionOwnerKey()
+  await idbPut(item, owner).catch(() => undefined)
+  if (!isCurrentSession(task)) return
   history.value = [item, ...history.value]
   updateStorageMeter()
 }
 
 export async function loadHistory() {
+  const session = currentSession()
   try {
-    const items = await idbAll()
+    const items = await idbAll(session.owner)
+    if (!isCurrentSession(session)) return
     history.value = items
       .filter(it => it && it.blob instanceof Blob)
       .sort((a, b) => b.ts - a.ts)
   } catch {
-    history.value = []
+    if (isCurrentSession(session)) history.value = []
   }
 }
 
 export function updateStorageMeter() {
+  const session = currentSession()
   if (navigator.storage?.estimate) {
     void navigator.storage.estimate().then(est => {
+      if (!isCurrentSession(session)) return
       storageUsed.value = est.usage ?? 0
       storageQuota.value = est.quota ?? 0
     })
@@ -574,4 +641,30 @@ export async function clearAllHistory() {
   history.value = []
   await idbClear().catch(() => undefined)
   updateStorageMeter()
+}
+
+/** Stop the old user's polling and remove all in-memory studio data. */
+export function resetVideoStudioSession() {
+  sessionEpoch++
+  tasks.value.forEach(task => stoppedTasks.add(task.taskId))
+  tasks.value.forEach(task => { if (task.videoUrl) URL.revokeObjectURL(task.videoUrl) })
+  tasks.value = []
+  generating.value = false
+  storageUsed.value = 0
+  storageQuota.value = 0
+  refImages.value.forEach(item => URL.revokeObjectURL(item.url))
+  refImages.value = []
+  objectUrlCache.forEach(url => URL.revokeObjectURL(url))
+  objectUrlCache.clear()
+  history.value = []
+  historySearch.value = ''
+  prompt.value = ''
+  initError.value = ''
+  models.value = toOptions(FALLBACK_VIDEO_MODELS)
+  model.value = FALLBACK_VIDEO_MODELS[0]
+  pruneStoppedTasks()
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('studio-session-ended', resetVideoStudioSession)
 }

@@ -6,6 +6,7 @@
         <span class="text-sm font-semibold">{{ t('canvas.genRecords') }}</span>
         <span class="text-xs text-gray-400">{{ history.length }}</span>
       </div>
+      <StudioLegacyHistory kind="image" @imported="loadHistory" />
       <div class="mb-2 flex items-center gap-1.5 text-[11px]">
         <button type="button" class="rounded border border-gray-200 px-1.5 py-0.5 hover:border-primary-400 dark:border-dark-600" @click="onNewRecord">{{ t('canvas.new') }}</button>
         <button type="button" class="rounded border border-gray-200 px-1.5 py-0.5 hover:border-primary-400 dark:border-dark-600" @click="toggleSelectAll">{{ selected.size ? t('canvas.deselectAll') : t('canvas.selectAll') }}</button>
@@ -30,11 +31,12 @@
     </div>
 
     <!-- 中列:参数面板(移动端置于最前) -->
-    <div class="card order-1 flex min-h-0 flex-col gap-3 overflow-y-auto p-3 lg:order-none lg:h-full">
+    <div class="card order-1 flex min-h-0 flex-col gap-3 p-3 lg:order-none lg:h-full">
+      <div class="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
       <span class="text-sm font-semibold">{{ t('canvas.imageStudio') }}</span>
       <div>
-        <div class="mb-1 flex items-center justify-between gap-1">
-          <label class="shrink-0 text-xs font-medium text-gray-500">{{ t('imageStudio.prompt') }}</label>
+        <div class="mb-1 flex flex-wrap items-center justify-between gap-1">
+          <label for="image-main-prompt" class="shrink-0 text-xs font-medium text-gray-500">{{ t(imageSetEnabled ? 'imageStudio.overviewPrompt' : 'imageStudio.prompt') }}</label>
           <div class="flex min-w-0 items-center gap-1">
             <select v-model="aiKeyId" :title="t('canvas.aiPickKey')" class="max-w-28 rounded border border-gray-300 bg-white px-1 py-0.5 text-[11px] outline-none dark:border-dark-600 dark:bg-dark-800" @change="onAIKeyChange">
               <option v-if="aiKeys.length === 0" :value="null">{{ t('canvas.aiNoKeys') }}</option>
@@ -48,6 +50,7 @@
           </div>
         </div>
         <textarea
+          id="image-main-prompt"
           v-model="prompt"
           rows="6"
           maxlength="4000"
@@ -55,6 +58,8 @@
           class="w-full rounded-lg border border-gray-300 bg-white p-2.5 text-sm outline-none focus:border-primary-500 dark:border-dark-600 dark:bg-dark-800"
         ></textarea>
       </div>
+
+      <ImageSetPlan />
 
       <!-- 参考图 -->
       <div>
@@ -137,22 +142,29 @@
         </div>
       </div>
 
+      </div>
+      <div class="flex shrink-0 flex-col gap-2 border-t border-gray-100 pt-3 dark:border-dark-700">
       <button
         type="button"
         class="mt-auto rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
-        :disabled="generating || !!initError || !prompt.trim()"
+        :disabled="generating || !!initError || !prompt.trim() || !validImagePlan"
         @click="generateBatch"
       >
         <span v-if="generating" class="mr-1 inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white"></span>
-        {{ generating ? t('imageStudio.generating') : t('canvas.startGenerate') }}
+        {{ generating ? t('imageStudio.generating') : t('imageStudio.generateN', { n: plannedImageCount }) }}
       </button>
+      <button v-if="generating" type="button" :disabled="batchCancelRequested" class="text-xs text-gray-500 disabled:opacity-50" @click="cancelBatch">{{ t(batchCancelRequested ? 'imageStudio.cancelling' : 'imageStudio.stopBatch') }}</button>
+      </div>
     </div>
 
     <!-- 右列:生成结果(移动端居中) -->
     <div class="card order-2 flex min-h-0 flex-col p-3 lg:order-none lg:h-full">
       <div class="mb-2 flex shrink-0 items-center justify-between">
-        <span class="text-sm font-semibold">{{ t('canvas.genResults') }}</span>
-        <button v-if="batch.some(s => s.status === 'failed')" type="button" class="text-xs text-gray-400 hover:text-red-500" @click="clearFailed">{{ t('imageStudio.clearFailed') }}</button>
+        <div class="flex items-center gap-2">
+          <span class="text-sm font-semibold">{{ t('canvas.genResults') }}</span>
+          <span v-if="batch.length" class="text-xs text-gray-400" aria-live="polite">{{ batch.filter(s => s.status === 'done').length }}/{{ batch.length }}</span>
+        </div>
+        <button v-if="batch.some(s => s.status === 'failed')" type="button" :disabled="generating" class="text-xs text-gray-400 hover:text-red-500 disabled:opacity-50" @click="clearFailed">{{ t('imageStudio.clearFailed') }}</button>
       </div>
       <div class="flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div v-if="batch.length === 0" class="flex flex-1 flex-col items-center justify-center gap-3 text-sm text-gray-400">
@@ -161,6 +173,7 @@
         </div>
         <div v-else class="grid grid-cols-2 gap-3 lg:grid-cols-[repeat(auto-fill,minmax(220px,1fr))]">
           <div v-for="slot in batch" :key="slot.slotId" class="group relative overflow-hidden rounded-lg border border-gray-200 bg-gray-100 dark:border-dark-700 dark:bg-dark-800/60">
+            <div v-if="slot.label" class="border-b border-gray-200 bg-white px-2 py-1.5 text-xs font-medium dark:border-dark-700 dark:bg-dark-800" :title="slot.prompt">{{ slot.label }}</div>
             <template v-if="slot.status === 'done' && slot.url">
               <img :src="slot.url" class="aspect-square w-full cursor-zoom-in select-none object-contain" :alt="slot.prompt.slice(0, 30)" @click="viewer = { url: slot.url!, prompt: slot.prompt }" />
               <div class="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-center gap-x-2 bg-black/60 px-2 py-1 opacity-0 transition-opacity group-hover:opacity-100">
@@ -172,7 +185,13 @@
             <template v-else-if="slot.status === 'failed'">
               <div class="flex aspect-square w-full flex-col items-center justify-center gap-1 bg-red-50 p-2 text-center dark:bg-red-900/20">
                 <span class="line-clamp-3 text-[10px] text-red-500">{{ slot.error || t('imageStudio.generateFailed') }}</span>
-                <button type="button" class="text-[10px] text-primary-500 underline" @click="retrySlot(slot.slotId)">{{ t('imageStudio.retry') }}</button>
+                <button type="button" :disabled="generating" class="text-[10px] text-primary-500 underline disabled:opacity-50" @click="retrySlot(slot.slotId)">{{ t('imageStudio.retry') }}</button>
+              </div>
+            </template>
+            <template v-else-if="slot.status === 'queued' || slot.status === 'blocked' || slot.status === 'cancelled'">
+              <div class="flex aspect-square w-full flex-col items-center justify-center gap-2 p-3 text-center text-xs text-gray-500 dark:text-gray-400">
+                <span>{{ t(slot.status === 'blocked' ? 'imageStudio.overviewRequired' : slot.status === 'cancelled' ? 'imageStudio.cancelledTask' : 'imageStudio.queued') }}</span>
+                <button v-if="slot.status === 'cancelled'" type="button" :disabled="generating" class="text-primary-500 underline disabled:opacity-50" @click="retrySlot(slot.slotId)">{{ t('imageStudio.retry') }}</button>
               </div>
             </template>
             <template v-else>
@@ -202,12 +221,15 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import StudioLegacyHistory from './StudioLegacyHistory.vue'
+import ImageSetPlan from './ImageSetPlan.vue'
 import {
   MODES, QUALITIES, IMAGE_MODEL_PATTERN,
   models, model, initError, retryInit,
   quality,
   prompt, refItems, addRefFiles, removeRefItem,
   batch, generating, elapsed, generateBatch, clearFailed, removeSlot, retrySlot,
+  imageSetEnabled, plannedImageCount, validImagePlan, cancelBatch, batchCancelRequested,
   history, objectUrlFor, loadHistory,
 } from '@/composables/useImageStudioEngine'
 import {
@@ -268,6 +290,7 @@ async function onAIPrompt() {
     prompt.value = await aiEnhancePrompt('image', text, { keyId: aiKeyId.value ?? undefined, model: aiModel.value || undefined })
     appStore.showSuccess(t('canvas.aiPromptDone'))
   } catch (err) {
+    if (err instanceof Error && err.name === 'StudioSessionChangedError') return
     appStore.showError(err instanceof Error ? err.message : t('canvas.aiPromptFailed'))
   } finally {
     aiLoading.value = false

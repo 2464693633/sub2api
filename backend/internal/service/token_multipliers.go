@@ -61,18 +61,22 @@ func ApplyTokenMultipliers(raw UsageTokens, multipliers TokenMultipliers) UsageT
 		raw.CacheCreationTokens = cacheCreation5m + cacheCreation1h
 	}
 	billable := UsageTokens{
-		InputTokens:         roundedTokenCount(raw.InputTokens, multipliers.Input),
-		ImageInputTokens:    roundedTokenCount(raw.ImageInputTokens, multipliers.Input),
-		OutputTokens:        roundedTokenCount(raw.OutputTokens, multipliers.Output),
-		CacheCreationTokens: roundedTokenCount(raw.CacheCreationTokens, multipliers.CacheCreation),
-		CacheReadTokens:     roundedTokenCount(raw.CacheReadTokens, multipliers.CacheRead),
-		ImageOutputTokens:   roundedTokenCount(raw.ImageOutputTokens, multipliers.Output),
+		InputTokens:          roundedTokenCount(raw.InputTokens, multipliers.Input),
+		ImageInputTokens:     roundedTokenCount(raw.ImageInputTokens, multipliers.Input),
+		OutputTokens:         roundedTokenCount(raw.OutputTokens, multipliers.Output),
+		CacheCreationTokens:  roundedTokenCount(raw.CacheCreationTokens, multipliers.CacheCreation),
+		CacheReadTokens:      roundedTokenCount(raw.CacheReadTokens, multipliers.CacheRead),
+		ImageCacheReadTokens: roundedTokenCount(raw.ImageCacheReadTokens, multipliers.CacheRead),
+		ImageOutputTokens:    roundedTokenCount(raw.ImageOutputTokens, multipliers.Output),
 	}
 	if billable.ImageInputTokens > billable.InputTokens {
 		billable.ImageInputTokens = billable.InputTokens
 	}
 	if billable.ImageOutputTokens > billable.OutputTokens {
 		billable.ImageOutputTokens = billable.OutputTokens
+	}
+	if billable.ImageCacheReadTokens > billable.CacheReadTokens {
+		billable.ImageCacheReadTokens = billable.CacheReadTokens
 	}
 	billable.CacheCreation5mTokens, billable.CacheCreation1hTokens =
 		scaleCacheCreationBreakdown(raw, billable.CacheCreationTokens, multipliers.CacheCreation)

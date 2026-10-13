@@ -115,6 +115,7 @@ func (s *apiKeyGroupFailoverState) advance(
 	if s == nil || apiKey == nil {
 		return nil, nil, false
 	}
+	var lastReservationErr error
 	for s.index+1 < len(s.candidates) {
 		s.index++
 		candidate := s.candidates[s.index]
@@ -128,12 +129,18 @@ func (s *apiKeyGroupFailoverState) advance(
 			continue
 		}
 		if billing != nil {
+			var destinationRPMOverride []*int
+			if value, ok := apiKey.GroupRPMOverrides[candidate.Group.ID]; ok {
+				valueCopy := value
+				destinationRPMOverride = []*int{&valueCopy}
+			}
 			err := billing.CheckBillingEligibilityForGroupFailover(
 				ctx,
 				apiKey.User,
 				candidate.Group,
 				candidate.Subscription,
 				candidate.Group.Platform,
+				destinationRPMOverride...,
 			)
 			if err != nil {
 				if errors.Is(err, service.ErrBillingServiceUnavailable) {
@@ -142,11 +149,17 @@ func (s *apiKeyGroupFailoverState) advance(
 				continue
 			}
 		}
+		candidateKey := *apiKey
+		candidateKey.Group, candidateKey.GroupID = candidate.Group, &candidate.Group.ID
+		if err := refreshGroupInflightReservation(c, &candidateKey, candidate.Subscription); err != nil {
+			lastReservationErr = err
+			continue
+		}
 		if middleware2.ActivateAPIKeyGroup(c, apiKey, candidate) {
 			return candidate.Subscription, nil, true
 		}
 	}
-	return nil, nil, false
+	return nil, lastReservationErr, false
 }
 
 func isGroupRecoverableBillingError(err error) bool {

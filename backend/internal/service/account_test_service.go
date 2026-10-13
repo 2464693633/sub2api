@@ -416,6 +416,10 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 
+	if account.IsTypeSafe() {
+		return s.testTypeSafeAccountConnection(c, account, prompt)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
@@ -1423,6 +1427,10 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 		s.sendEvent(c, TestEvent{Type: "content", Text: "using uploaded first-frame / reference image\n"})
 	}
 	payloadBytes, _ := json.Marshal(payload)
+	payloadBytes, err = adaptGrokVideoReferenceForAccount(account, GrokMediaEndpointVideosGenerations, payloadBytes)
+	if err != nil {
+		return s.sendErrorAndEnd(c, err.Error())
+	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payloadBytes))
 	if err != nil {

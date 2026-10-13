@@ -251,3 +251,21 @@ func TestBillingCacheService_CheckRPM_NilUserIsNoop(t *testing.T) {
 	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userCalls))
 	require.EqualValues(t, 0, atomic.LoadInt32(&repo.calls))
 }
+
+func TestBillingCacheService_FailoverUsesDestinationRPMOverride(t *testing.T) {
+	sourceOverride := 0
+	destinationOverride := 1
+	rpm := &userRPMCacheStub{userGroupCounts: []int{2}}
+	repo := &rpmOverrideRepoStub{override: &destinationOverride}
+	svc := NewBillingCacheService(&balanceEligibilityCacheStub{balance: 100}, nil, nil, nil, rpm, repo, &config.Config{}, nil)
+	t.Cleanup(svc.Stop)
+
+	err := svc.CheckBillingEligibilityForGroupFailover(
+		context.Background(),
+		&User{ID: 1, UserGroupRPMOverride: &sourceOverride},
+		&Group{ID: 20, RPMLimit: 10},
+		nil,
+		PlatformOpenAI,
+	)
+	require.ErrorIs(t, err, ErrGroupRPMExceeded)
+}

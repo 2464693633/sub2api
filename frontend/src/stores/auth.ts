@@ -74,6 +74,10 @@ function clearPendingAuthSessionStorage(): void {
   localStorage.removeItem(PENDING_AUTH_SESSION_KEY)
 }
 
+function endStudioSession(): void {
+  window.dispatchEvent(new Event('studio-session-ended'))
+}
+
 export const useAuthStore = defineStore('auth', () => {
   // ==================== State ====================
 
@@ -297,6 +301,7 @@ export const useAuthStore = defineStore('auth', () => {
    * Internal helper function
    */
   function setAuthFromResponse(response: AuthResponse): void {
+    endStudioSession()
     // Store token and user
     token.value = response.access_token
 
@@ -359,6 +364,7 @@ export const useAuthStore = defineStore('auth', () => {
     // Note: Don't clear localStorage here as OAuth callback may have set refresh_token
     stopAutoRefresh()
     stopTokenRefresh()
+    endStudioSession()
     token.value = null
     user.value = null
 
@@ -467,6 +473,8 @@ export const useAuthStore = defineStore('auth', () => {
     stopAutoRefresh()
     // Stop token refresh
     stopTokenRefresh()
+
+    endStudioSession()
 
     token.value = null
     refreshTokenValue.value = null

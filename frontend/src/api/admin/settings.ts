@@ -4,12 +4,14 @@
  */
 
 import { apiClient } from "../client";
+import type { RechargeTier } from "@/types/payment";
 import type {
   CustomEndpoint,
   CustomMenuItem,
   LoginAgreementDocument,
   NotifyEmailEntry,
 } from "@/types";
+import type { RechargeBonusTier } from "@/utils/rechargeBonus";
 
 export interface DefaultSubscriptionSetting {
   group_id: number;
@@ -17,7 +19,7 @@ export interface DefaultSubscriptionSetting {
 }
 
 // ── 平台限额类型 ──────────────────────────────────────────────────
-export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok"
+export type PlatformType = "anthropic" | "openai" | "gemini" | "antigravity" | "grok" | "typesafe"
 export type QuotaWindowType = "daily" | "weekly" | "monthly"
 
 /** 单平台三档限额；null = 不限制，undefined = 未填（等价 null） */
@@ -30,7 +32,7 @@ export interface PlatformQuotaLimits {
 /** 全平台默认限额 map（key = PlatformType） */
 export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuotaLimits>>
 
-const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok"]
+const PLATFORMS: PlatformType[] = ["anthropic", "openai", "gemini", "antigravity", "grok", "typesafe"]
 
 export type SchedulingThresholdPlatformType =
   | "openai"
@@ -656,6 +658,7 @@ export interface SystemSettings {
   risk_control_enabled: boolean;
 
   // Cyber session block
+  cyber_policy_user_allowlist: string;
   cyber_session_block_enabled: boolean;
   cyber_session_block_ttl_seconds: number;
 
@@ -667,8 +670,12 @@ export interface SystemSettings {
   payment_enabled_types: string[];
   payment_balance_disabled: boolean;
   payment_balance_recharge_multiplier: number;
+  payment_balance_recharge_tiers?: RechargeTier[];
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy: string;
   payment_product_name_prefix: string;
   payment_product_name_suffix: string;
@@ -988,6 +995,7 @@ export interface UpdateSettingsRequest {
   risk_control_enabled?: boolean;
 
   // Cyber session block
+  cyber_policy_user_allowlist?: string;
   cyber_session_block_enabled?: boolean;
   cyber_session_block_ttl_seconds?: number;
 
@@ -999,8 +1007,12 @@ export interface UpdateSettingsRequest {
   payment_enabled_types?: string[];
   payment_balance_disabled?: boolean;
   payment_balance_recharge_multiplier?: number;
+  payment_balance_recharge_tiers?: RechargeTier[];
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
+  payment_recharge_bonus_tiers?: RechargeBonusTier[];
+  payment_recharge_bonus_mode?: string;
+  payment_recharge_bonus_notice?: string;
   payment_load_balance_strategy?: string;
   payment_product_name_prefix?: string;
   payment_product_name_suffix?: string;

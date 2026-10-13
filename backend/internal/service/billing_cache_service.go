@@ -786,7 +786,7 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 // first candidate. It intentionally charges only the candidate's group RPM;
 // replaying the full preflight would count one client request multiple times in
 // the user's global RPM window.
-func (s *BillingCacheService) CheckBillingEligibilityForGroupFailover(ctx context.Context, user *User, group *Group, subscription *UserSubscription, platform string) error {
+func (s *BillingCacheService) CheckBillingEligibilityForGroupFailover(ctx context.Context, user *User, group *Group, subscription *UserSubscription, platform string, destinationRPMOverride ...*int) error {
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
 	}
@@ -811,8 +811,13 @@ func (s *BillingCacheService) CheckBillingEligibilityForGroupFailover(ctx contex
 	if group == nil || s.userRPMCache == nil || user == nil {
 		return nil
 	}
-	override := user.UserGroupRPMOverride
-	if override == nil && s.userGroupRateRepo != nil {
+	// The user snapshot carries the override for the currently active group.
+	// A failover candidate is a different group, so resolve that destination's
+	// override directly instead of inheriting the source group's cached value.
+	var override *int
+	if len(destinationRPMOverride) > 0 {
+		override = destinationRPMOverride[0]
+	} else if s.userGroupRateRepo != nil {
 		dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, user.ID, group.ID)
 		if err != nil {
 			logger.LegacyPrintf("service.billing_cache", "Warning: failover RPM override lookup failed for user=%d group=%d: %v", user.ID, group.ID, err)
@@ -870,9 +875,11 @@ func (s *BillingCacheService) checkSimpleModeAPIKeyRateLimits(ctx context.Contex
 		return ErrAPIKeyRateLimit1dExceeded
 	}
 	if apiKey.RateLimit7d > 0 && data.EffectiveUsage7d() >= apiKey.RateLimit7d {
-		return ErrAPIKeyRateLimit7dExceeded	}
+		return ErrAPIKeyRateLimit7dExceeded
+	}
 	return nil
 }
+
 // checkRPM 执行并行 RPM 限流，所有适用的限制同时生效，任一超限即拒绝：
 //
 //  1. (用户, 分组) rpm_override       — 最细粒度：管理员为特定用户在特定分组设定的专属限额。
