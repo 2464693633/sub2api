@@ -128,6 +128,8 @@ func registerRoutes(
 	routes.RegisterUserRoutes(v1, h, jwtAuth, auditLog, settingService, panelRateLimiter)
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
+	routes.RegisterMCPRoutes(v1, h, auditLog, stepUpAuth, settingService, panelRateLimiter, cfg.CORS.AllowedOrigins, redisClient)
+	routes.RegisterMCPOAuthRoutes(r, v1, h, redisClient)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
 	routes.RegisterImageStudioRoutes(r, h, jwtAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, panelRateLimiter)
 	routes.RegisterVideoStudioRoutes(r, h, jwtAuth, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, panelRateLimiter)
