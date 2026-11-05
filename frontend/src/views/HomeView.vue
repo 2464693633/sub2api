@@ -239,7 +239,7 @@
             </div>
             <button
               type="submit"
-              :disabled="loginLoading"
+              :disabled="loginLoading || turnstilePending"
               class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500/90 px-6 text-sm font-semibold text-black shadow-lg transition-all hover:bg-amber-400 hover:shadow-[0_0_28px_rgba(245,158,11,0.45)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {{ loginLoading ? t('auth.signingIn') : t('auth.signIn') }}
@@ -325,7 +325,7 @@
             </div>
             <button
               type="submit"
-              :disabled="registerLoading"
+              :disabled="registerLoading || turnstilePending"
               class="inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-amber-500/90 px-6 text-sm font-semibold text-black shadow-lg transition-all hover:bg-amber-400 hover:shadow-[0_0_28px_rgba(245,158,11,0.45)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {{ registerLoading ? t('auth.processing') : t('auth.createAccount') }}
@@ -405,7 +405,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAuthStore, useAppStore } from '@/stores'
@@ -505,13 +505,19 @@ const aliyunCaptchaEnabled = computed(() => appStore.cachedPublicSettings?.aliyu
 const aliyunCaptchaSceneId = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_scene_id || '')
 const aliyunCaptchaPrefix = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_prefix || '')
 const aliyunCaptchaRegion = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_region || 'cn')
-// Turnstile 需要 site key、腾讯需要 app id 才能真正渲染；缺失时不显示组件
-// （与完整登录/注册页的显示条件一致，避免出现永远过不了的空壳验证码）。
-const captchaWidgetReady = computed(
+// Turnstile 需要 site key、腾讯需要 app id、阿里云需 scene+prefix 才能真正渲染；
+// 缺失时不显示组件（与完整登录/注册页一致，避免出现永远过不了的空壳验证码）。
+const actionCaptchaEnabled = computed(
   () =>
-    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) ||
     (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
-    aliyunCaptchaEnabled.value,
+    (aliyunCaptchaEnabled.value && Boolean(aliyunCaptchaSceneId.value) && Boolean(aliyunCaptchaPrefix.value)),
+)
+const captchaWidgetReady = computed(
+  () => (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) || actionCaptchaEnabled.value,
+)
+// 纯 Turnstile 模式：页面内组件验证完成前禁用提交（token 由 @verify 事件写入）
+const turnstilePending = computed(
+  () => turnstileEnabled.value && !actionCaptchaEnabled.value && !captchaToken.value,
 )
 const loginCaptchaRef = ref<InstanceType<typeof CaptchaChallenge> | null>(null)
 const registerCaptchaRef = ref<InstanceType<typeof CaptchaChallenge> | null>(null)
@@ -535,13 +541,23 @@ async function acquireCaptchaProof(
   onError: (message: string) => void,
 ): Promise<boolean> {
   if (!captchaWidgetReady.value) return true
-  const proof = await widget?.verifyAction()
-  if (!proof) {
+  // 腾讯/阿里云为动作触发式弹窗，提交时经 verifyAction 取 proof；
+  // Turnstile 为页面内组件，token 由 @verify 事件写入 captchaToken，
+  // 此处只校验非空（与完整登录页 validateForm 的做法一致）。
+  if (actionCaptchaEnabled.value) {
+    const proof = await widget?.verifyAction()
+    if (!proof) {
+      onError(t('auth.turnstileFailed'))
+      return false
+    }
+    captchaToken.value = proof.token
+    captchaRandstr.value = proof.randstr || ''
+    return true
+  }
+  if (!captchaToken.value) {
     onError(t('auth.turnstileFailed'))
     return false
   }
-  captchaToken.value = proof.token
-  captchaRandstr.value = proof.randstr || ''
   return true
 }
 function resetCaptchaProof(widget: InstanceType<typeof CaptchaChallenge> | null): void {
@@ -549,6 +565,12 @@ function resetCaptchaProof(widget: InstanceType<typeof CaptchaChallenge> | null)
   captchaToken.value = ''
   captchaRandstr.value = ''
 }
+// 切换登录/注册页签时销毁对应组件但不触发 expire，清掉残留 token
+// 避免被另一个表单误用（token 一次性，串用只会校验失败）。
+watch(homeAuthMode, () => {
+  captchaToken.value = ''
+  captchaRandstr.value = ''
+})
 function captchaPayload() {
   return {
     turnstile_token: turnstileEnabled.value || aliyunCaptchaEnabled.value ? captchaToken.value : undefined,
@@ -571,7 +593,11 @@ async function handleSendVerifyCode() {
   }
   verifyCodeSending.value = true
   try {
-    const resp = await authAPI.sendVerifyCode({ email: registerEmail.value.trim() })
+    // 发送邮箱验证码同样要过人机验证（后端 SendVerifyCode 无条件校验）
+    if (!(await acquireCaptchaProof(registerCaptchaRef.value, (m) => (registerError.value = m)))) {
+      return
+    }
+    const resp = await authAPI.sendVerifyCode({ email: registerEmail.value.trim(), ...captchaPayload() })
     verifyCodeCountdown.value = resp.countdown || 60
     if (verifyCodeTimer) clearInterval(verifyCodeTimer)
     verifyCodeTimer = setInterval(() => {
@@ -582,8 +608,10 @@ async function handleSendVerifyCode() {
       }
     }, 1000)
     appStore.showSuccess(t('auth.codeSentSuccess'))
+    resetCaptchaProof(registerCaptchaRef.value)
   } catch (error: unknown) {
     registerError.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.sendCodeFailed'))
+    resetCaptchaProof(registerCaptchaRef.value)
   } finally {
     verifyCodeSending.value = false
   }
@@ -607,7 +635,10 @@ async function handleHomeRegister() {
     registerError.value = t('auth.codeRequired')
     return
   }
-  if (!(await acquireCaptchaProof(registerCaptchaRef.value, (m) => (registerError.value = m)))) {
+  // 邮箱验证模式：proof 已在发送验证码时消费，后端 VerifyCaptchaForRegister
+  // 检测到 verify_code 会跳过二次校验；其余模式提交前取 proof。
+  const needCaptchaProof = !(emailVerifyEnabled.value && registerVerifyCode.value.trim())
+  if (needCaptchaProof && !(await acquireCaptchaProof(registerCaptchaRef.value, (m) => (registerError.value = m)))) {
     return
   }
   registerLoading.value = true
