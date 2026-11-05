@@ -220,6 +220,23 @@
               </button>
             </div>
             <p v-if="loginError" class="text-sm text-red-300">{{ loginError }}</p>
+            <div v-if="captchaWidgetReady" class="rounded-xl bg-white/95 p-3 dark:bg-dark-800/95">
+              <CaptchaChallenge
+                ref="loginCaptchaRef"
+                :turnstile-enabled="turnstileEnabled"
+                :turnstile-site-key="turnstileSiteKey"
+                :tencent-enabled="tencentCaptchaEnabled"
+                :tencent-app-id="tencentCaptchaAppId"
+                :tencent-region="tencentCaptchaRegion"
+                :aliyun-enabled="aliyunCaptchaEnabled"
+                :aliyun-scene-id="aliyunCaptchaSceneId"
+                :aliyun-prefix="aliyunCaptchaPrefix"
+                :aliyun-region="aliyunCaptchaRegion"
+                @verify="onCaptchaVerify"
+                @expire="onCaptchaExpire"
+                @error="onCaptchaError"
+              />
+            </div>
             <button
               type="submit"
               :disabled="loginLoading"
@@ -229,21 +246,8 @@
             </button>
           </form>
 
-          <!-- 注册表单;实例启用图形验证码(Turnstile/腾讯)时主页无法承载验证流程,引导到完整注册页 -->
-          <div v-if="homeAuthMode === 'register' && captchaEnabled" class="space-y-4 text-center">
-            <p class="text-sm leading-relaxed text-white/70">
-              {{ t('home.hero.captchaRedirectHint') }}
-            </p>
-            <router-link
-              to="/register"
-              class="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-amber-500/90 px-6 text-sm font-semibold text-black shadow-lg transition-all hover:bg-amber-400 hover:shadow-[0_0_28px_rgba(245,158,11,0.45)]"
-            >
-              {{ t('auth.signUp') }}
-            </router-link>
-          </div>
-
           <form
-            v-else-if="homeAuthMode === 'register'"
+            v-if="homeAuthMode === 'register'"
             class="space-y-3 text-left"
             @submit.prevent="handleHomeRegister"
           >
@@ -302,6 +306,23 @@
               class="h-11 w-full rounded-xl border border-white/25 bg-white/10 px-4 text-sm text-white placeholder-white/50 outline-none backdrop-blur transition-colors focus:border-amber-300/70 focus:bg-white/15"
             />
             <p v-if="registerError" class="text-sm text-red-300">{{ registerError }}</p>
+            <div v-if="captchaWidgetReady" class="rounded-xl bg-white/95 p-3 dark:bg-dark-800/95">
+              <CaptchaChallenge
+                ref="registerCaptchaRef"
+                :turnstile-enabled="turnstileEnabled"
+                :turnstile-site-key="turnstileSiteKey"
+                :tencent-enabled="tencentCaptchaEnabled"
+                :tencent-app-id="tencentCaptchaAppId"
+                :tencent-region="tencentCaptchaRegion"
+                :aliyun-enabled="aliyunCaptchaEnabled"
+                :aliyun-scene-id="aliyunCaptchaSceneId"
+                :aliyun-prefix="aliyunCaptchaPrefix"
+                :aliyun-region="aliyunCaptchaRegion"
+                @verify="onCaptchaVerify"
+                @expire="onCaptchaExpire"
+                @error="onCaptchaError"
+              />
+            </div>
             <button
               type="submit"
               :disabled="registerLoading"
@@ -394,6 +415,7 @@ import HeroVideoBackground from '@/components/home/HeroVideoBackground.vue'
 import { HOME_HERO_THEMES, HOME_HERO_STATS } from '@/config/homeThemes'
 import { modelPlazaAPI } from '@/api/modelPlaza'
 import { authAPI, isTotp2FARequired } from '@/api'
+import CaptchaChallenge from '@/components/CaptchaChallenge.vue'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
@@ -472,13 +494,68 @@ const registerError = ref('')
 const registrationEnabled = computed(() => appStore.cachedPublicSettings?.registration_enabled !== false)
 const invitationCodeEnabled = computed(() => appStore.cachedPublicSettings?.invitation_code_enabled === true)
 const emailVerifyEnabled = computed(() => appStore.cachedPublicSettings?.email_verify_enabled === true)
-// 图形验证码开启时主页注册无法获取 proof,注册流程引导到完整注册页
-const captchaEnabled = computed(
+// 图形验证码：直接内嵌在主页登录/注册表单中（Turnstile/腾讯天御/阿里云三选一），
+// 提交前通过组件 verifyAction 取 proof 随请求上送，不再引导跳转完整注册页。
+const turnstileEnabled = computed(() => appStore.cachedPublicSettings?.turnstile_enabled === true)
+const turnstileSiteKey = computed(() => appStore.cachedPublicSettings?.turnstile_site_key || '')
+const tencentCaptchaEnabled = computed(() => appStore.cachedPublicSettings?.tencent_captcha_enabled === true)
+const tencentCaptchaAppId = computed(() => appStore.cachedPublicSettings?.tencent_captcha_app_id || '')
+const tencentCaptchaRegion = computed(() => appStore.cachedPublicSettings?.tencent_captcha_region || 'cn')
+const aliyunCaptchaEnabled = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_enabled === true)
+const aliyunCaptchaSceneId = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_scene_id || '')
+const aliyunCaptchaPrefix = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_prefix || '')
+const aliyunCaptchaRegion = computed(() => appStore.cachedPublicSettings?.aliyun_captcha_region || 'cn')
+// Turnstile 需要 site key、腾讯需要 app id 才能真正渲染；缺失时不显示组件
+// （与完整登录/注册页的显示条件一致，避免出现永远过不了的空壳验证码）。
+const captchaWidgetReady = computed(
   () =>
-    appStore.cachedPublicSettings?.turnstile_enabled === true ||
-    appStore.cachedPublicSettings?.tencent_captcha_enabled === true ||
-    appStore.cachedPublicSettings?.aliyun_captcha_enabled === true,
+    (turnstileEnabled.value && Boolean(turnstileSiteKey.value)) ||
+    (tencentCaptchaEnabled.value && Boolean(tencentCaptchaAppId.value)) ||
+    aliyunCaptchaEnabled.value,
 )
+const loginCaptchaRef = ref<InstanceType<typeof CaptchaChallenge> | null>(null)
+const registerCaptchaRef = ref<InstanceType<typeof CaptchaChallenge> | null>(null)
+const captchaToken = ref('')
+const captchaRandstr = ref('')
+
+function onCaptchaVerify(token: string, randstr = ''): void {
+  captchaToken.value = token
+  captchaRandstr.value = randstr
+}
+function onCaptchaExpire(): void {
+  captchaToken.value = ''
+  captchaRandstr.value = ''
+}
+function onCaptchaError(): void {
+  captchaToken.value = ''
+  captchaRandstr.value = ''
+}
+async function acquireCaptchaProof(
+  widget: InstanceType<typeof CaptchaChallenge> | null,
+  onError: (message: string) => void,
+): Promise<boolean> {
+  if (!captchaWidgetReady.value) return true
+  const proof = await widget?.verifyAction()
+  if (!proof) {
+    onError(t('auth.turnstileFailed'))
+    return false
+  }
+  captchaToken.value = proof.token
+  captchaRandstr.value = proof.randstr || ''
+  return true
+}
+function resetCaptchaProof(widget: InstanceType<typeof CaptchaChallenge> | null): void {
+  widget?.reset()
+  captchaToken.value = ''
+  captchaRandstr.value = ''
+}
+function captchaPayload() {
+  return {
+    turnstile_token: turnstileEnabled.value || aliyunCaptchaEnabled.value ? captchaToken.value : undefined,
+    tencent_captcha_ticket: tencentCaptchaEnabled.value ? captchaToken.value : undefined,
+    tencent_captcha_randstr: tencentCaptchaEnabled.value ? captchaRandstr.value : undefined,
+  }
+}
 
 // 邮箱验证码
 const registerVerifyCode = ref('')
@@ -530,6 +607,9 @@ async function handleHomeRegister() {
     registerError.value = t('auth.codeRequired')
     return
   }
+  if (!(await acquireCaptchaProof(registerCaptchaRef.value, (m) => (registerError.value = m)))) {
+    return
+  }
   registerLoading.value = true
   try {
     const user = await authStore.register({
@@ -537,6 +617,7 @@ async function handleHomeRegister() {
       password: registerPassword.value,
       verify_code: emailVerifyEnabled.value ? registerVerifyCode.value.trim() : undefined,
       invitation_code: registerInviteCode.value.trim() || undefined,
+      ...captchaPayload(),
     })
     if (user) {
       appStore.showSuccess(t('auth.accountCreatedSuccess', { siteName: siteName.value }))
@@ -544,6 +625,7 @@ async function handleHomeRegister() {
     }
   } catch (error: unknown) {
     registerError.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.registrationFailed'))
+    resetCaptchaProof(registerCaptchaRef.value)
   } finally {
     registerLoading.value = false
   }
@@ -559,11 +641,15 @@ async function handleHomeLogin() {
     loginError.value = t('auth.passwordRequired')
     return
   }
+  if (!(await acquireCaptchaProof(loginCaptchaRef.value, (m) => (loginError.value = m)))) {
+    return
+  }
   loginLoading.value = true
   try {
     const response = await authStore.login({
       email: loginEmail.value.trim(),
       password: loginPassword.value,
+      ...captchaPayload(),
     })
     if (isTotp2FARequired(response)) {
       // 2FA 等增强验证在完整登录页完成
@@ -574,6 +660,7 @@ async function handleHomeLogin() {
     await router.push(dashboardPath.value)
   } catch (error: unknown) {
     loginError.value = extractI18nErrorMessage(error, t, 'auth.errors', t('auth.loginFailed'))
+    resetCaptchaProof(loginCaptchaRef.value)
   } finally {
     loginLoading.value = false
   }
