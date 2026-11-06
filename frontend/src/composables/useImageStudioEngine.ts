@@ -223,7 +223,30 @@ export function removePromptBox(id: number) {
 }
 
 // ===== 参考图 =====
-export function addRefFiles(incoming: File[]) {
+// 中转对请求体约 1MB 限制：参考图超 600KB 先在前端压一道（后端 API Key
+// 路径还有同源压缩兜底），避免大图直发被不透明 400 拒绝。
+const REF_MAX_BYTES = 600 * 1024
+async function compressRefFile(f: File): Promise<File> {
+  if (f.size <= REF_MAX_BYTES) return f
+  try {
+    const bitmap = await createImageBitmap(f)
+    const scale = Math.min(1, 2048 / Math.max(bitmap.width, bitmap.height))
+    const w = Math.max(1, Math.round(bitmap.width * scale))
+    const h = Math.max(1, Math.round(bitmap.height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    canvas.getContext('2d')?.drawImage(bitmap, 0, 0, w, h)
+    bitmap.close()
+    const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.85))
+    if (!blob || blob.size >= f.size) return f
+    const base = f.name.replace(/\.[^.]+$/, '') || 'ref'
+    return new File([blob], `${base}.jpg`, { type: 'image/jpeg' })
+  } catch {
+    return f
+  }
+}
+export async function addRefFiles(incoming: File[]) {
   const images = incoming.filter(f => f.type.startsWith('image/'))
   if (!images.length) return
   const room = MAX_REFS - refItems.value.length
@@ -233,7 +256,8 @@ export function addRefFiles(incoming: File[]) {
   }
   const accepted = images.slice(0, room)
   for (const f of accepted) {
-    refItems.value.push({ file: f, url: URL.createObjectURL(f) })
+    const file = await compressRefFile(f)
+    refItems.value.push({ file, url: URL.createObjectURL(file) })
   }
   mode.value = 'i2i'
   if (images.length > accepted.length) appStore().showError(t('imageStudio.maxRefs'))
@@ -513,11 +537,17 @@ export async function onImportZipChange(event: Event) {
 }
 
 // ===== 生成 =====
+function sniffImageMime(bytes: Uint8Array): string {
+  if (bytes.length >= 4 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) return 'image/png'
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
+  if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp'
+  return 'image/png'
+}
 function blobFromB64(b64: string): Blob {
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
-  return new Blob([bytes], { type: 'image/png' })
+  return new Blob([bytes], { type: sniffImageMime(bytes) })
 }
 async function blobFromUrl(url: string, session: StudioSession): Promise<Blob> {
   if (!isCurrentSession(session)) throw new StudioSessionChangedError()
@@ -596,11 +626,11 @@ async function generateOne(spec: BatchSpec, promptText: string, refList: File[])
     const body = await res.json().catch(() => null) as { error?: { message?: string }; message?: string; data?: Array<{ b64_json?: string; url?: string }> } | null
     if (!isCurrentSession(spec)) return { blob: null }
     if (!res.ok) {
-      const msg = body?.error?.message || body?.message || t('imageStudio.generateFailed')
+      const msg = body?.error?.message || body?.message || `HTTP ${res.status}`
       return { blob: null, error: msg }
     }
     const data = body?.data || []
-    if (!data.length) return { blob: null, error: t('imageStudio.generateFailed') }
+    if (!data.length) return { blob: null, error: body?.error?.message || body?.message || t('imageStudio.generateFailed') }
     const first = data[0]
     const blob = first?.b64_json
       ? blobFromB64(first.b64_json)

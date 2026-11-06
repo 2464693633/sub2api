@@ -651,6 +651,10 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		parsed.Endpoint,
 		account.Type,
 	)
+	// 中转对请求体约 1MB 限制：参考图超阈值先压缩再改写模型，避免不透明 400
+	// （与 grok 媒体路径同源的修复，仅作用于 API Key 中转账号分支）。
+	body = compressOpenAIImagesDataURIReferences(body)
+	body, parsed.ContentType, _ = compressOpenAIImagesMultipartReferences(body, parsed.ContentType)
 	forwardBody, forwardContentType, err := rewriteOpenAIImagesModel(body, parsed.ContentType, upstreamModel)
 	if err != nil {
 		return nil, err
