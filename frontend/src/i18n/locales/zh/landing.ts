@@ -198,7 +198,11 @@ export default {
     preview: '查看大图',
     deleteTurn: '删除本轮',
     stopped: '已停止',
-    interrupted: '页面刷新导致生成中断'
+    interrupted: '页面刷新导致生成中断',
+    saveFailed: '对话记录保存失败,刷新后可能丢失(请检查浏览器存储空间)',
+    loadFailed: '读取对话记录失败',
+    loading: '正在加载对话记录',
+    olderHidden: '仅显示最近 {n} 轮'
   },
 
   videoStudio: {

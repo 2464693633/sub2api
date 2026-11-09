@@ -53,6 +53,10 @@
 
     <!-- 消息流 -->
     <div ref="scroller" class="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-4" aria-live="polite">
+      <div v-if="!loaded" class="flex justify-center py-10">
+        <span class="inline-block h-5 w-5 animate-spin rounded-full border-2 border-primary-300 border-t-primary-600" :aria-label="t('canvasChat.loading')"></span>
+      </div>
+      <div v-if="loaded && hasOlder" class="text-center text-[10px] text-gray-400">{{ t('canvasChat.olderHidden', { n: LOAD_LIMIT }) }}</div>
       <div v-if="loaded && turns.length === 0" class="mx-auto flex max-w-md flex-col items-center gap-3 py-10 text-center">
         <span class="text-4xl">💬</span>
         <div class="text-sm font-semibold">{{ t('canvasChat.emptyTitle') }}</div>
@@ -207,9 +211,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { models } from '@/composables/useImageStudioEngine'
 import {
-  CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS,
+  CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS, LOAD_LIMIT,
   turns, draftText, draftRefs, ratio, quality, count, model, polishEnabled, polishing,
-  elapsed, loaded, busy, initError,
+  elapsed, loaded, hasOlder, busy, initError,
   initChatDraw, saveSettings, addDraftRefs, removeDraftRef, addImageAsRef,
   sendDraft, redrawTurn, variantOf, retryImage, stopAll, deleteTurn, clearConversation,
   downloadImage, blobUrl,

@@ -198,7 +198,11 @@ export default {
     preview: 'View full size',
     deleteTurn: 'Delete this turn',
     stopped: 'Stopped',
-    interrupted: 'Interrupted by page reload'
+    interrupted: 'Interrupted by page reload',
+    saveFailed: 'Failed to save the conversation; it may be lost after reload (check browser storage)',
+    loadFailed: 'Failed to load the conversation',
+    loading: 'Loading conversation',
+    olderHidden: 'Showing the latest {n} turns only'
   },
 
   videoStudio: {
