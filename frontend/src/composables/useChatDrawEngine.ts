@@ -574,6 +574,8 @@ export { initError }
 export async function selectSession(sid: string) {
   if (!sessionsLoaded.value || sid === activeSessionId.value || !findSession(sid)) return
   activeSessionId.value = sid
+  draftText.value = ''
+  clearDraftRefs()
   clearNotice(sid)
   saveActive()
   evictInactive()
@@ -587,6 +589,8 @@ export function newSession(): string {
   if (unsavedIds.has(cur) && !(turnStore.value[cur]?.length) && !isPinned(cur)) return cur
   const s = newMemorySession()
   activeSessionId.value = s.id
+  draftText.value = ''
+  clearDraftRefs()
   saveActive()
   evictInactive()
   return s.id
@@ -624,6 +628,8 @@ export async function deleteSession(sid: string) {
   olderMap.value = older
   if (activeSessionId.value === sid) {
     activeSessionId.value = sessions.value[0]?.id || newMemorySession().id
+    draftText.value = ''
+    clearDraftRefs()
     saveActive()
   }
   const loading = ensureSessionLoaded(activeSessionId.value)
@@ -648,6 +654,8 @@ export async function clearAllSessions() {
   olderMap.value = {}
   sessionNotices.value = {}
   revokeAllUrls()
+  draftText.value = ''
+  clearDraftRefs()
   activeSessionId.value = newMemorySession().id
   saveActive()
   await enqueueWrite(() => dbTx(owner, ['turns', 'sessions'], 'readwrite', tx => {

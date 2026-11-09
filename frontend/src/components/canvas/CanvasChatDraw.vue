@@ -270,10 +270,14 @@ async function onDeleteSession(id: string) {
   const s = sessions.value.find(x => x.id === id)
   if (s?.turnCount && !window.confirm(t('canvasChat.deleteSessionConfirm', { title: s.title || t('canvasChat.untitled') }))) return
   await deleteSession(id)
+  single.value = null
+  lightIndex.value = -1
 }
 async function onClearAll() {
   if (!window.confirm(t('canvasChat.clearAllConfirm'))) return
   await clearAllSessions()
+  single.value = null
+  lightIndex.value = -1
 }
 const historyHandlers = {
   create: onNewChat,
