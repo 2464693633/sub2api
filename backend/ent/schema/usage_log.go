@@ -88,6 +88,10 @@ func (UsageLog) Fields() []ent.Field {
 			Default(0),
 		field.Int("cache_creation_1h_tokens").
 			Default(0),
+		field.Int("cache_creation_30m_tokens").
+			Default(0),
+		field.Int("cache_creation_12h_tokens").
+			Default(0),
 
 		// 计费 Token 与分组倍率快照。NULL 表示迁移前的历史记录，读取时回退到
 		// 对应的真实 Token，并按 1.0 倍率处理。

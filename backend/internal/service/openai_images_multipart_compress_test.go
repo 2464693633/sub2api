@@ -17,7 +17,7 @@ func buildImagesNoiseJPEG(t *testing.T, size int) []byte {
 	img := image.NewRGBA(image.Rect(0, 0, size, size))
 	for y := 0; y < size; y++ {
 		for x := 0; x < size; x++ {
-			img.Set(x, y, color.RGBA{R: uint8((x * 7 + y * 13) % 256), G: uint8((x * 3 + y * 5) % 256), B: uint8((x * 11 + y) % 256), A: 255})
+			img.Set(x, y, color.RGBA{R: uint8((x*7 + y*13) % 256), G: uint8((x*3 + y*5) % 256), B: uint8((x*11 + y) % 256), A: 255})
 		}
 	}
 	var buf bytes.Buffer

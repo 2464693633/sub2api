@@ -703,14 +703,16 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	billable := l.BillableTokens()
 	billableDetails := service.ApplyTokenMultipliers(service.UsageTokens{
-		InputTokens:           l.InputTokens,
-		OutputTokens:          l.OutputTokens,
-		CacheCreationTokens:   l.CacheCreationTokens,
-		CacheReadTokens:       l.CacheReadTokens,
-		CacheCreation5mTokens: l.CacheCreation5mTokens,
-		CacheCreation1hTokens: l.CacheCreation1hTokens,
-		ImageInputTokens:      l.ImageInputTokens,
-		ImageOutputTokens:     l.ImageOutputTokens,
+		InputTokens:            l.InputTokens,
+		OutputTokens:           l.OutputTokens,
+		CacheCreationTokens:    l.CacheCreationTokens,
+		CacheReadTokens:        l.CacheReadTokens,
+		CacheCreation5mTokens:  l.CacheCreation5mTokens,
+		CacheCreation1hTokens:  l.CacheCreation1hTokens,
+		CacheCreation30mTokens: l.CacheCreation30mTokens,
+		CacheCreation12hTokens: l.CacheCreation12hTokens,
+		ImageInputTokens:       l.ImageInputTokens,
+		ImageOutputTokens:      l.ImageOutputTokens,
 	}, l.EffectiveTokenMultipliers())
 	requestedModel := l.RequestedModel
 	if requestedModel == "" {
@@ -734,6 +736,8 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		CacheReadTokens:           billable.CacheReadTokens,
 		CacheCreation5mTokens:     billableDetails.CacheCreation5mTokens,
 		CacheCreation1hTokens:     billableDetails.CacheCreation1hTokens,
+		CacheCreation30mTokens:    billableDetails.CacheCreation30mTokens,
+		CacheCreation12hTokens:    billableDetails.CacheCreation12hTokens,
 		InputCost:                 l.InputCost,
 		OutputCost:                l.OutputCost,
 		CacheCreationCost:         l.CacheCreationCost,

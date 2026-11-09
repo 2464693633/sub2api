@@ -80,7 +80,38 @@ func ApplyTokenMultipliers(raw UsageTokens, multipliers TokenMultipliers) UsageT
 	}
 	billable.CacheCreation5mTokens, billable.CacheCreation1hTokens =
 		scaleCacheCreationBreakdown(raw, billable.CacheCreationTokens, multipliers.CacheCreation)
+	billable.CacheCreation30mTokens, billable.CacheCreation12hTokens =
+		scaleOpenAICacheCreationTTLBreakdown(raw, billable.CacheCreationTokens)
 	return billable
+}
+
+// scaleOpenAICacheCreationTTLBreakdown 按与 5m/1h 相同的口径换算 OpenAI 的
+// 30m/12h 缓存写入明细：保持原始比例，且两者之和等于换算后的 CacheCreationTokens，
+// 使 openAICacheCreationTTLCost 的"互斥且穷尽"校验在 billable 口径下依然成立。
+// 原始明细无效（负数、超出聚合值或聚合值缺失）时返回 0/0，计费回退到聚合单价，
+// 与 raw 口径下 openAICacheCreationTTLCost 的回退行为一致。
+func scaleOpenAICacheCreationTTLBreakdown(raw UsageTokens, billableAggregate int) (int, int) {
+	raw30m, raw12h := raw.CacheCreation30mTokens, raw.CacheCreation12hTokens
+	detailTotal := raw30m + raw12h
+	if raw30m < 0 || raw12h < 0 || detailTotal <= 0 || raw.CacheCreationTokens <= 0 || detailTotal > raw.CacheCreationTokens {
+		return 0, 0
+	}
+	billableDetailTotal := billableAggregate
+	if detailTotal < raw.CacheCreationTokens {
+		// 明细未覆盖整个聚合值（上游部分上报）：按明细占比缩放，不超过聚合值。
+		billableDetailTotal = int(math.Round(float64(billableAggregate) * float64(detailTotal) / float64(raw.CacheCreationTokens)))
+		if billableDetailTotal > billableAggregate {
+			billableDetailTotal = billableAggregate
+		}
+	}
+	billable30m := int(math.Round(float64(billableDetailTotal) * float64(raw30m) / float64(detailTotal)))
+	if billable30m < 0 {
+		billable30m = 0
+	}
+	if billable30m > billableDetailTotal {
+		billable30m = billableDetailTotal
+	}
+	return billable30m, billableDetailTotal - billable30m
 }
 
 func normalizeTokenMultiplier(multiplier float64) float64 {
