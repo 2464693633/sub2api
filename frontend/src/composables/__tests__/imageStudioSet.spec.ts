@@ -143,7 +143,7 @@ describe('image studio dependent image sets', () => {
     images.quality.value = 'high'
     images.outputFormat.value = 'webp'
     images.size.value = '1536x1024'
-    images.addRefFiles([new File(['original source photo'], 'source.png', { type: 'image/png' })])
+    await images.addRefFiles([new File(['original source photo'], 'source.png', { type: 'image/png' })])
 
     await images.generateBatch()
     expect(fetcher).toHaveBeenCalledTimes(1)
@@ -208,7 +208,7 @@ describe('image studio dependent image sets', () => {
     images.prompt.value = 'Unrelated new draft'
     images.detailPrompts.value = ['Unrelated detail']
     images.model.value = 'other-image-model'
-    images.addRefFiles([new File(['unrelated source'], 'other.png', { type: 'image/png' })])
+    await images.addRefFiles([new File(['unrelated source'], 'other.png', { type: 'image/png' })])
     await images.retrySlot(failed.slotId)
 
     expect(fetcher).toHaveBeenCalledTimes(6)
