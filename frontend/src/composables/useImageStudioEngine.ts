@@ -38,7 +38,7 @@ export const RATIOS = [
   { value: '21:9', w: 21, h: 9 }
 ]
 export const QUANTITIES = [1, 4, 8, 16, 32, 50]
-const MAX_REFS = 8
+export const MAX_REFS = 8
 const MAX_PROMPT_BOXES = 8
 export const IMAGE_MODEL_PATTERN = /(image|dall|flux|seedream|banana|diffusion)/i
 export const FALLBACK_MODELS = ['gpt-image-2.5', 'gpt-image-2', 'gpt-image-1', 'dall-e-3']
@@ -226,7 +226,7 @@ export function removePromptBox(id: number) {
 // 中转对请求体约 1MB 限制：参考图超 600KB 先在前端压一道（后端 API Key
 // 路径还有同源压缩兜底），避免大图直发被不透明 400 拒绝。
 const REF_MAX_BYTES = 600 * 1024
-async function compressRefFile(f: File): Promise<File> {
+export async function compressRefFile(f: File): Promise<File> {
   if (f.size <= REF_MAX_BYTES) return f
   try {
     const bitmap = await createImageBitmap(f)
@@ -543,7 +543,7 @@ function sniffImageMime(bytes: Uint8Array): string {
   if (bytes.length >= 12 && bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50) return 'image/webp'
   return 'image/png'
 }
-function blobFromB64(b64: string): Blob {
+export function blobFromB64(b64: string): Blob {
   const bin = atob(b64)
   const bytes = new Uint8Array(bin.length)
   for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)

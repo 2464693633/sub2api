@@ -42,6 +42,7 @@ export default {
     appName: 'Creation Studio (Image + Video)',
     tabCanvas: 'Creative canvas',
     tabImage: 'Image Studio',
+    tabChat: 'Chat Draw',
     tabVideo: 'Video Studio',
     tabPrompts: 'Prompt Library',
     tabAssets: 'My Assets',
@@ -167,6 +168,37 @@ export default {
       videoCamName: 'Cinematic Camera Move',
       videoCam: 'Cinematic camera move: slow push-in on the subject, soft side light, shallow depth of field, floating atmosphere particles, rich detail, smooth and stable.'
     }
+  },
+
+  canvasChat: {
+    emptyTitle: 'Create images through conversation',
+    emptyDesc: 'Describe the picture you want and send it. When you like a result, click "Use as ref" and describe the next change in a sentence. You can also upload, paste or drop reference images.',
+    example1: 'An orange cat sitting on a windowsill watching the rain, watercolor style',
+    example2: 'Minimalist coffee brand poster, warm tones',
+    example3: 'Cyberpunk city at night, neon reflected on wet streets',
+    placeholder: 'Describe the image, or how to change the reference…',
+    hint: 'Enter to send · Shift+Enter for a new line · Paste or drop images as references',
+    send: 'Send',
+    count: 'Count',
+    countN: '{n} img',
+    polish: 'AI polish',
+    polishedPrompt: 'Polished prompt',
+    polishFailed: 'AI polish failed, generated with the original prompt',
+    clear: 'Clear chat',
+    clearConfirm: 'Clear the whole conversation? All images will be deleted and cannot be recovered.',
+    addRef: 'Add reference image',
+    removeRef: 'Remove reference image',
+    refN: 'Reference {n}',
+    withRefs: '{n} ref(s)',
+    useAsRef: 'Use as ref',
+    redraw: 'Redraw',
+    variant: 'Variant',
+    redrawTag: 'Redraw',
+    variantTag: 'Variant',
+    preview: 'View full size',
+    deleteTurn: 'Delete this turn',
+    stopped: 'Stopped',
+    interrupted: 'Interrupted by page reload'
   },
 
   videoStudio: {

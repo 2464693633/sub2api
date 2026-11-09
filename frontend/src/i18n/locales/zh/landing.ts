@@ -42,6 +42,7 @@ export default {
     appName: '创作中心【生图+视频】',
     tabCanvas: '无限画布',
     tabImage: '生图工作台',
+    tabChat: '对话生图',
     tabVideo: '视频创作台',
     tabPrompts: '提示词库',
     tabAssets: '我的资产',
@@ -167,6 +168,37 @@ export default {
       videoCamName: '电影感运镜视频',
       videoCam: '电影感运镜:缓慢推进的主体镜头,柔和侧光,浅景深,氛围粒子漂浮,细节丰富,稳定流畅。'
     }
+  },
+
+  canvasChat: {
+    emptyTitle: '用对话的方式生图',
+    emptyDesc: '描述你想要的画面并发送;满意某张结果时点「设为参考」,再用一句话继续修改。也可以上传、粘贴或拖入参考图。',
+    example1: '一只橘猫坐在窗台上看雨,水彩风格',
+    example2: '极简风格的咖啡品牌海报,暖色调',
+    example3: '赛博朋克城市夜景,霓虹灯倒映在雨后街道',
+    placeholder: '描述画面,或基于参考图说明要怎么改…',
+    hint: 'Enter 发送 · Shift+Enter 换行 · 可粘贴/拖入图片作为参考',
+    send: '发送',
+    count: '张数',
+    countN: '{n} 张',
+    polish: 'AI 润色',
+    polishedPrompt: '润色后的提示词',
+    polishFailed: 'AI 润色失败,已使用原文生成',
+    clear: '清空对话',
+    clearConfirm: '确定清空全部对话记录?图片也会一并删除,且不可恢复。',
+    addRef: '添加参考图',
+    removeRef: '移除参考图',
+    refN: '参考图 {n}',
+    withRefs: '{n} 张参考图',
+    useAsRef: '设为参考',
+    redraw: '重绘',
+    variant: '变体',
+    redrawTag: '重绘',
+    variantTag: '变体',
+    preview: '查看大图',
+    deleteTurn: '删除本轮',
+    stopped: '已停止',
+    interrupted: '页面刷新导致生成中断'
   },
 
   videoStudio: {

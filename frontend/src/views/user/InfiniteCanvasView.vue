@@ -23,6 +23,7 @@
       <div class="min-h-0 flex-1 p-2 sm:p-3">
         <CreativeStudioWorkspace v-if="activeTab === 'canvas'" />
         <CanvasImageStudio v-else-if="activeTab === 'image'" class="h-full" />
+        <CanvasChatDraw v-else-if="activeTab === 'chat'" class="h-full" />
         <CanvasVideoStudio v-else-if="activeTab === 'video'" class="h-full" />
         <CanvasPromptLibrary v-else-if="activeTab === 'prompts'" class="h-full" />
         <CanvasAssets v-else-if="activeTab === 'assets'" class="h-full" />
@@ -45,6 +46,7 @@ import CanvasConfig from '@/components/canvas/CanvasConfig.vue'
 import { activeTab } from '@/composables/useInfiniteCanvas'
 
 const CreativeStudioWorkspace = defineAsyncComponent(() => import('@/components/canvas/CreativeStudioWorkspace.vue'))
+const CanvasChatDraw = defineAsyncComponent(() => import('@/components/canvas/CanvasChatDraw.vue'))
 const { t } = useI18n()
 const route = useRoute()
 
@@ -56,6 +58,7 @@ function openStandalone() {
 const TABS = [
   { value: 'canvas' as const, label: 'canvas.tabCanvas' },
   { value: 'image' as const, label: 'canvas.tabImage' },
+  { value: 'chat' as const, label: 'canvas.tabChat' },
   { value: 'video' as const, label: 'canvas.tabVideo' },
   { value: 'prompts' as const, label: 'canvas.tabPrompts' },
   { value: 'assets' as const, label: 'canvas.tabAssets' },
