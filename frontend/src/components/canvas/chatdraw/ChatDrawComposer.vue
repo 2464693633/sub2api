@@ -120,6 +120,7 @@
           ><Icon name="plus" size="md" /></button>
           <span class="hidden truncate text-[11px] text-gray-400 sm:inline">{{ t('canvasChat.hint') }}</span>
         </div>
+        <div class="flex shrink-0 items-center gap-2">
         <button
           v-if="polishEnabled && !running"
           type="button"
@@ -156,6 +157,7 @@
         >
           <Icon name="arrowUp" size="md" />
         </button>
+        </div>
       </div>
 
       <div
