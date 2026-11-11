@@ -88,6 +88,21 @@
           <span class="hidden truncate text-[11px] text-gray-400 sm:inline">{{ t('canvasChat.hint') }}</span>
         </div>
         <button
+          v-if="polishEnabled && !running"
+          type="button"
+          class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border transition-all"
+          :class="canPolish
+            ? 'border-amber-300/70 bg-amber-50 text-amber-600 hover:bg-amber-100 dark:border-amber-700/60 dark:bg-amber-900/30 dark:text-amber-300'
+            : 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-500'"
+          :disabled="!canPolish"
+          :aria-label="t('canvasChat.polishDraft')"
+          :title="t('canvasChat.polishDraft')"
+          @click="polishDraft"
+        >
+          <span v-if="polishing" class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
+          <Icon v-else name="sparkles" size="md" />
+        </button>
+        <button
           v-if="running"
           type="button"
           class="flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-red-300/60 bg-red-50 text-red-600 transition-colors hover:bg-red-100 dark:border-red-800 dark:bg-red-900/30 dark:text-red-300"
@@ -103,11 +118,10 @@
             ? 'bg-gray-900 text-white shadow-[0_10px_24px_-14px_rgba(15,23,42,0.9)] hover:-translate-y-px hover:bg-gray-800 dark:bg-white dark:text-gray-900 dark:hover:bg-gray-200'
             : 'cursor-not-allowed border border-gray-200 bg-gray-100 text-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-500'"
           :disabled="!canSend"
-          :aria-label="polishing ? t('canvas.aiPrompting') : t('canvasChat.send')"
-          :title="polishing ? t('canvas.aiPrompting') : t('canvasChat.send')"
+          :aria-label="t('canvasChat.send')"
+          :title="t('canvasChat.send')"
         >
-          <span v-if="polishing" class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-          <Icon v-else name="arrowUp" size="md" />
+          <Icon name="arrowUp" size="md" />
         </button>
       </div>
 
@@ -129,7 +143,7 @@ import { qualityLabelOf, type ToolbarOption, type ToolbarValue } from './format'
 import { models } from '@/composables/useImageStudioEngine'
 import {
   CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS,
-  draftText, draftRefs, ratio, quality, count, model, polishEnabled, polishing, busy, turns,
+  draftText, draftRefs, ratio, quality, count, model, polishEnabled, polishing, busy, turns, polishDraft,
   saveSettings, addDraftRefs, removeDraftRef, sendDraft, stopAll,
   type ChatQuality
 } from '@/composables/useChatDrawEngine'
@@ -144,6 +158,7 @@ const dragOver = ref(false)
 
 const running = computed(() => turns.value.some(x => x.status === 'running'))
 const canSend = computed(() => !busy.value && Boolean(draftText.value.trim()) && Boolean(model.value))
+const canPolish = computed(() => !polishing.value && Boolean(draftText.value.trim()))
 
 const modelOptions = computed<ToolbarOption[]>(() => {
   const seen = new Set<string>()

@@ -186,6 +186,8 @@ export default {
     polishKey: '润色密钥',
     polishModel: '润色模型',
     polishedPrompt: '润色后的提示词',
+    polishDraft: 'AI 润色（结果填入输入框，可修改后再发送）',
+    polishInputChanged: '润色完成，但输入框已被修改，未覆盖；如需润色请再点一次',
     polishFailed: 'AI 润色失败,已使用原文生成',
     clear: '清空',
     clearConfirm: '确定清空当前对话的全部记录?图片也会一并删除,且不可恢复。',

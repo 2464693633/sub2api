@@ -445,12 +445,7 @@ function isPinned(sid: string): boolean {
   return (pins.get(sid) ?? 0) > 0 || loadPromises.has(sid) ||
     Boolean(turnStore.value[sid]?.some(x => x.status === 'running'))
 }
-function pin(sid: string) { pins.set(sid, (pins.get(sid) ?? 0) + 1) }
-function unpin(sid: string) {
-  const n = (pins.get(sid) ?? 0) - 1
-  if (n > 0) pins.set(sid, n)
-  else pins.delete(sid)
-}
+
 /** 逐出当前会话以外、未被钉住的会话缓存 */
 function evictInactive() {
   for (const sid of Object.keys(turnStore.value)) {
@@ -705,6 +700,32 @@ export async function addDraftRefs(files: Blob[]): Promise<number> {
   if (dropped) appStore().showError(t('imageStudio.maxRefs'))
   return added
 }
+/** 手动润色当前草稿:结果直接写回输入框,由用户决定修改或发送。 */
+export async function polishDraft(): Promise<void> {
+  const text = draftText.value.trim()
+  if (!text || polishing.value) return
+  const s = currentSession()
+  const sid = activeSessionId.value
+  const seq = ++polishSeq
+  polishing.value = true
+  try {
+    const result = await aiEnhancePrompt('image', text, { keyId: aiKeyId.value ?? undefined, model: aiModel.value || undefined })
+    if (seq !== polishSeq || !isCurrent(s) || activeSessionId.value !== sid) return
+    if (draftText.value.trim() === text) {
+      draftText.value = result
+    } else {
+      // 等待期间用户改了输入:不覆盖,提示后可再点一次
+      appStore().showError(t('canvasChat.polishInputChanged'))
+    }
+  } catch (err) {
+    if (seq === polishSeq && isCurrent(s)) {
+      appStore().showError(`${t('canvasChat.polishFailed')}: ${err instanceof Error ? err.message : ''}`)
+    }
+  } finally {
+    if (seq === polishSeq) polishing.value = false
+  }
+}
+
 export function removeDraftRef(idx: number) {
   const item = draftRefs.value[idx]
   if (!item) return
@@ -925,7 +946,6 @@ export async function sendDraft() {
     ratio: ratio.value,
     quality: quality.value,
     count: count.value,
-    polish: polishEnabled.value,
     aiKeyId: aiKeyId.value ?? undefined,
     aiModel: aiModel.value || undefined
   }
@@ -933,42 +953,13 @@ export async function sendDraft() {
   clearDraftRefs()
   const run = runFor(activeSessionId.value)
 
-  let polished: string | undefined
-  if (snapshot.polish) {
-    const seq = ++polishSeq
-    polishing.value = true
-    // 润色期间用户可能切走,钉住会话保证结果能回到它
-    pin(run.sid)
-    try {
-      polished = await aiEnhancePrompt('image', snapshot.text, { keyId: snapshot.aiKeyId, model: snapshot.aiModel })
-    } catch (err) {
-      if (!(err instanceof StudioSessionChangedError) && isLive(run)) {
-        // 润色失败不阻塞生图:提示后直接用原文
-        appStore().showError(`${t('canvasChat.polishFailed')}: ${err instanceof Error ? err.message : ''}`)
-      }
-    } finally {
-      // 只有本次请求、且仍是同一账号时才解除忙碌态;旧账号的润色不能放行新账号
-      if (seq === polishSeq && isCurrent(run)) polishing.value = false
-      if (isCurrent(run)) unpin(run.sid)
-    }
-    if (!isCurrent(run)) return
-    if (!isLive(run)) {
-      // 等待期间会话被清空/删除:本次作废;仅在仍停留在原会话且输入框为空时把草稿
-      // 还给用户——切走/删除当前会话后草稿已按会话隔离清理,不再归还(避免串会话)
-      if (activeSessionId.value === run.sid && !draftText.value.trim() && !draftRefs.value.length) {
-        draftText.value = snapshot.text
-        draftRefs.value = snapshot.refs.map(blob => ({ blob, url: URL.createObjectURL(blob) }))
-      }
-      return
-    }
-  }
+
 
   const turn: ChatTurn = {
     id: uid(),
     sessionId: run.sid,
     ts: Date.now(),
     prompt: snapshot.text,
-    polished: polished && polished !== snapshot.text ? polished : undefined,
     refs: snapshot.refs,
     model: snapshot.option.id,
     groupId: snapshot.option.group_id,

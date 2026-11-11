@@ -186,6 +186,8 @@ export default {
     polishKey: 'Polish key',
     polishModel: 'Polish model',
     polishedPrompt: 'Polished prompt',
+    polishDraft: 'AI polish (fills the input box; edit or send)',
+    polishInputChanged: 'Polish done, but the input changed; not overwritten — click again to re-polish',
     polishFailed: 'AI polish failed, generated with the original prompt',
     clear: 'Clear',
     clearConfirm: 'Clear everything in this conversation? Its images will be deleted and cannot be recovered.',

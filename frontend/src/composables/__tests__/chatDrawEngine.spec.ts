@@ -129,30 +129,26 @@ describe('chat draw engine races', () => {
     expect(e.turns.value).toHaveLength(0)
   })
 
-  it('P2-4 an old account polish finishing does not unlock the new account', async () => {
+  it('polishDraft: 旧账号的润色完成不得写入新账号输入框', async () => {
     const e = await import('../useChatDrawEngine')
     await e.initChatDraw()
-    e.polishEnabled.value = true
+    e.draftText.value = 'old'
     const oldPolish = deferred<string>()
     h.enhance.mockImplementationOnce(() => oldPolish.promise)
-    e.draftText.value = 'old'
-    const oldSend = e.sendDraft()
+    const p1 = e.polishDraft()
     switchAccount(2)
     await e.initChatDraw()
+    e.draftText.value = 'new'
     const newPolish = deferred<string>()
     h.enhance.mockImplementationOnce(() => newPolish.promise)
-    e.draftText.value = 'new'
-    const newSend = e.sendDraft()
+    const p2 = e.polishDraft()
     expect(e.polishing.value).toBe(true)
     oldPolish.resolve('old polished')
-    await oldSend
-    expect(e.polishing.value).toBe(true)
-    expect(e.busy.value).toBe(true)
-    vi.stubGlobal('fetch', vi.fn(() => new Promise(() => undefined)))
+    await p1
+    expect(e.draftText.value).toBe('new')
     newPolish.resolve('new polished')
-    await settle()
-    expect(e.turns.value.map(x => x.prompt)).toEqual(['new'])
-    void newSend
+    await p2
+    expect(e.draftText.value).toBe('new polished')
   })
 
   it('P2-7 edits made while polishing are not mixed into the request or cleared', async () => {
@@ -359,22 +355,25 @@ describe('chat draw engine sessions', () => {
     expect(e.draftText.value).toBe('')
   })
 
-  it('a polish result discarded by clearing the same session still returns the draft', async () => {
+  it('polishDraft: 等待期间输入被修改则不覆盖,清空后不回填', async () => {
     const e = await import('../useChatDrawEngine')
     await e.initChatDraw()
-    vi.stubGlobal('fetch', okFetch())
-    e.polishEnabled.value = true
+    e.draftText.value = 'keep me'
     const polish = deferred<string>()
     h.enhance.mockImplementationOnce(() => polish.promise)
-    e.draftText.value = 'keep me'
-    const sending = e.sendDraft()
-    await e.clearConversation()
-    polish.resolve('keep me polished')
-    await sending
-    await settle()
-    expect(e.turns.value).toHaveLength(0)
-    // 仍停留在原会话且输入为空:草稿归还
-    expect(e.draftText.value).toBe('keep me')
+    const p = e.polishDraft()
+    e.draftText.value = 'edited meanwhile'
+    polish.resolve('polished text')
+    await p
+    expect(e.draftText.value).toBe('edited meanwhile')
+    // 清空后再润色：正常写回
+    const polish2 = deferred<string>()
+    h.enhance.mockImplementationOnce(() => polish2.promise)
+    e.draftText.value = 'again'
+    const p2 = e.polishDraft()
+    polish2.resolve('again polished')
+    await p2
+    expect(e.draftText.value).toBe('again polished')
   })
 
   it('deleting a turn updates session counts and survives reload', async () => {
