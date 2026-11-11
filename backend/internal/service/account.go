@@ -281,6 +281,38 @@ func (a *Account) IsGrok() bool {
 	return a.Platform == PlatformGrok
 }
 
+// IsKling reports whether this is a Kling official-compatible account.
+func (a *Account) IsKling() bool {
+	return a != nil && a.Platform == PlatformKling
+}
+
+// GetKlingBaseURL returns the configured kling-multi endpoint.
+func (a *Account) GetKlingBaseURL() string {
+	if !a.IsKling() {
+		return ""
+	}
+	baseURL := strings.TrimRight(strings.TrimSpace(a.GetCredential("base_url")), "/")
+	if baseURL == "" {
+		return "http://127.0.0.1:8020"
+	}
+	return baseURL
+}
+
+// GetKlingAccessSecret accepts new-api's accessKey|secretKey format and also
+// supports separately stored access_key/secret_key credentials.
+func (a *Account) GetKlingAccessSecret() (string, string) {
+	if !a.IsKling() {
+		return "", ""
+	}
+	if raw := strings.TrimSpace(a.GetCredential("api_key")); raw != "" {
+		parts := strings.SplitN(raw, "|", 2)
+		if len(parts) == 2 {
+			return strings.TrimSpace(parts[0]), strings.TrimSpace(parts[1])
+		}
+	}
+	return strings.TrimSpace(a.GetCredential("access_key")), strings.TrimSpace(a.GetCredential("secret_key"))
+}
+
 func (a *Account) IsTypeSafe() bool {
 	return a != nil && a.Platform == PlatformTypeSafe
 }
@@ -1942,6 +1974,9 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		default:
 			return false
 		}
+	}
+	if a.IsKling() {
+		return capability == OpenAIEndpointCapabilityChatCompletions || capability == OpenAIEndpointCapabilityGrokMediaGeneration
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:

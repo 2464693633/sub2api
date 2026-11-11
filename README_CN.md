@@ -876,3 +876,6 @@ Copyright (c) 2026 Wesley Liddick
 **如果觉得有用，请给个 Star 支持一下！**
 
 </div>
+## Kling（可灵）平台
+
+Kling 官方兼容层通过独立的 `/kling/v1/...` 路径接入，避免与 Grok 视频路径冲突。账号使用 `base_url` 与 `accessKey|secretKey` 凭据；完整端点、错误码和联调说明见 [KLING-CHANNEL-REPORT.md](KLING-CHANNEL-REPORT.md)。

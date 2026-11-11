@@ -1604,6 +1604,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return claude.DefaultModelIDs()
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
+	case service.PlatformKling:
+		return service.DefaultKlingModelIDs()
 	case service.PlatformOpenCodeGo:
 		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformTypeSafe:

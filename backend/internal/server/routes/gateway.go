@@ -439,6 +439,26 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/videos/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id/content", bodyLimit, videoContentHandler)
 
+	// Kling 官方兼容层使用独立前缀，避免与 Grok 的 /v1/videos/* 契约冲突。
+	kling := r.Group("/kling/v1")
+	kling.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm,
+		middleware.ForcePlatform(service.PlatformKling), gin.HandlerFunc(apiKeyAuth),
+		billableUsageResponse, groupModelAllowlist, requireGroupAnthropic)
+	{
+		kling.GET("/models", h.OpenAIGateway.KlingModels)
+		kling.POST("/videos/text2video", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointText2Video) })
+		kling.POST("/videos/image2video", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointImage2Video) })
+		kling.GET("/videos/text2video/:task_id", func(c *gin.Context) { h.OpenAIGateway.KlingQuery(c, service.KlingEndpointQueryVideo) })
+		kling.GET("/videos/image2video/:task_id", func(c *gin.Context) { h.OpenAIGateway.KlingQuery(c, service.KlingEndpointQueryImage) })
+		kling.POST("/images/generations", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointImagesGeneration) })
+		kling.GET("/images/generations/:task_id", func(c *gin.Context) { h.OpenAIGateway.KlingQuery(c, service.KlingEndpointQueryImageGeneration) })
+		kling.POST("/text-to-video/kling-4.0", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointKling4Text) })
+		kling.POST("/image-to-video/kling-4.0", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointKling4Image) })
+		kling.POST("/omni-video/kling-4.0", func(c *gin.Context) { h.OpenAIGateway.KlingSubmit(c, service.KlingEndpointKling4Omni) })
+		kling.GET("/tasks/:task_id", func(c *gin.Context) { h.OpenAIGateway.KlingQuery(c, service.KlingEndpointQueryKling4) })
+		kling.GET("/tasks", func(c *gin.Context) { h.OpenAIGateway.KlingQuery(c, service.KlingEndpointQueryKling4) })
+	}
+
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return func(c *gin.Context) {
 			if getGroupPlatform(c) != service.PlatformGrok {

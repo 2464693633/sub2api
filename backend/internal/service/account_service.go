@@ -519,6 +519,10 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 	case PlatformGrok:
 		// Grok OAuth credentials are validated via token exchange/refresh and request-path probes.
 		return nil
+	case PlatformKling:
+		// Kling credentials are exercised by the Kling media gateway; account CRUD
+		// keeps the common API-key validation contract without submitting a task.
+		return nil
 	case PlatformTypeSafe:
 		// TypeSafe credentials are API keys; inference failures drive health and cooldown state.
 		return nil
