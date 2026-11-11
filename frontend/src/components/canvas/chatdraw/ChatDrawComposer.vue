@@ -153,7 +153,7 @@
                     />
                   </label>
                 </div>
-                <p class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ t('canvasChat.gifHint', { n: gifFrames }) }}</p>
+                <p class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ t('canvasChat.gifHint') }}</p>
               </div>
               <p v-if="format === 'svg'" class="text-[10px] text-gray-400 dark:text-gray-500">
                 {{ aiKeyId ? t('canvasChat.svgHint') : t('canvasChat.svgNeedKey') }}

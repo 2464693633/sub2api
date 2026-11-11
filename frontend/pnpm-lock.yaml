@@ -60,9 +60,6 @@ importers:
       file-saver:
         specifier: ^2.0.5
         version: 2.0.5
-      gifenc:
-        specifier: ^1.0.3
-        version: 1.0.3
       marked:
         specifier: ^17.0.1
         version: 17.0.1
@@ -2682,9 +2679,6 @@ packages:
   get-value@2.0.6:
     resolution: {integrity: sha512-Ln0UQDlxH1BapMu3GPtf7CuYNwRZf2gwCuPqbyG6pB8WfmFpzqcy4xtAaAMUhnNqjMKTiCPZG2oMT3YSx8U2NA==}
     engines: {node: '>=0.10.0'}
-
-  gifenc@1.0.3:
-    resolution: {integrity: sha512-xdr6AdrfGBcfzncONUOlXMBuc5wJDtOueE3c5rdG0oNgtINLD+f2iFZltrBRZYzACRbKr+mSVU/x98zv2u3jmw==}
 
   giscus@1.6.0:
     resolution: {integrity: sha512-Zrsi8r4t1LVW950keaWcsURuZUQwUaMKjvJgTCY125vkW6OiEBkatE7ScJDbpqKHdZwb///7FVC21SE3iFK3PQ==}
@@ -7462,8 +7456,6 @@ snapshots:
       es-object-atoms: 1.1.1
 
   get-value@2.0.6: {}
-
-  gifenc@1.0.3: {}
 
   giscus@1.6.0:
     dependencies:

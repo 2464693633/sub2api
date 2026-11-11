@@ -39,8 +39,6 @@ export const GIF_FRAMES_MIN = 2
 export const GIF_FRAMES_MAX = 16
 export const GIF_FRAME_MS_MIN = 80
 export const GIF_FRAME_MS_MAX = 2000
-/** GIF 单帧合成时长边上限,防止高分辨率帧把动图体积撑爆 */
-const GIF_MAX_EDGE = 1024
 export const CHAT_RESOLUTIONS = ['1k', '2k', '4k'] as const
 export type ChatResolution = typeof CHAT_RESOLUTIONS[number]
 const RESOLUTION_BASES: Record<ChatResolution, number> = { '1k': 1024, '2k': 2048, '4k': 3840 }
@@ -917,61 +915,14 @@ async function generateSvg(turn: ChatTurn, promptText: string, s: Session, outer
   }
 }
 
-// ===== GIF 输出:多帧生成(每帧独立请求,按张计费) + gifenc 合成 =====
-
-async function composeGif(blobs: Blob[], frameMs: number, signal?: AbortSignal): Promise<Blob> {
-  const { GIFEncoder, quantize, applyPalette } = await import('gifenc')
-  // 逐帧解码,任一失败即关闭已创建的 bitmap 再抛出,不泄漏已解码资源
-  const bitmaps: ImageBitmap[] = []
-  try {
-    for (const b of blobs) bitmaps.push(await createImageBitmap(b))
-    // 统一以第一帧为基准尺寸,长边超限等比缩(上游理论同尺寸,这里兜底不一致的帧)
-    const scale = Math.min(1, GIF_MAX_EDGE / Math.max(bitmaps[0].width, bitmaps[0].height))
-    const w = Math.max(1, Math.round(bitmaps[0].width * scale))
-    const h = Math.max(1, Math.round(bitmaps[0].height * scale))
-    const canvas = document.createElement('canvas')
-    canvas.width = w
-    canvas.height = h
-    const ctx = canvas.getContext('2d', { willReadFrequently: true })
-    if (!ctx) throw new Error('canvas 2d context unavailable')
-    const enc = GIFEncoder()
-    for (const bmp of bitmaps) {
-      if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
-      ctx.drawImage(bmp, 0, 0, w, h)
-      const { data } = ctx.getImageData(0, 0, w, h)
-      const palette = quantize(data, 256)
-      const index = applyPalette(data, palette)
-      enc.writeFrame(index, w, h, { palette, delay: frameMs })
-    }
-    enc.finish()
-    return new Blob([enc.bytes()], { type: 'image/gif' })
-  } finally {
-    bitmaps.forEach(b => b.close())
-  }
-}
+// ===== GIF 输出:上游 gif 模型原生生成动图,透传 output_format(与参照项目一致) =====
 
 async function generateGif(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal): Promise<GenResult> {
+  // 参照项目 build_image_prompt:帧数/帧间隔不进请求体,而是作为提示词约束模型
   const frames = clampGifFrames(turn.gifFrames)
   const frameMs = clampGifFrameMs(turn.gifFrameMs)
-  const blobs: Blob[] = []
-  for (let i = 0; i < frames; i++) {
-    if (outer.aborted || !isCurrent(s)) return { error: t('canvasChat.stopped') }
-    // 帧序提示:让每帧呈现动作推进的不同瞬间,主体/构图/配色跨帧一致
-    const framePrompt = `${promptText}\n\nGIF 动画帧 ${i + 1}/${frames}:呈现动作连续推进的第 ${i + 1} 个瞬间;主体、场景、构图、配色与所有帧严格一致,仅时间推进的部分变化。`
-    const one = await generateRaster(turn, framePrompt, s, outer, 'png')
-    if (!one.blob) return one
-    blobs.push(one.blob)
-  }
-  // 帧全部生成后、合成完成前用户停止:丢弃结果,避免"已停止却落库完整 GIF"
-  if (outer.aborted || !isCurrent(s)) return { error: t('canvasChat.stopped') }
-  try {
-    const gif = await composeGif(blobs, frameMs, outer)
-    if (outer.aborted) return { error: t('canvasChat.stopped') }
-    return { blob: gif }
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') return { error: t('canvasChat.stopped') }
-    return { error: err instanceof Error ? err.message : t('imageStudio.generateFailed') }
-  }
+  const hint = `\n\n生成格式为 gif。frame_count: ${frames}; frame_duration_ms: ${frameMs}。请输出 ${frames} 帧连贯循环的动画,每帧约 ${frameMs} 毫秒。`
+  return generateRaster(turn, promptText + hint, s, outer, 'gif')
 }
 
 async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal): Promise<GenResult> {
@@ -980,14 +931,14 @@ async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer
   return generateRaster(turn, promptText, s, outer)
 }
 
-async function generateRaster(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal, forcedFormat?: 'png'): Promise<GenResult> {
+async function generateRaster(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal, forcedFormat?: 'png' | 'gif'): Promise<GenResult> {
   const headers = authHeaders(s)
   if (turn.groupId && turn.groupId > 0) headers['X-Image-Studio-Group'] = String(turn.groupId)
   // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
   const isGrok = turn.platform ? turn.platform === 'grok' : /grok/i.test(turn.model)
   // 旧记录/兜底模型没有 platform 时,仅识别 OpenAI 图像模型。
   const isOpenAI = turn.platform ? turn.platform === 'openai' : /^(gpt-image-|dall-e-)/i.test(turn.model)
-  // GIF 合成的中间帧强制 png;普通模式透传用户选择的非 auto 格式(两者都仅 OpenAI 路径支持)
+  // GIF 由上游模型原生输出;普通模式透传用户选择的非 auto 格式(两者都仅 OpenAI 路径支持)
   const chosenFormat = forcedFormat ?? (turn.format !== 'auto' ? turn.format : undefined)
   const outputFormat = isOpenAI && chosenFormat ? chosenFormat : undefined
   const controller = new AbortController()

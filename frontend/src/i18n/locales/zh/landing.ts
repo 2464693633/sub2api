@@ -202,7 +202,7 @@ export default {
     gifParams: 'GIF 参数',
     gifFrames: '帧数',
     gifFrameMs: '帧间隔(ms)',
-    gifHint: '将生成 {n} 帧并自动合成动图;每帧独立请求,按 {n} 张图片计费,中途停止/失败也可能已产生部分费用',
+    gifHint: '由模型直接生成动图,按 1 张图片计费;帧数/帧间隔作为生成提示,最终以模型输出为准',
     svgHint: 'SVG 由 AI 润色所用的对话模型直接编写矢量图形,不支持参考图',
     svgNeedKey: 'SVG 输出需要在下方「AI 润色」中选择密钥与模型',
     svgInvalid: '模型未返回有效的 SVG 图形,请重试或换一个模型',
