@@ -339,7 +339,7 @@ describe('chat draw engine sessions', () => {
     expect(e.turns.value).toHaveLength(0)
   })
 
-  it('a polish result for a deleted session is discarded and the draft returned', async () => {
+  it('a polish result for a deleted session is discarded and the draft not carried over', async () => {
     const e = await import('../useChatDrawEngine')
     await e.initChatDraw()
     vi.stubGlobal('fetch', okFetch())
@@ -355,7 +355,26 @@ describe('chat draw engine sessions', () => {
     await settle()
     expect(e.sessions.value.some(s => s.id === a)).toBe(false)
     expect(e.turns.value).toHaveLength(0)
-    expect(e.draftText.value).toBe('gone')
+    // 删除会话后已切走:快照草稿不得归还,避免串入新会话(codex 审查修复)
+    expect(e.draftText.value).toBe('')
+  })
+
+  it('a polish result discarded by clearing the same session still returns the draft', async () => {
+    const e = await import('../useChatDrawEngine')
+    await e.initChatDraw()
+    vi.stubGlobal('fetch', okFetch())
+    e.polishEnabled.value = true
+    const polish = deferred<string>()
+    h.enhance.mockImplementationOnce(() => polish.promise)
+    e.draftText.value = 'keep me'
+    const sending = e.sendDraft()
+    await e.clearConversation()
+    polish.resolve('keep me polished')
+    await sending
+    await settle()
+    expect(e.turns.value).toHaveLength(0)
+    // 仍停留在原会话且输入为空:草稿归还
+    expect(e.draftText.value).toBe('keep me')
   })
 
   it('deleting a turn updates session counts and survives reload', async () => {

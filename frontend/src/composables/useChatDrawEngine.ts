@@ -549,7 +549,6 @@ async function loadAccount(s: Session) {
   const target = findSession(saved) ? saved : (sessions.value[0]?.id || newMemorySession().id)
   activeSessionId.value = target
   await ensureSessionLoaded(target)
-  if (isCurrent(s)) sessionsLoaded.value = true
 }
 
 /** 幂等:同一账号共享一次加载,切标签再回来不会重复读取,也不会提前放行发送 */
@@ -566,6 +565,8 @@ export async function initChatDraw() {
   if (!models.value.some(o => o.id === model.value)) {
     model.value = models.value.some(o => o.id === studioModel.value) ? studioModel.value : (models.value[0]?.id || '')
   }
+  // 会话与模型都就绪后才放行发送;仅 DB 读完不算完成(模型未加载时 model 可能为空)
+  if (isCurrent(s)) sessionsLoaded.value = true
 }
 export { initError }
 
@@ -683,6 +684,7 @@ export async function addDraftRefs(files: Blob[]): Promise<number> {
   const s = currentSession()
   let added = 0
   let dropped = 0
+  const sidAtStart = activeSessionId.value
   for (const f of images) {
     if (!isCurrent(s)) return added
     if (draftRefs.value.length + pendingRefs >= MAX_REFS) { dropped++; continue }
@@ -694,8 +696,8 @@ export async function addDraftRefs(files: Blob[]): Promise<number> {
     } finally {
       pendingRefs--
     }
-    // 压缩期间登出/切账号:丢弃,不能进入新账号的草稿
-    if (!isCurrent(s)) return added
+    // 压缩期间登出/切账号/切聊天会话:丢弃,不能进入新账号或新会话的草稿
+    if (!isCurrent(s) || activeSessionId.value !== sidAtStart) return added
     if (draftRefs.value.length >= MAX_REFS) { dropped++; continue }
     draftRefs.value.push({ blob, url: URL.createObjectURL(blob) })
     added++
@@ -951,8 +953,9 @@ export async function sendDraft() {
     }
     if (!isCurrent(run)) return
     if (!isLive(run)) {
-      // 等待期间会话被清空/删除:本次作废;若输入框仍为空,把草稿还给用户
-      if (!draftText.value.trim() && !draftRefs.value.length) {
+      // 等待期间会话被清空/删除:本次作废;仅在仍停留在原会话且输入框为空时把草稿
+      // 还给用户——切走/删除当前会话后草稿已按会话隔离清理,不再归还(避免串会话)
+      if (activeSessionId.value === run.sid && !draftText.value.trim() && !draftRefs.value.length) {
         draftText.value = snapshot.text
         draftRefs.value = snapshot.refs.map(blob => ({ blob, url: URL.createObjectURL(blob) }))
       }

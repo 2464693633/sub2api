@@ -290,7 +290,8 @@ const historyHandlers = {
 const drawerHandlers = {
   ...historyHandlers,
   create: () => { drawerOpen.value = false; onNewChat() },
-  select: (id: string) => { drawerOpen.value = false; void onSelect(id) }
+  select: (id: string) => { drawerOpen.value = false; void onSelect(id) },
+  clear: async () => { await onClearAll(); drawerOpen.value = false }
 }
 
 // ===== 顶栏 =====
@@ -305,6 +306,8 @@ const subtitle = computed(() => {
 async function onClear() {
   if (!window.confirm(t('canvasChat.clearConfirm'))) return
   await clearConversation()
+  single.value = null
+  lightIndex.value = -1
 }
 
 // ===== 消息 =====
