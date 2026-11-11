@@ -152,7 +152,7 @@ if (typeof window !== 'undefined') {
 }
 
 export async function aiEnhancePrompt(
-  kind: 'image' | 'video',
+  kind: 'image' | 'video' | 'svg',
   prompt: string,
   opts: { keyId?: number; model?: string }
 ): Promise<string> {

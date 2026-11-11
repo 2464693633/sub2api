@@ -33,7 +33,14 @@ const t = i18n.global.t
 export { MAX_REFS }
 export const QUALITIES = ['auto', 'low', 'medium', 'high'] as const
 export type ChatQuality = typeof QUALITIES[number]
-export type ChatFormat = 'auto' | 'png' | 'jpeg' | 'webp'
+export type ChatFormat = 'auto' | 'png' | 'jpeg' | 'webp' | 'gif' | 'svg'
+/** GIF 输出:帧数与帧间隔的范围(与参照项目 Studio 一致,帧间隔毫秒) */
+export const GIF_FRAMES_MIN = 2
+export const GIF_FRAMES_MAX = 16
+export const GIF_FRAME_MS_MIN = 80
+export const GIF_FRAME_MS_MAX = 2000
+/** GIF 单帧合成时长边上限,防止高分辨率帧把动图体积撑爆 */
+const GIF_MAX_EDGE = 1024
 export const CHAT_RESOLUTIONS = ['1k', '2k', '4k'] as const
 export type ChatResolution = typeof CHAT_RESOLUTIONS[number]
 const RESOLUTION_BASES: Record<ChatResolution, number> = { '1k': 1024, '2k': 2048, '4k': 3840 }
@@ -102,6 +109,12 @@ export interface ChatTurn {
   quality: ChatQuality
   count: number
   format: ChatFormat
+  /** GIF 输出:帧数/帧间隔(毫秒),随轮次快照用于重绘 */
+  gifFrames?: number
+  gifFrameMs?: number
+  /** SVG 输出:生成时使用的润色密钥与模型 */
+  aiKeyId?: number
+  aiModel?: string
   /** 来源操作:普通发送 / 重绘 / 变体 */
   origin?: 'redraw' | 'variant'
   status: 'running' | 'done' | 'failed' | 'cancelled'
@@ -149,6 +162,8 @@ export const resolution = ref<ChatResolution>('1k')
 export const quality = ref<ChatQuality>('auto')
 export const count = ref<number>(1)
 export const format = ref<ChatFormat>('auto')
+export const gifFrames = ref(8)
+export const gifFrameMs = ref(200)
 export const model = ref<string>('')
 export const polishEnabled = ref(false)
 export const polishing = ref(false)
@@ -238,16 +253,21 @@ function loadSettings(owner: string) {
   resolution.value = '1k'
   format.value = 'auto'
   count.value = 1
+  gifFrames.value = 8
+  gifFrameMs.value = 200
   try {
     const raw = JSON.parse(localStorage.getItem(`${LS_SETTINGS}:${owner}`) || 'null') as Partial<{
       ratio: string; resolution: ChatResolution; quality: ChatQuality; count: number; format: ChatFormat; model: string; polish: boolean
+      gifFrames: number; gifFrameMs: number
     }> | null
     if (!raw) return
     if (raw.ratio && (raw.ratio === 'auto' || CHAT_RATIOS.some(r => r.value === raw.ratio))) ratio.value = raw.ratio
     if (raw.resolution && (CHAT_RESOLUTIONS as readonly string[]).includes(raw.resolution)) resolution.value = raw.resolution
     if (raw.quality && (QUALITIES as readonly string[]).includes(raw.quality)) quality.value = raw.quality
     if (raw.count !== undefined) count.value = clampCount(raw.count)
-    if (raw.format && ['auto', 'png', 'jpeg', 'webp'].includes(raw.format)) format.value = raw.format
+    if (raw.format && ['auto', 'png', 'jpeg', 'webp', 'gif', 'svg'].includes(raw.format)) format.value = raw.format
+    if (raw.gifFrames !== undefined) gifFrames.value = clampGifFrames(raw.gifFrames)
+    if (raw.gifFrameMs !== undefined) gifFrameMs.value = clampGifFrameMs(raw.gifFrameMs)
     if (raw.model) model.value = raw.model
     polishEnabled.value = Boolean(raw.polish)
   } catch { /* 损坏的设置忽略 */ }
@@ -255,13 +275,22 @@ function loadSettings(owner: string) {
 export function saveSettings() {
   count.value = clampCount(count.value)
   localStorage.setItem(`${LS_SETTINGS}:${sessionOwnerKey()}`, JSON.stringify({
-    ratio: ratio.value, resolution: resolution.value, quality: quality.value, count: clampCount(count.value), format: format.value, model: model.value, polish: polishEnabled.value
+    ratio: ratio.value, resolution: resolution.value, quality: quality.value, count: clampCount(count.value), format: format.value, model: model.value, polish: polishEnabled.value,
+    gifFrames: clampGifFrames(gifFrames.value), gifFrameMs: clampGifFrameMs(gifFrameMs.value)
   }))
 }
 
 export function clampCount(value: unknown): number {
   const n = Number(value)
   return Number.isFinite(n) ? Math.max(1, Math.min(MAX_CHAT_COUNT, Math.trunc(n))) : 1
+}
+export function clampGifFrames(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.max(GIF_FRAMES_MIN, Math.min(GIF_FRAMES_MAX, Math.trunc(n))) : GIF_FRAMES_MAX
+}
+export function clampGifFrameMs(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.max(GIF_FRAME_MS_MIN, Math.min(GIF_FRAME_MS_MAX, Math.trunc(n))) : 200
 }
 function saveActive() {
   localStorage.setItem(`${LS_ACTIVE}:${sessionOwnerKey()}`, activeSessionId.value)
@@ -519,7 +548,7 @@ function ensureSessionLoaded(sid: string): Promise<void> {
         .map(it => ({
           ...it,
           count: clampCount(it.count),
-          format: (it.format === 'png' || it.format === 'jpeg' || it.format === 'webp') ? it.format : 'auto' as const
+          format: (it.format === 'png' || it.format === 'jpeg' || it.format === 'webp' || it.format === 'gif' || it.format === 'svg') ? it.format : 'auto' as const
         }))
         .sort((a, b) => a.ts - b.ts)
       // 库里仍标记为进行中、但内存里没有对应请求的轮次已无法继续:标记中断,保留已完成的图
@@ -787,14 +816,132 @@ async function fetchAsset(url: string, s: Session, signal: AbortSignal): Promise
   return await proxied.blob()
 }
 
+// ===== SVG 输出:走对话模型生成矢量代码(与参照项目一致的提取+校验) =====
+
+/** SVG 合法性:仅静态矢量。剔除 xmlns 命名空间声明后再查外链,避免误伤 w3.org 声明 */
+const SVG_NS_DECL = /\sxmlns(?::[a-z0-9-]+)?\s*=\s*["']https?:\/\/www\.w3\.org[^"']*["']/gi
+const SVG_FORBIDDEN = [/<script[\s/>]/i, /\son[a-z]+\s*=/i, /javascript:/i, /<foreignobject[\s/>]/i, /<image[\s/>]/i]
+
+export function validateSvg(source: string): boolean {
+  if (!source || source.length > 4 * 1024 * 1024) return false
+  if (SVG_FORBIDDEN.some(re => re.test(source))) return false
+  if (/https?:\/\//i.test(source.replace(SVG_NS_DECL, ''))) return false
+  const root = source.match(/<svg[^>]*>/i)?.[0] ?? ''
+  const attr = (name: string) => root.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1]
+  const num = (v?: string) => {
+    if (!v) return NaN
+    const n = parseFloat(v.replace(/(px|pt|mm|cm)$/i, ''))
+    return Number.isFinite(n) ? n : NaN
+  }
+  let w = num(attr('width'))
+  let h = num(attr('height'))
+  if (!(w > 0) || !(h > 0)) {
+    const vb = (attr('viewBox') || attr('viewbox') || '').trim().split(/[\s,]+/).map(Number)
+    if (vb.length === 4 && vb.every(Number.isFinite)) {
+      if (!(w > 0)) w = vb[2]
+      if (!(h > 0)) h = vb[3]
+    }
+  }
+  if (!(w > 0) || !(h > 0) || w > 8192 || h > 8192 || w * h > 64e6) return false
+  return true
+}
+
+/** 从对话模型回复文本中提取第一份合法的 <svg>…</svg> 文档 */
+export function extractSvgDocument(text: string): string | null {
+  const lower = (text || '').toLowerCase()
+  let offset = 0
+  while (offset <= lower.length) {
+    const start = lower.indexOf('<svg', offset)
+    if (start < 0) return null
+    const end = lower.indexOf('</svg>', start)
+    if (end < 0) return null
+    const candidate = text.slice(start, end + '</svg>'.length).trim()
+    if (validateSvg(candidate)) return candidate
+    offset = start + 4
+  }
+  return null
+}
+
+async function generateSvg(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal): Promise<GenResult> {
+  if (!turn.aiKeyId) return { error: t('canvasChat.svgNeedKey') }
+  try {
+    const text = await aiEnhancePrompt('svg', promptText, { keyId: turn.aiKeyId, model: turn.aiModel || undefined })
+    if (outer.aborted || !isCurrent(s)) return { error: t('canvasChat.stopped') }
+    const svg = extractSvgDocument(text)
+    if (!svg) return { error: t('canvasChat.svgInvalid') }
+    return { blob: new Blob([svg], { type: 'image/svg+xml' }) }
+  } catch (err) {
+    if (err instanceof StudioSessionChangedError) throw err
+    return { error: err instanceof Error ? err.message : t('imageStudio.generateFailed') }
+  }
+}
+
+// ===== GIF 输出:多帧生成(每帧独立请求,按张计费) + gifenc 合成 =====
+
+async function composeGif(blobs: Blob[], frameMs: number): Promise<Blob> {
+  const { GIFEncoder, quantize, applyPalette } = await import('gifenc')
+  const bitmaps = await Promise.all(blobs.map(b => createImageBitmap(b)))
+  try {
+    // 统一以第一帧为基准尺寸,长边超限等比缩(上游理论同尺寸,这里兜底不一致的帧)
+    const scale = Math.min(1, GIF_MAX_EDGE / Math.max(bitmaps[0].width, bitmaps[0].height))
+    const w = Math.max(1, Math.round(bitmaps[0].width * scale))
+    const h = Math.max(1, Math.round(bitmaps[0].height * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = w
+    canvas.height = h
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+    if (!ctx) throw new Error('canvas 2d context unavailable')
+    const enc = GIFEncoder()
+    for (const bmp of bitmaps) {
+      ctx.drawImage(bmp, 0, 0, w, h)
+      const { data } = ctx.getImageData(0, 0, w, h)
+      const palette = quantize(data, 256)
+      const index = applyPalette(data, palette)
+      enc.writeFrame(index, w, h, { palette, delay: frameMs })
+    }
+    enc.finish()
+    return new Blob([enc.bytes()], { type: 'image/gif' })
+  } finally {
+    bitmaps.forEach(b => b.close())
+  }
+}
+
+async function generateGif(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal): Promise<GenResult> {
+  const frames = clampGifFrames(turn.gifFrames)
+  const frameMs = clampGifFrameMs(turn.gifFrameMs)
+  const blobs: Blob[] = []
+  for (let i = 0; i < frames; i++) {
+    if (outer.aborted || !isCurrent(s)) return { error: t('canvasChat.stopped') }
+    // 帧序提示:让每帧呈现动作推进的不同瞬间,主体/构图/配色跨帧一致
+    const framePrompt = `${promptText}\n\nGIF 动画帧 ${i + 1}/${frames}:呈现动作连续推进的第 ${i + 1} 个瞬间;主体、场景、构图、配色与所有帧严格一致,仅时间推进的部分变化。`
+    const one = await generateRaster(turn, framePrompt, s, outer, 'png')
+    if (!one.blob) return one
+    blobs.push(one.blob)
+  }
+  try {
+    const gif = await composeGif(blobs, frameMs)
+    return { blob: gif }
+  } catch (err) {
+    return { error: err instanceof Error ? err.message : t('imageStudio.generateFailed') }
+  }
+}
+
 async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal): Promise<GenResult> {
+  if (turn.format === 'svg') return generateSvg(turn, promptText, s, outer)
+  if (turn.format === 'gif') return generateGif(turn, promptText, s, outer)
+  return generateRaster(turn, promptText, s, outer)
+}
+
+async function generateRaster(turn: ChatTurn, promptText: string, s: Session, outer: AbortSignal, forcedFormat?: 'png'): Promise<GenResult> {
   const headers = authHeaders(s)
   if (turn.groupId && turn.groupId > 0) headers['X-Image-Studio-Group'] = String(turn.groupId)
   // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
   const isGrok = turn.platform ? turn.platform === 'grok' : /grok/i.test(turn.model)
   // 旧记录/兜底模型没有 platform 时,仅识别 OpenAI 图像模型。
   const isOpenAI = turn.platform ? turn.platform === 'openai' : /^(gpt-image-|dall-e-)/i.test(turn.model)
-  const outputFormat = isOpenAI && turn.format && turn.format !== 'auto' ? turn.format : undefined
+  // GIF 合成的中间帧强制 png;普通模式透传用户选择的非 auto 格式(两者都仅 OpenAI 路径支持)
+  const chosenFormat = forcedFormat ?? (turn.format !== 'auto' ? turn.format : undefined)
+  const outputFormat = isOpenAI && chosenFormat ? chosenFormat : undefined
   const controller = new AbortController()
   const onAbort = () => controller.abort()
   outer.addEventListener('abort', onAbort)
@@ -967,8 +1114,16 @@ export async function sendDraft() {
     appStore().showError(initError.value || t('imageStudio.noImageModels'))
     return
   }
+  // SVG 由对话模型生成,提前拦截未配置润色密钥的情况(此时草稿尚未清空)
+  if (format.value === 'svg' && !aiKeyId.value) {
+    appStore().showError(t('canvasChat.svgNeedKey'))
+    return
+  }
   count.value = clampCount(count.value)
   // 提交即快照全部草稿与参数:润色等待期间用户继续编辑的内容属于下一条,不混入本次
+  // GIF/SVG 输出固定产出一张(动图/矢量图),张数选择对它们无意义
+  const singleOutput = format.value === 'gif' || format.value === 'svg'
+  const effCount = singleOutput ? 1 : clampCount(count.value)
   const snapshot = {
     text,
     refs: draftRefs.value.map(r => toRaw(r.blob)),
@@ -976,8 +1131,10 @@ export async function sendDraft() {
     ratio: ratio.value,
     resolution: resolution.value,
     quality: quality.value,
-    count: clampCount(count.value),
+    count: effCount,
     format: format.value,
+    gifFrames: clampGifFrames(gifFrames.value),
+    gifFrameMs: clampGifFrameMs(gifFrameMs.value),
     aiKeyId: aiKeyId.value ?? undefined,
     aiModel: aiModel.value || undefined
   }
@@ -1001,6 +1158,10 @@ export async function sendDraft() {
     quality: snapshot.quality,
     count: snapshot.count,
     format: snapshot.format,
+    gifFrames: snapshot.gifFrames,
+    gifFrameMs: snapshot.gifFrameMs,
+    aiKeyId: snapshot.aiKeyId,
+    aiModel: snapshot.aiModel,
     status: 'running',
     images: newImages(snapshot.count)
   }

@@ -541,3 +541,51 @@ describe('chat draw engine sessions', () => {
     expect(e.turns.value[1].images[0].status).toBe('failed')
   })
 })
+
+describe('chat draw svg/gif output', () => {
+  const GOOD = '<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100"><rect width="200" height="100" fill="#fa0"/></svg>'
+
+  it('validateSvg accepts plain static vectors with w3.org namespace', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.validateSvg(GOOD)).toBe(true)
+    expect(e.validateSvg('<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="30"/></svg>')).toBe(true)
+  })
+
+  it('validateSvg rejects dynamic content, external links and embedded rasters', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.validateSvg('<svg width="10" height="10"><script>alert(1)</script></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10" onload="a()"/>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><rect fill="url(javascript:x)"/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><image href="https://evil/x.png"/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><foreignObject/></svg>')).toBe(false)
+    // 非 w3.org 命名空间以外的外链一律拒绝
+    expect(e.validateSvg('<svg width="10" height="10"><a href="http://evil"><text>x</text></a></svg>')).toBe(false)
+  })
+
+  it('validateSvg rejects missing/oversized dimensions and empty input', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.validateSvg('')).toBe(false)
+    expect(e.validateSvg('<svg><rect/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="20000" height="20000"/>')).toBe(false)
+  })
+
+  it('extractSvgDocument picks the first valid document, skipping invalid ones and fences', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.extractSvgDocument(`好的,如下:\n\`\`\`svg\n${GOOD}\n\`\`\``)).toBe(GOOD)
+    const bad = '<svg width="0" height="0"/>'
+    expect(e.extractSvgDocument(`${bad}\n${GOOD}`)).toBe(GOOD)
+    expect(e.extractSvgDocument('没有内容')).toBe(null)
+    expect(e.extractSvgDocument('<svg width="10" height="10">未闭合')).toBe(null)
+  })
+
+  it('clamps gif frame count and frame delay into range', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.clampGifFrames(1)).toBe(2)
+    expect(e.clampGifFrames(99)).toBe(16)
+    expect(e.clampGifFrames(8)).toBe(8)
+    expect(e.clampGifFrames('abc')).toBe(16)
+    expect(e.clampGifFrameMs(10)).toBe(80)
+    expect(e.clampGifFrameMs(99999)).toBe(2000)
+    expect(e.clampGifFrameMs(200)).toBe(200)
+  })
+})

@@ -71,7 +71,7 @@
                   >{{ option.label }}</button>
                 </div>
               </div>
-              <div>
+              <div v-if="!singleOutput">
                 <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.count') }}</div>
                 <div class="grid grid-cols-4 gap-1.5">
                   <button
@@ -119,6 +119,45 @@
                   >{{ option.label }}</button>
                 </div>
               </div>
+              <div v-if="format === 'gif'">
+                <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.gifParams') }}</div>
+                <div class="flex items-center gap-2">
+                  <label class="flex flex-1 items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span class="shrink-0">{{ t('canvasChat.gifFrames') }}</span>
+                    <input
+                      v-model="gifFramesDraft"
+                      type="number"
+                      :min="GIF_FRAMES_MIN"
+                      :max="GIF_FRAMES_MAX"
+                      step="1"
+                      inputmode="numeric"
+                      class="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-gray-500 focus:ring-2 focus:ring-primary-500/30 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200"
+                      :aria-label="t('canvasChat.gifFrames')"
+                      @blur="commitGifFrames"
+                      @keydown.enter.stop.prevent="commitGifFrames"
+                    />
+                  </label>
+                  <label class="flex flex-1 items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                    <span class="shrink-0">{{ t('canvasChat.gifFrameMs') }}</span>
+                    <input
+                      v-model="gifFrameMsDraft"
+                      type="number"
+                      :min="GIF_FRAME_MS_MIN"
+                      :max="GIF_FRAME_MS_MAX"
+                      step="10"
+                      inputmode="numeric"
+                      class="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-gray-500 focus:ring-2 focus:ring-primary-500/30 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200"
+                      :aria-label="t('canvasChat.gifFrameMs')"
+                      @blur="commitGifFrameMs"
+                      @keydown.enter.stop.prevent="commitGifFrameMs"
+                    />
+                  </label>
+                </div>
+                <p class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ t('canvasChat.gifHint', { n: gifFrames }) }}</p>
+              </div>
+              <p v-if="format === 'svg'" class="text-[10px] text-gray-400 dark:text-gray-500">
+                {{ aiKeyId ? t('canvasChat.svgHint') : t('canvasChat.svgNeedKey') }}
+              </p>
             </div>
           </section>
           <section class="border-t border-gray-100 pt-3 dark:border-dark-600">
@@ -261,9 +300,10 @@ import { qualityLabelOf, type ToolbarOption, type ToolbarValue } from './format'
 import { models } from '@/composables/useImageStudioEngine'
 import {
   CHAT_RATIOS, CHAT_RESOLUTIONS, CHAT_COUNTS, QUALITIES, MAX_REFS, MAX_CHAT_COUNT,
-  draftText, draftRefs, ratio, resolution, quality, count, format, model, polishEnabled, polishing, busy, turns, polishDraft,
+  GIF_FRAMES_MIN, GIF_FRAMES_MAX, GIF_FRAME_MS_MIN, GIF_FRAME_MS_MAX,
+  draftText, draftRefs, ratio, resolution, quality, count, format, gifFrames, gifFrameMs, model, polishEnabled, polishing, busy, turns, polishDraft,
   saveSettings, addDraftRefs, removeDraftRef, sendDraft, stopAll,
-  clampCount, type ChatQuality, type ChatFormat, type ChatResolution
+  clampCount, clampGifFrames, clampGifFrameMs, type ChatQuality, type ChatFormat, type ChatResolution
 } from '@/composables/useChatDrawEngine'
 import { aiKeys, aiKeyId, aiModels, aiModel, initAIOptions, onAIKeyChange, rememberAIModel } from '@/composables/useAIPrompt'
 
@@ -301,8 +341,33 @@ const formatOptions = computed(() => [
   { value: 'auto' as const, label: t('canvasChat.formatAuto') },
   { value: 'png' as const, label: 'PNG' },
   { value: 'jpeg' as const, label: 'JPG' },
-  { value: 'webp' as const, label: 'WebP' }
+  { value: 'webp' as const, label: 'WebP' },
+  { value: 'gif' as const, label: 'GIF' },
+  // SVG 由对话模型编写矢量代码,带参考图时不支持(参照 Studio 行为)
+  ...(draftRefs.value.length === 0 ? [{ value: 'svg' as const, label: 'SVG' }] : [])
 ])
+// 加参考图后 SVG 不再可用,自动回落
+watch(() => draftRefs.value.length, n => {
+  if (n > 0 && format.value === 'svg') {
+    format.value = 'auto'
+    saveSettings()
+  }
+})
+const singleOutput = computed(() => format.value === 'gif' || format.value === 'svg')
+const gifFramesDraft = ref(String(gifFrames.value))
+const gifFrameMsDraft = ref(String(gifFrameMs.value))
+watch(gifFrames, n => { gifFramesDraft.value = String(n) })
+watch(gifFrameMs, n => { gifFrameMsDraft.value = String(n) })
+function commitGifFrames() {
+  gifFrames.value = clampGifFrames(gifFramesDraft.value)
+  gifFramesDraft.value = String(gifFrames.value)
+  saveSettings()
+}
+function commitGifFrameMs() {
+  gifFrameMs.value = clampGifFrameMs(gifFrameMsDraft.value)
+  gifFrameMsDraft.value = String(gifFrameMs.value)
+  saveSettings()
+}
 const countDraft = ref(String(count.value))
 watch(count, n => { countDraft.value = String(n) })
 const keyOptions = computed<ToolbarOption[]>(() => aiKeys.value.map(k => ({ value: k.id, label: k.name })))
