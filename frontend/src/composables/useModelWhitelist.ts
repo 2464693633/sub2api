@@ -519,6 +519,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'meta': return metaModels
     case 'xai':
     case 'grok': return xaiModels
+    case 'kling': return ['kling-v1', 'kling-v1-5', 'kling-v1-6', 'kling-v2', 'kling-v2-1', 'kling-v2-5', 'kling-v2-6', 'kling-v3', 'kling-v4', 'kolors']
     case 'cohere': return cohereModels
     case 'yi': return yiModels
     case 'moonshot':

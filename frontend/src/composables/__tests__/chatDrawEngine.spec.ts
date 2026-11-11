@@ -589,3 +589,27 @@ describe('chat draw svg/gif output', () => {
     expect(e.clampGifFrameMs(200)).toBe(200)
   })
 })
+
+describe('chat draw svg bypass hardening', () => {
+  it('rejects protocol-relative links, data/blob URLs, @import and unknown elements', async () => {
+    const e = await import('../useChatDrawEngine')
+    expect(e.validateSvg('<svg width="10" height="10"><a href="//evil">x</a></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><object data="data:text/html,x"/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><style>@import url(//evil/x)</style></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><rect fill="url(blob:x)"/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><animate attributeName="x"/></svg>')).toBe(false)
+    expect(e.validateSvg('<svg width="10" height="10"><use xlink:href="http://evil/#x"/></svg>')).toBe(false)
+  })
+
+  it('extractSvgDocument enforces tag boundary so pseudo roots like <svgx> are skipped', async () => {
+    const e = await import('../useChatDrawEngine')
+    const good = '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><rect width="20" height="20"/></svg>'
+    expect(e.extractSvgDocument(`<svgx width="1" height="1"></svgx>${good}`)).toBe(good)
+  })
+
+  it('accepts internal anchor references and gradients', async () => {
+    const e = await import('../useChatDrawEngine')
+    const doc = '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64"><defs><linearGradient id="g"><stop offset="0" stop-color="#fff"/></linearGradient></defs><rect width="64" height="64" fill="url(#g)"/></svg>'
+    expect(e.validateSvg(doc)).toBe(true)
+  })
+})

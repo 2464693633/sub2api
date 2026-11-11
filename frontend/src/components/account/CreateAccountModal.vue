@@ -162,6 +162,20 @@
           </button>
           <button
             type="button"
+            data-testid="platform-button-kling"
+            @click="selectKlingPlatform()"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'kling'
+                ? 'bg-white text-blue-700 shadow-sm dark:bg-dark-600 dark:text-blue-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="kling" size="sm" />
+            Kling
+          </button>
+          <button
+            type="button"
             @click="selectTypeSafePlatform()"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
@@ -4295,6 +4309,8 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
       return 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
+    case 'kling':
+      return 'http://127.0.0.1:8020'
     case 'typesafe':
       return 'https://api.typesafe.ai'
     default:
@@ -4310,6 +4326,8 @@ const apiKeyValuePlaceholder = computed(() => {
       return 'AQ.Ab...'
     case 'grok':
       return 'xai-...'
+    case 'kling':
+      return 'accessKey|secretKey'
     case 'kimi':
       return 'sk-...'
     case 'zhipu':
@@ -4542,6 +4560,12 @@ function selectTypeSafePlatform() {
   accountCategory.value = 'apikey'
   apiKeyBaseUrl.value = 'https://api.typesafe.ai'
   allowedModels.value = ['jev-latest']
+}
+function selectKlingPlatform() {
+  form.platform = 'kling'
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = 'http://127.0.0.1:8020'
 }
 function selectGenericMultiProtocolPlatform(platform: string) {
   form.platform = platform
@@ -6132,6 +6156,8 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
+          : form.platform === 'kling'
+            ? 'http://127.0.0.1:8020'
           : form.platform === 'typesafe'
             ? 'https://api.typesafe.ai'
           : 'https://api.anthropic.com'

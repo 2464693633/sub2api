@@ -547,8 +547,11 @@ function ensureSessionLoaded(sid: string): Promise<void> {
         .filter(it => it && Array.isArray(it.images))
         .map(it => ({
           ...it,
-          count: clampCount(it.count),
-          format: (it.format === 'png' || it.format === 'jpeg' || it.format === 'webp' || it.format === 'gif' || it.format === 'svg') ? it.format : 'auto' as const
+          // GIF/SVG 输出固定单张;旧 GIF 轮缺帧数/帧间隔字段时回落默认 8 帧/200ms,避免重绘突变
+          format: (it.format === 'png' || it.format === 'jpeg' || it.format === 'webp' || it.format === 'gif' || it.format === 'svg') ? it.format : 'auto' as const,
+          count: (it.format === 'gif' || it.format === 'svg') ? 1 : clampCount(it.count),
+          gifFrames: it.format === 'gif' ? (it.gifFrames ?? 8) : it.gifFrames,
+          gifFrameMs: it.format === 'gif' ? (it.gifFrameMs ?? 200) : it.gifFrameMs
         }))
         .sort((a, b) => a.ts - b.ts)
       // 库里仍标记为进行中、但内存里没有对应请求的轮次已无法继续:标记中断,保留已完成的图
@@ -820,13 +823,45 @@ async function fetchAsset(url: string, s: Session, signal: AbortSignal): Promise
 
 /** SVG 合法性:仅静态矢量。剔除 xmlns 命名空间声明后再查外链,避免误伤 w3.org 声明 */
 const SVG_NS_DECL = /\sxmlns(?::[a-z0-9-]+)?\s*=\s*["']https?:\/\/www\.w3\.org[^"']*["']/gi
-const SVG_FORBIDDEN = [/<script[\s/>]/i, /\son[a-z]+\s*=/i, /javascript:/i, /<foreignobject[\s/>]/i, /<image[\s/>]/i]
+/** 协议黑名单:javascript:/data:/blob:/ftp: 与协议相对 //host(在剔除 xmlns 声明后的正文里匹配) */
+const SVG_BAD_URL = /(javascript|data|blob|ftp|file):|["']\/\/|=\s*["']\/\/|url\(\s*["']?\/\//i
+/** 与参照项目 utils/svg.py 一致的元素白名单(纯静态矢量;不含 script/image/foreignObject/animation),统一小写比对 */
+const SVG_ALLOWED_TAGS = new Set([
+  'svg', 'g', 'defs', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon',
+  'text', 'tspan', 'title', 'desc', 'metadata', 'style', 'clippath', 'mask', 'pattern',
+  'lineargradient', 'radialgradient', 'stop', 'use', 'symbol', 'marker', 'filter',
+  'feblend', 'fecolormatrix', 'fecomponenttransfer', 'fecomposite', 'feconvolvematrix',
+  'fediffuselighting', 'fedisplacementmap', 'fedistantlight', 'fedropshadow', 'feflood',
+  'fefunca', 'fefuncb', 'fefuncg', 'fefuncr', 'fegaussianblur', 'femerge', 'femergenode',
+  'femorphology', 'feoffset', 'fepointlight', 'fespecularlighting', 'fespotlight', 'fetile', 'feturbulence'
+].map(name => name.toLowerCase()))
+/** 节点数上限(防解析/渲染卡顿),对齐参照项目 MAX_SVG_NODES */
+const SVG_MAX_TAGS = 100_000
+
+function svgTagNames(source: string): string[] | null {
+  const tags: string[] = []
+  const re = /<([a-zA-Z][a-zA-Z0-9:-]*)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(source))) {
+    tags.push(m[1].split(':').pop()!.toLowerCase())
+    if (tags.length > SVG_MAX_TAGS) return null
+  }
+  return tags
+}
 
 export function validateSvg(source: string): boolean {
   if (!source || source.length > 4 * 1024 * 1024) return false
-  if (SVG_FORBIDDEN.some(re => re.test(source))) return false
-  if (/https?:\/\//i.test(source.replace(SVG_NS_DECL, ''))) return false
-  const root = source.match(/<svg[^>]*>/i)?.[0] ?? ''
+  if (/@import/i.test(source)) return false
+  const stripped = source.replace(SVG_NS_DECL, '')
+  if (/https?:\/\//i.test(stripped) || SVG_BAD_URL.test(stripped)) return false
+  if (/\son[a-z]+\s*=/i.test(stripped)) return false
+  // 元素白名单:任何未知/可疑标签(含 script/foreignObject)整体拒绝
+  const tags = svgTagNames(stripped)
+  if (!tags || !tags.length) return false
+  if (tags.some(name => !SVG_ALLOWED_TAGS.has(name))) return false
+  // 引用类属性只允许文档内锚点(值以 # 开头),拒绝外链
+  if (/(xlink:)?href\s*=\s*["'](?!#)[^"']*["']/i.test(stripped)) return false
+  const root = stripped.match(/<svg[\s/>][^>]*>/i)?.[0] ?? ''
   const attr = (name: string) => root.match(new RegExp(`${name}\\s*=\\s*["']([^"']+)["']`, 'i'))?.[1]
   const num = (v?: string) => {
     if (!v) return NaN
@@ -853,6 +888,12 @@ export function extractSvgDocument(text: string): string | null {
   while (offset <= lower.length) {
     const start = lower.indexOf('<svg', offset)
     if (start < 0) return null
+    // 标签边界:<svg 后必须是空白/自闭合/属性,排除 <svgx 之类伪根
+    const after = lower[start + 4]
+    if (after !== undefined && !/[\s/>]/.test(after)) {
+      offset = start + 4
+      continue
+    }
     const end = lower.indexOf('</svg>', start)
     if (end < 0) return null
     const candidate = text.slice(start, end + '</svg>'.length).trim()
@@ -878,10 +919,12 @@ async function generateSvg(turn: ChatTurn, promptText: string, s: Session, outer
 
 // ===== GIF 输出:多帧生成(每帧独立请求,按张计费) + gifenc 合成 =====
 
-async function composeGif(blobs: Blob[], frameMs: number): Promise<Blob> {
+async function composeGif(blobs: Blob[], frameMs: number, signal?: AbortSignal): Promise<Blob> {
   const { GIFEncoder, quantize, applyPalette } = await import('gifenc')
-  const bitmaps = await Promise.all(blobs.map(b => createImageBitmap(b)))
+  // 逐帧解码,任一失败即关闭已创建的 bitmap 再抛出,不泄漏已解码资源
+  const bitmaps: ImageBitmap[] = []
   try {
+    for (const b of blobs) bitmaps.push(await createImageBitmap(b))
     // 统一以第一帧为基准尺寸,长边超限等比缩(上游理论同尺寸,这里兜底不一致的帧)
     const scale = Math.min(1, GIF_MAX_EDGE / Math.max(bitmaps[0].width, bitmaps[0].height))
     const w = Math.max(1, Math.round(bitmaps[0].width * scale))
@@ -893,6 +936,7 @@ async function composeGif(blobs: Blob[], frameMs: number): Promise<Blob> {
     if (!ctx) throw new Error('canvas 2d context unavailable')
     const enc = GIFEncoder()
     for (const bmp of bitmaps) {
+      if (signal?.aborted) throw new DOMException('aborted', 'AbortError')
       ctx.drawImage(bmp, 0, 0, w, h)
       const { data } = ctx.getImageData(0, 0, w, h)
       const palette = quantize(data, 256)
@@ -918,10 +962,14 @@ async function generateGif(turn: ChatTurn, promptText: string, s: Session, outer
     if (!one.blob) return one
     blobs.push(one.blob)
   }
+  // 帧全部生成后、合成完成前用户停止:丢弃结果,避免"已停止却落库完整 GIF"
+  if (outer.aborted || !isCurrent(s)) return { error: t('canvasChat.stopped') }
   try {
-    const gif = await composeGif(blobs, frameMs)
+    const gif = await composeGif(blobs, frameMs, outer)
+    if (outer.aborted) return { error: t('canvasChat.stopped') }
     return { blob: gif }
   } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return { error: t('canvasChat.stopped') }
     return { error: err instanceof Error ? err.message : t('imageStudio.generateFailed') }
   }
 }
@@ -1118,6 +1166,11 @@ export async function sendDraft() {
   if (format.value === 'svg' && !aiKeyId.value) {
     appStore().showError(t('canvasChat.svgNeedKey'))
     return
+  }
+  // 参考图压缩尚未完成或已存在时,SVG 不适用:回落 auto 再发送(压缩竞态下 UI watch 可能未触发)
+  if (format.value === 'svg' && (draftRefs.value.length || pendingRefs > 0)) {
+    format.value = 'auto'
+    saveSettings()
   }
   count.value = clampCount(count.value)
   // 提交即快照全部草稿与参数:润色等待期间用户继续编辑的内容属于下一条,不混入本次

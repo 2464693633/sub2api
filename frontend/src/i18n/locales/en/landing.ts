@@ -202,7 +202,7 @@ export default {
     gifParams: 'GIF options',
     gifFrames: 'Frames',
     gifFrameMs: 'Frame delay (ms)',
-    gifHint: 'Generates {n} frames and composes an animated GIF; billed as {n} images',
+    gifHint: 'Generates {n} frames and composes an animated GIF; each frame is a separate request billed as an image, and stopping or failing midway may still incur partial charges',
     svgHint: 'SVG is written as vector graphics by the chat model used for AI polish; references are not supported',
     svgNeedKey: 'SVG output requires selecting a key and model under "AI polish" below',
     svgInvalid: 'The model did not return a valid SVG; retry or pick another model',
