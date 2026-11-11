@@ -34,8 +34,72 @@
             <div class="flex flex-wrap items-center gap-2">
               <ChatDrawToolbarSelect :model-value="model" :options="modelOptions" :label="t('imageStudio.model')" :empty-text="t('imageStudio.noImageModels')" @change="setModel" />
               <ChatDrawToolbarSelect :model-value="ratio" :options="ratioOptions" :label="t('canvas.aspectRatio')" @change="setRatio" />
-              <ChatDrawToolbarSelect :model-value="quality" :options="qualityOptions" :label="t('imageStudio.quality')" @change="setQuality" />
-              <ChatDrawToolbarSelect :model-value="count" :options="countOptions" :label="t('canvasChat.count')" @change="setCount" />
+            </div>
+            <div class="mt-3 space-y-3">
+              <div>
+                <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('imageStudio.quality') }}</div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  <button
+                    v-for="option in qualityOptions"
+                    :key="option.value"
+                    type="button"
+                    class="h-8 rounded-lg border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    :class="quality === option.value
+                      ? 'border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-400'"
+                    :aria-pressed="quality === option.value"
+                    @click="setQuality(option.value)"
+                  >{{ option.label }}</button>
+                </div>
+              </div>
+              <div>
+                <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.count') }}</div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  <button
+                    v-for="n in CHAT_COUNTS"
+                    :key="n"
+                    type="button"
+                    class="h-8 rounded-lg border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    :class="count === n
+                      ? 'border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-400'"
+                    :aria-pressed="count === n"
+                    @click="setCount(n)"
+                  >{{ t('canvasChat.countN', { n }) }}</button>
+                </div>
+                <label class="mt-2 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+                  <span class="shrink-0">{{ t('canvasChat.customCount') }}</span>
+                  <input
+                    v-model="countDraft"
+                    type="number"
+                    min="1"
+                    :max="MAX_CHAT_COUNT"
+                    step="1"
+                    inputmode="numeric"
+                    class="h-8 min-w-0 flex-1 rounded-lg border border-gray-200 bg-white px-2 text-xs text-gray-700 outline-none focus:border-gray-500 focus:ring-2 focus:ring-primary-500/30 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-200"
+                    :aria-label="t('canvasChat.customCount')"
+                    @blur="commitCount"
+                    @keydown.enter.stop.prevent="commitCount"
+                  />
+                </label>
+                <p class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">{{ t('canvasChat.customCountHint', { max: MAX_CHAT_COUNT }) }}</p>
+              </div>
+              <div>
+                <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.outputFormat') }}</div>
+                <div class="grid grid-cols-4 gap-1.5">
+                  <button
+                    v-for="option in formatOptions"
+                    :key="option.value"
+                    type="button"
+                    class="h-8 rounded-lg border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
+                    :class="format === option.value
+                      ? 'border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900'
+                      : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-400'"
+                    :aria-pressed="format === option.value"
+                    @click="setFormat(option.value)"
+                  >{{ option.label }}</button>
+                </div>
+              </div>
             </div>
           </section>
           <section class="border-t border-gray-100 pt-3 dark:border-dark-600">
@@ -177,10 +241,10 @@ import ChatDrawToolbarSelect from './ChatDrawToolbarSelect.vue'
 import { qualityLabelOf, type ToolbarOption, type ToolbarValue } from './format'
 import { models } from '@/composables/useImageStudioEngine'
 import {
-  CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS,
-  draftText, draftRefs, ratio, quality, count, model, polishEnabled, polishing, busy, turns, polishDraft,
+  CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS, MAX_CHAT_COUNT,
+  draftText, draftRefs, ratio, quality, count, format, model, polishEnabled, polishing, busy, turns, polishDraft,
   saveSettings, addDraftRefs, removeDraftRef, sendDraft, stopAll,
-  type ChatQuality
+  clampCount, type ChatQuality, type ChatFormat
 } from '@/composables/useChatDrawEngine'
 import { aiKeys, aiKeyId, aiModels, aiModel, initAIOptions, onAIKeyChange, rememberAIModel } from '@/composables/useAIPrompt'
 
@@ -209,16 +273,27 @@ const modelOptions = computed<ToolbarOption[]>(() => {
   return out
 })
 const ratioOptions = computed<ToolbarOption[]>(() => CHAT_RATIOS.map(r => ({ value: r.value, label: r.value })))
-const qualityOptions = computed<ToolbarOption[]>(() => QUALITIES.map(q => ({ value: q, label: qualityLabelOf(t, q) })))
-const countOptions = computed<ToolbarOption[]>(() => CHAT_COUNTS.map(n => ({ value: n, label: t('canvasChat.countN', { n }) })))
+const qualityOptions = computed<{ value: string; label: string }[]>(() => QUALITIES.map(q => ({ value: q, label: qualityLabelOf(t, q) })))
+const formatOptions = computed(() => [
+  { value: 'auto' as const, label: t('canvasChat.formatAuto') },
+  { value: 'png' as const, label: 'PNG' },
+  { value: 'jpeg' as const, label: 'JPG' },
+  { value: 'webp' as const, label: 'WebP' }
+])
+const countDraft = ref(String(count.value))
+watch(count, n => { countDraft.value = String(n) })
 const keyOptions = computed<ToolbarOption[]>(() => aiKeys.value.map(k => ({ value: k.id, label: k.name })))
 const aiModelOptions = computed<ToolbarOption[]>(() => aiModels.value.map(m => ({ value: m, label: m })))
-const settingsSummary = computed(() => t('canvasChat.settingsSummary', {
-  model: model.value || t('imageStudio.noImageModels'),
-  ratio: ratio.value,
-  quality: quality.value,
-  count: t('canvasChat.countN', { n: count.value })
-}))
+const settingsSummary = computed(() => {
+  const summary = t('canvasChat.settingsSummary', {
+    model: model.value || t('imageStudio.noImageModels'),
+    ratio: ratio.value,
+    quality: quality.value,
+    count: t('canvasChat.countN', { n: count.value })
+  })
+  const selectedFormat = formatOptions.value.find(option => option.value === format.value)
+  return format.value === 'auto' ? summary : `${summary} · ${selectedFormat?.label}`
+})
 
 function onSettingsPointer(e: PointerEvent) {
   if (settingsAnchor.value && !settingsAnchor.value.contains(e.target as Node)) settingsOpen.value = false
@@ -240,7 +315,13 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onSettingsPoin
 function setModel(v: ToolbarValue) { model.value = String(v); saveSettings() }
 function setRatio(v: ToolbarValue) { ratio.value = String(v); saveSettings() }
 function setQuality(v: ToolbarValue) { quality.value = v as ChatQuality; saveSettings() }
-function setCount(v: ToolbarValue) { count.value = Number(v); saveSettings() }
+function setCount(v: ToolbarValue) {
+  count.value = clampCount(v)
+  countDraft.value = String(count.value)
+  saveSettings()
+}
+function commitCount() { setCount(countDraft.value) }
+function setFormat(v: ChatFormat) { format.value = v; saveSettings() }
 function setAIKey(v: ToolbarValue) { aiKeyId.value = v === null ? null : Number(v); void onAIKeyChange() }
 function setAIModel(v: ToolbarValue) { aiModel.value = String(v); rememberAIModel() }
 

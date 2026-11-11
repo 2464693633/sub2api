@@ -8,7 +8,7 @@ export interface ToolbarOption { value: ToolbarValue; label: string; hint?: stri
 export interface LightboxItem { url: string; caption: string; downloadable?: boolean }
 
 export function qualityLabelOf(t: Tr, q: ChatQuality): string {
-  return q === 'auto' ? t('canvas.qualityAuto') : q === 'high' ? t('canvas.qualityHigh') : q === 'medium' ? t('canvas.qualityMedium') : t('canvas.qualityLow')
+  return q === 'auto' ? t('canvasChat.qualityAuto') : q === 'high' ? t('canvasChat.qualityHigh') : q === 'medium' ? t('canvasChat.qualityMedium') : t('canvasChat.qualityLow')
 }
 
 /** '16:9' → '16 / 9'(CSS aspect-ratio) */

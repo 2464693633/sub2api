@@ -22,7 +22,7 @@ import { i18n } from '@/i18n'
 import { useAppStore } from '@/stores/app'
 import { sessionOwnerKey, StudioSessionChangedError } from './studioSession'
 import {
-  MAX_REFS, QUALITIES, models, model as studioModel, initError, loadModels,
+  MAX_REFS, models, model as studioModel, initError, loadModels,
   blobFromB64, compressRefFile
 } from './useImageStudioEngine'
 import { aiEnhancePrompt, aiKeyId, aiModel } from './useAIPrompt'
@@ -30,8 +30,10 @@ import { aiEnhancePrompt, aiKeyId, aiModel } from './useAIPrompt'
 const t = i18n.global.t
 
 // ===== 常量 =====
-export { MAX_REFS, QUALITIES }
+export { MAX_REFS }
+export const QUALITIES = ['auto', 'low', 'medium', 'high'] as const
 export type ChatQuality = typeof QUALITIES[number]
+export type ChatFormat = 'auto' | 'png' | 'jpeg' | 'webp'
 /** 画幅预设:与生图工作台 RATIO_PRESETS 同一套像素(长边基准) */
 export const CHAT_RATIOS = [
   { value: '1:1', w: 1, h: 1, base: 1024 },
@@ -44,6 +46,7 @@ export const CHAT_RATIOS = [
   { value: '21:9', w: 21, h: 9, base: 1680 }
 ] as const
 export const CHAT_COUNTS = [1, 2, 3, 4] as const
+export const MAX_CHAT_COUNT = 8
 const PARALLEL = 2
 const REQUEST_TIMEOUT_MS = 300000
 /** 每个会话首次只加载最近 N 轮,避免全量读出所有图片 Blob */
@@ -94,6 +97,7 @@ export interface ChatTurn {
   size: string
   quality: ChatQuality
   count: number
+  format: ChatFormat
   /** 来源操作:普通发送 / 重绘 / 变体 */
   origin?: 'redraw' | 'variant'
   status: 'running' | 'done' | 'failed' | 'cancelled'
@@ -139,6 +143,7 @@ export const draftRefs = ref<DraftRef[]>([])
 export const ratio = ref<string>('1:1')
 export const quality = ref<ChatQuality>('auto')
 export const count = ref<number>(1)
+export const format = ref<ChatFormat>('auto')
 export const model = ref<string>('')
 export const polishEnabled = ref(false)
 export const polishing = ref(false)
@@ -225,22 +230,31 @@ function authHeaders(s: Session): Record<string, string> {
 const LS_SETTINGS = 'chat_draw_settings'
 const LS_ACTIVE = 'chat_draw_active'
 function loadSettings(owner: string) {
+  format.value = 'auto'
+  count.value = 1
   try {
     const raw = JSON.parse(localStorage.getItem(`${LS_SETTINGS}:${owner}`) || 'null') as Partial<{
-      ratio: string; quality: ChatQuality; count: number; model: string; polish: boolean
+      ratio: string; quality: ChatQuality; count: number; format: ChatFormat; model: string; polish: boolean
     }> | null
     if (!raw) return
     if (raw.ratio && CHAT_RATIOS.some(r => r.value === raw.ratio)) ratio.value = raw.ratio
     if (raw.quality && (QUALITIES as readonly string[]).includes(raw.quality)) quality.value = raw.quality
-    if (raw.count && (CHAT_COUNTS as readonly number[]).includes(raw.count)) count.value = raw.count
+    if (raw.count !== undefined) count.value = clampCount(raw.count)
+    if (raw.format && ['auto', 'png', 'jpeg', 'webp'].includes(raw.format)) format.value = raw.format
     if (raw.model) model.value = raw.model
     polishEnabled.value = Boolean(raw.polish)
   } catch { /* 损坏的设置忽略 */ }
 }
 export function saveSettings() {
+  count.value = clampCount(count.value)
   localStorage.setItem(`${LS_SETTINGS}:${sessionOwnerKey()}`, JSON.stringify({
-    ratio: ratio.value, quality: quality.value, count: count.value, model: model.value, polish: polishEnabled.value
+    ratio: ratio.value, quality: quality.value, count: clampCount(count.value), format: format.value, model: model.value, polish: polishEnabled.value
   }))
+}
+
+export function clampCount(value: unknown): number {
+  const n = Number(value)
+  return Number.isFinite(n) ? Math.max(1, Math.min(MAX_CHAT_COUNT, Math.trunc(n))) : 1
 }
 function saveActive() {
   localStorage.setItem(`${LS_ACTIVE}:${sessionOwnerKey()}`, activeSessionId.value)
@@ -495,6 +509,11 @@ function ensureSessionLoaded(sid: string): Promise<void> {
       const items = recent
         .slice(0, LOAD_LIMIT)
         .filter(it => it && Array.isArray(it.images))
+        .map(it => ({
+          ...it,
+          count: clampCount(it.count),
+          format: (it.format === 'png' || it.format === 'jpeg' || it.format === 'webp') ? it.format : 'auto' as const
+        }))
         .sort((a, b) => a.ts - b.ts)
       // 库里仍标记为进行中、但内存里没有对应请求的轮次已无法继续:标记中断,保留已完成的图
       const interrupted: ChatTurn[] = []
@@ -766,6 +785,9 @@ async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer
   if (turn.groupId && turn.groupId > 0) headers['X-Image-Studio-Group'] = String(turn.groupId)
   // Grok(xAI) 上游只接受 model/prompt/n,带 size/quality/output_format 会 400
   const isGrok = turn.platform ? turn.platform === 'grok' : /grok/i.test(turn.model)
+  // 旧记录/兜底模型没有 platform 时,仅识别 OpenAI 图像模型。
+  const isOpenAI = turn.platform ? turn.platform === 'openai' : /^(gpt-image-|dall-e-)/i.test(turn.model)
+  const outputFormat = isOpenAI && turn.format && turn.format !== 'auto' ? turn.format : undefined
   const controller = new AbortController()
   const onAbort = () => controller.abort()
   outer.addEventListener('abort', onAbort)
@@ -780,7 +802,7 @@ async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer
       if (!isGrok) {
         if (turn.size !== 'auto') form.append('size', turn.size)
         if (turn.quality !== 'auto') form.append('quality', turn.quality)
-        form.append('output_format', 'png')
+        if (outputFormat) form.append('output_format', outputFormat)
       }
       turn.refs.forEach((b, i) => {
         const raw = toRaw(b)
@@ -797,7 +819,7 @@ async function generateOne(turn: ChatTurn, promptText: string, s: Session, outer
             prompt: promptText,
             size: turn.size === 'auto' ? undefined : turn.size,
             quality: turn.quality === 'auto' ? undefined : turn.quality,
-            output_format: 'png',
+            ...(outputFormat ? { output_format: outputFormat } : {}),
             n: 1
           }
       res = await fetch(`${window.location.origin}/api/v1/image-studio/generations`, {
@@ -938,6 +960,7 @@ export async function sendDraft() {
     appStore().showError(initError.value || t('imageStudio.noImageModels'))
     return
   }
+  count.value = clampCount(count.value)
   // 提交即快照全部草稿与参数:润色等待期间用户继续编辑的内容属于下一条,不混入本次
   const snapshot = {
     text,
@@ -945,7 +968,8 @@ export async function sendDraft() {
     option: { ...option },
     ratio: ratio.value,
     quality: quality.value,
-    count: count.value,
+    count: clampCount(count.value),
+    format: format.value,
     aiKeyId: aiKeyId.value ?? undefined,
     aiModel: aiModel.value || undefined
   }
@@ -968,6 +992,7 @@ export async function sendDraft() {
     size: sizeForRatio(snapshot.ratio),
     quality: snapshot.quality,
     count: snapshot.count,
+    format: snapshot.format,
     status: 'running',
     images: newImages(snapshot.count)
   }
@@ -975,7 +1000,7 @@ export async function sendDraft() {
   await runImages(turn.id, turn.images.map(i => i.id), run)
 }
 
-/** 重绘:同参数(提示词/参考图/模型/画幅/质量/张数)在同一会话新开一轮 */
+/** 重绘:同参数(提示词/参考图/模型/画幅/质量/张数/格式)在同一会话新开一轮 */
 export async function redrawTurn(source: ChatTurn) {
   if (busy.value) return
   const run = runFor(source.sessionId)
@@ -988,7 +1013,8 @@ export async function redrawTurn(source: ChatTurn) {
     status: 'running',
     ms: undefined,
     startedAt: undefined,
-    images: newImages(source.count)
+    count: clampCount(source.count),
+    images: newImages(clampCount(source.count))
   }
   pushTurn(turn, run)
   await runImages(turn.id, turn.images.map(i => i.id), run)
