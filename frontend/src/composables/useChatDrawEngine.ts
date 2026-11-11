@@ -34,16 +34,19 @@ export { MAX_REFS }
 export const QUALITIES = ['auto', 'low', 'medium', 'high'] as const
 export type ChatQuality = typeof QUALITIES[number]
 export type ChatFormat = 'auto' | 'png' | 'jpeg' | 'webp'
-/** 画幅预设:与生图工作台 RATIO_PRESETS 同一套像素(长边基准) */
+export const CHAT_RESOLUTIONS = ['1k', '2k', '4k'] as const
+export type ChatResolution = typeof CHAT_RESOLUTIONS[number]
+const RESOLUTION_BASES: Record<ChatResolution, number> = { '1k': 1024, '2k': 2048, '4k': 3840 }
+/** 画幅预设:长边像素由分辨率档位决定 */
 export const CHAT_RATIOS = [
-  { value: '1:1', w: 1, h: 1, base: 1024 },
-  { value: '3:2', w: 3, h: 2, base: 1216 },
-  { value: '2:3', w: 2, h: 3, base: 1216 },
-  { value: '4:3', w: 4, h: 3, base: 1024 },
-  { value: '3:4', w: 3, h: 4, base: 1024 },
-  { value: '16:9', w: 16, h: 9, base: 1280 },
-  { value: '9:16', w: 9, h: 16, base: 1280 },
-  { value: '21:9', w: 21, h: 9, base: 1680 }
+  { value: '1:1', w: 1, h: 1 },
+  { value: '3:2', w: 3, h: 2 },
+  { value: '2:3', w: 2, h: 3 },
+  { value: '4:3', w: 4, h: 3 },
+  { value: '3:4', w: 3, h: 4 },
+  { value: '16:9', w: 16, h: 9 },
+  { value: '9:16', w: 9, h: 16 },
+  { value: '21:9', w: 21, h: 9 }
 ] as const
 export const CHAT_COUNTS = [1, 2, 3, 4] as const
 export const MAX_CHAT_COUNT = 8
@@ -56,12 +59,13 @@ export const TITLE_MAX = 18
 /** v2 之前的单会话数据迁移到这个会话 */
 export const LEGACY_SESSION_ID = 'legacy'
 
-export function sizeForRatio(ratio: string): string {
+export function sizeForRatio(ratio: string, resolution: ChatResolution = '1k'): string {
   const r = CHAT_RATIOS.find(x => x.value === ratio)
   if (!r) return 'auto'
   const snap = (v: number) => Math.max(256, Math.min(4096, Math.round(v / 16) * 16))
-  const w = r.w >= r.h ? r.base : r.base * r.w / r.h
-  const h = r.w >= r.h ? r.base * r.h / r.w : r.base
+  const base = RESOLUTION_BASES[resolution]
+  const w = r.w >= r.h ? base : base * r.w / r.h
+  const h = r.w >= r.h ? base * r.h / r.w : base
   return `${snap(w)}x${snap(h)}`
 }
 
@@ -141,6 +145,7 @@ export const totalImages = computed(() => sessionRecords.value.reduce((n, s) => 
 export const draftText = ref('')
 export const draftRefs = ref<DraftRef[]>([])
 export const ratio = ref<string>('1:1')
+export const resolution = ref<ChatResolution>('1k')
 export const quality = ref<ChatQuality>('auto')
 export const count = ref<number>(1)
 export const format = ref<ChatFormat>('auto')
@@ -230,14 +235,16 @@ function authHeaders(s: Session): Record<string, string> {
 const LS_SETTINGS = 'chat_draw_settings'
 const LS_ACTIVE = 'chat_draw_active'
 function loadSettings(owner: string) {
+  resolution.value = '1k'
   format.value = 'auto'
   count.value = 1
   try {
     const raw = JSON.parse(localStorage.getItem(`${LS_SETTINGS}:${owner}`) || 'null') as Partial<{
-      ratio: string; quality: ChatQuality; count: number; format: ChatFormat; model: string; polish: boolean
+      ratio: string; resolution: ChatResolution; quality: ChatQuality; count: number; format: ChatFormat; model: string; polish: boolean
     }> | null
     if (!raw) return
-    if (raw.ratio && CHAT_RATIOS.some(r => r.value === raw.ratio)) ratio.value = raw.ratio
+    if (raw.ratio && (raw.ratio === 'auto' || CHAT_RATIOS.some(r => r.value === raw.ratio))) ratio.value = raw.ratio
+    if (raw.resolution && (CHAT_RESOLUTIONS as readonly string[]).includes(raw.resolution)) resolution.value = raw.resolution
     if (raw.quality && (QUALITIES as readonly string[]).includes(raw.quality)) quality.value = raw.quality
     if (raw.count !== undefined) count.value = clampCount(raw.count)
     if (raw.format && ['auto', 'png', 'jpeg', 'webp'].includes(raw.format)) format.value = raw.format
@@ -248,7 +255,7 @@ function loadSettings(owner: string) {
 export function saveSettings() {
   count.value = clampCount(count.value)
   localStorage.setItem(`${LS_SETTINGS}:${sessionOwnerKey()}`, JSON.stringify({
-    ratio: ratio.value, quality: quality.value, count: clampCount(count.value), format: format.value, model: model.value, polish: polishEnabled.value
+    ratio: ratio.value, resolution: resolution.value, quality: quality.value, count: clampCount(count.value), format: format.value, model: model.value, polish: polishEnabled.value
   }))
 }
 
@@ -967,6 +974,7 @@ export async function sendDraft() {
     refs: draftRefs.value.map(r => toRaw(r.blob)),
     option: { ...option },
     ratio: ratio.value,
+    resolution: resolution.value,
     quality: quality.value,
     count: clampCount(count.value),
     format: format.value,
@@ -989,7 +997,7 @@ export async function sendDraft() {
     groupId: snapshot.option.group_id,
     platform: snapshot.option.platform,
     ratio: snapshot.ratio,
-    size: sizeForRatio(snapshot.ratio),
+    size: sizeForRatio(snapshot.ratio, snapshot.resolution),
     quality: snapshot.quality,
     count: snapshot.count,
     format: snapshot.format,

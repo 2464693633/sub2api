@@ -69,6 +69,83 @@ describe('chat draw engine races', () => {
     vi.unstubAllGlobals()
   })
 
+  it('calculates every ratio at the selected resolution with pixel alignment', async () => {
+    const e = await import('../useChatDrawEngine')
+    const expected = [
+      ['1:1', '1024x1024', '2048x2048', '3840x3840'],
+      ['3:2', '1024x688', '2048x1360', '3840x2560'],
+      ['2:3', '688x1024', '1360x2048', '2560x3840'],
+      ['4:3', '1024x768', '2048x1536', '3840x2880'],
+      ['3:4', '768x1024', '1536x2048', '2880x3840'],
+      ['16:9', '1024x576', '2048x1152', '3840x2160'],
+      ['9:16', '576x1024', '1152x2048', '2160x3840'],
+      ['21:9', '1024x432', '2048x880', '3840x1648']
+    ]
+    for (const [ratio, ...sizes] of expected) {
+      e.CHAT_RESOLUTIONS.forEach((resolution, index) => {
+        expect(e.sizeForRatio(ratio, resolution)).toBe(sizes[index])
+      })
+    }
+    for (const resolution of e.CHAT_RESOLUTIONS) {
+      expect(e.sizeForRatio('auto', resolution)).toBe('auto')
+    }
+  })
+
+  it('persists resolution per account and defaults missing or invalid settings to 1k', async () => {
+    const e = await import('../useChatDrawEngine')
+    await e.initChatDraw()
+    expect(e.resolution.value).toBe('1k')
+    e.ratio.value = 'auto'
+    e.resolution.value = '4k'
+    e.saveSettings()
+    expect(JSON.parse(localStorage.getItem('chat_draw_settings:user-1')!)).toMatchObject({ ratio: 'auto', resolution: '4k' })
+    switchAccount(2)
+    await e.initChatDraw()
+    expect(e.resolution.value).toBe('1k')
+    localStorage.setItem('chat_draw_settings:user-3', JSON.stringify({ resolution: '8k' }))
+    switchAccount(3)
+    await e.initChatDraw()
+    expect(e.resolution.value).toBe('1k')
+    switchAccount(1)
+    await e.initChatDraw()
+    expect(e.resolution.value).toBe('4k')
+    expect(e.ratio.value).toBe('auto')
+  })
+
+  it('keeps the submitted size for requests and redraws after resolution changes', async () => {
+    const e = await import('../useChatDrawEngine')
+    await e.initChatDraw()
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    e.ratio.value = '16:9'
+    e.resolution.value = '4k'
+    e.draftText.value = 'landscape'
+    const sending = e.sendDraft()
+    e.resolution.value = '1k'
+    await sending
+    expect(e.turns.value[0].size).toBe('3840x2160')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).size).toBe('3840x2160')
+    await e.redrawTurn(e.turns.value[0])
+    expect(e.turns.value[1].size).toBe('3840x2160')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).size).toBe('3840x2160')
+  })
+
+  it.each([false, true])('omits size for auto ratio (with references: %s)', async withRefs => {
+    const e = await import('../useChatDrawEngine')
+    await e.initChatDraw()
+    const fetchMock = okFetch()
+    vi.stubGlobal('fetch', fetchMock)
+    e.ratio.value = 'auto'
+    e.resolution.value = '4k'
+    e.draftText.value = 'automatic framing'
+    if (withRefs) await e.addDraftRefs([png()])
+    await e.sendDraft()
+    expect(e.turns.value[0].size).toBe('auto')
+    const body = fetchMock.mock.calls[0][1].body
+    if (withRefs) expect((body as FormData).has('size')).toBe(false)
+    else expect(JSON.parse(body as string)).not.toHaveProperty('size')
+  })
+
   it('P1-1 drops refs whose compression finishes after an account switch', async () => {
     const e = await import('../useChatDrawEngine')
     const gate = deferred<File>()

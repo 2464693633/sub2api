@@ -37,6 +37,25 @@
             </div>
             <div class="mt-3 space-y-3">
               <div>
+                <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.resolution') }}</div>
+                <div class="grid grid-cols-3 gap-1.5">
+                  <button
+                    v-for="option in resolutionOptions"
+                    :key="option.value"
+                    type="button"
+                    class="h-8 rounded-lg border px-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-40"
+                    :class="ratio === 'auto'
+                      ? 'border-gray-200 bg-gray-100 text-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-500'
+                      : resolution === option.value
+                        ? 'border-gray-900 bg-gray-900 text-white dark:border-white dark:bg-white dark:text-gray-900'
+                        : 'border-gray-200 bg-white text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300 dark:hover:border-dark-400'"
+                    :disabled="ratio === 'auto'"
+                    :aria-pressed="resolution === option.value"
+                    @click="setResolution(option.value)"
+                  >{{ option.label }}</button>
+                </div>
+              </div>
+              <div>
                 <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('imageStudio.quality') }}</div>
                 <div class="grid grid-cols-4 gap-1.5">
                   <button
@@ -241,10 +260,10 @@ import ChatDrawToolbarSelect from './ChatDrawToolbarSelect.vue'
 import { qualityLabelOf, type ToolbarOption, type ToolbarValue } from './format'
 import { models } from '@/composables/useImageStudioEngine'
 import {
-  CHAT_RATIOS, CHAT_COUNTS, QUALITIES, MAX_REFS, MAX_CHAT_COUNT,
-  draftText, draftRefs, ratio, quality, count, format, model, polishEnabled, polishing, busy, turns, polishDraft,
+  CHAT_RATIOS, CHAT_RESOLUTIONS, CHAT_COUNTS, QUALITIES, MAX_REFS, MAX_CHAT_COUNT,
+  draftText, draftRefs, ratio, resolution, quality, count, format, model, polishEnabled, polishing, busy, turns, polishDraft,
   saveSettings, addDraftRefs, removeDraftRef, sendDraft, stopAll,
-  clampCount, type ChatQuality, type ChatFormat
+  clampCount, type ChatQuality, type ChatFormat, type ChatResolution
 } from '@/composables/useChatDrawEngine'
 import { aiKeys, aiKeyId, aiModels, aiModel, initAIOptions, onAIKeyChange, rememberAIModel } from '@/composables/useAIPrompt'
 
@@ -272,7 +291,11 @@ const modelOptions = computed<ToolbarOption[]>(() => {
   }
   return out
 })
-const ratioOptions = computed<ToolbarOption[]>(() => CHAT_RATIOS.map(r => ({ value: r.value, label: r.value })))
+const ratioOptions = computed<ToolbarOption[]>(() => [
+  { value: 'auto', label: t('canvasChat.ratioAuto') },
+  ...CHAT_RATIOS.map(r => ({ value: r.value, label: r.value }))
+])
+const resolutionOptions = computed(() => CHAT_RESOLUTIONS.map(value => ({ value, label: t(`canvasChat.resolution${value.toUpperCase()}`) })))
 const qualityOptions = computed<{ value: string; label: string }[]>(() => QUALITIES.map(q => ({ value: q, label: qualityLabelOf(t, q) })))
 const formatOptions = computed(() => [
   { value: 'auto' as const, label: t('canvasChat.formatAuto') },
@@ -288,6 +311,7 @@ const settingsSummary = computed(() => {
   const summary = t('canvasChat.settingsSummary', {
     model: model.value || t('imageStudio.noImageModels'),
     ratio: ratio.value,
+    resolution: resolutionOptions.value.find(option => option.value === resolution.value)?.label,
     quality: quality.value,
     count: t('canvasChat.countN', { n: count.value })
   })
@@ -314,6 +338,7 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onSettingsPoin
 // 工具条选择回写引擎设置
 function setModel(v: ToolbarValue) { model.value = String(v); saveSettings() }
 function setRatio(v: ToolbarValue) { ratio.value = String(v); saveSettings() }
+function setResolution(v: ChatResolution) { resolution.value = v; saveSettings() }
 function setQuality(v: ToolbarValue) { quality.value = v as ChatQuality; saveSettings() }
 function setCount(v: ToolbarValue) {
   count.value = clampCount(v)
