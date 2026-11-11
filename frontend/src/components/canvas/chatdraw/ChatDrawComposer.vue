@@ -6,26 +6,59 @@
     @dragleave="onDragLeave"
     @drop.prevent="onDrop"
   >
-    <!-- 悬浮工具条 -->
-    <div class="mb-2 flex flex-wrap items-center gap-1.5 px-1">
-      <ChatDrawToolbarSelect :model-value="model" :options="modelOptions" :label="t('imageStudio.model')" :empty-text="t('imageStudio.noImageModels')" @change="setModel" />
-      <ChatDrawToolbarSelect :model-value="ratio" :options="ratioOptions" :label="t('canvas.aspectRatio')" @change="setRatio" />
-      <ChatDrawToolbarSelect :model-value="quality" :options="qualityOptions" :label="t('imageStudio.quality')" @change="setQuality" />
-      <ChatDrawToolbarSelect :model-value="count" :options="countOptions" :label="t('canvasChat.count')" @change="setCount" />
-      <button
-        type="button"
-        role="switch"
-        :aria-checked="polishEnabled"
-        class="inline-flex h-8 items-center gap-1 rounded-full border px-3 text-xs shadow-sm backdrop-blur transition-colors"
-        :class="polishEnabled
-          ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-200'
-          : 'border-gray-200 bg-white/95 text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800/95 dark:text-gray-300'"
-        @click="togglePolish"
-      ><Icon name="sparkles" size="xs" />{{ t('canvasChat.polish') }}</button>
-      <template v-if="polishEnabled">
-        <ChatDrawToolbarSelect :model-value="aiKeyId" :options="keyOptions" :label="t('canvasChat.polishKey')" :empty-text="t('canvas.aiNoKeys')" @change="setAIKey" />
-        <ChatDrawToolbarSelect :model-value="aiModel" :options="aiModelOptions" :label="t('canvasChat.polishModel')" :disabled="!aiModels.length" :empty-text="t('canvas.aiNoModels')" @change="setAIModel" />
-      </template>
+    <!-- 折叠参数设置 -->
+    <div class="mb-2 flex items-center px-1">
+      <div ref="settingsAnchor" class="relative min-w-0" @keydown.esc="onSettingsEscape">
+        <button
+          ref="settingsButton"
+          type="button"
+          class="inline-flex h-8 max-w-full items-center gap-1.5 rounded-full border bg-white/95 px-3 text-xs text-gray-700 shadow-sm backdrop-blur transition-colors hover:border-gray-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:bg-dark-800/95 dark:text-gray-200 dark:hover:border-dark-400"
+          :class="settingsOpen ? 'border-gray-900 dark:border-gray-200' : 'border-gray-200 dark:border-dark-600'"
+          :title="`${t('canvasChat.settings')}: ${settingsSummary}`"
+          :aria-label="`${t('canvasChat.settings')}: ${settingsSummary}`"
+          :aria-expanded="settingsOpen"
+          @click="settingsOpen = !settingsOpen"
+        >
+          <Icon name="slidersHorizontal" size="sm" class="shrink-0" aria-hidden="true" />
+          <span class="min-w-0 truncate font-medium">{{ settingsSummary }}</span>
+          <Icon name="chevronDown" size="xs" class="shrink-0 transition-transform" :class="settingsOpen ? 'rotate-180' : ''" aria-hidden="true" />
+        </button>
+        <div
+          v-if="settingsOpen"
+          role="group"
+          :aria-label="t('canvasChat.settings')"
+          class="absolute bottom-[calc(100%+0.5rem)] left-0 z-40 w-[min(28rem,calc(100vw-3rem))] space-y-4 rounded-2xl border border-gray-200 bg-white p-3.5 shadow-xl dark:border-dark-600 dark:bg-dark-800"
+        >
+          <section>
+            <h3 class="mb-2 text-xs font-bold text-gray-500 dark:text-gray-400">{{ t('canvasChat.imageSettings') }}</h3>
+            <div class="flex flex-wrap items-center gap-2">
+              <ChatDrawToolbarSelect :model-value="model" :options="modelOptions" :label="t('imageStudio.model')" :empty-text="t('imageStudio.noImageModels')" @change="setModel" />
+              <ChatDrawToolbarSelect :model-value="ratio" :options="ratioOptions" :label="t('canvas.aspectRatio')" @change="setRatio" />
+              <ChatDrawToolbarSelect :model-value="quality" :options="qualityOptions" :label="t('imageStudio.quality')" @change="setQuality" />
+              <ChatDrawToolbarSelect :model-value="count" :options="countOptions" :label="t('canvasChat.count')" @change="setCount" />
+            </div>
+          </section>
+          <section class="border-t border-gray-100 pt-3 dark:border-dark-600">
+            <h3 class="mb-2 text-xs font-bold text-gray-500 dark:text-gray-400">{{ t('canvasChat.polishSettings') }}</h3>
+            <div class="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                role="switch"
+                :aria-checked="polishEnabled"
+                class="inline-flex h-8 items-center gap-1 rounded-full border px-3 text-xs shadow-sm backdrop-blur transition-colors"
+                :class="polishEnabled
+                  ? 'border-violet-300 bg-violet-50 text-violet-700 dark:border-violet-700 dark:bg-violet-900/30 dark:text-violet-200'
+                  : 'border-gray-200 bg-white/95 text-gray-600 hover:border-gray-400 dark:border-dark-600 dark:bg-dark-800/95 dark:text-gray-300'"
+                @click="togglePolish"
+              ><Icon name="sparkles" size="xs" />{{ t('canvasChat.polish') }}</button>
+              <template v-if="polishEnabled">
+                <ChatDrawToolbarSelect :model-value="aiKeyId" :options="keyOptions" :label="t('canvasChat.polishKey')" :empty-text="t('canvas.aiNoKeys')" @change="setAIKey" />
+                <ChatDrawToolbarSelect :model-value="aiModel" :options="aiModelOptions" :label="t('canvasChat.polishModel')" :disabled="!aiModels.length" :empty-text="t('canvas.aiNoModels')" @change="setAIModel" />
+              </template>
+            </div>
+          </section>
+        </div>
+      </div>
     </div>
 
     <!-- 输入卡片 -->
@@ -100,7 +133,7 @@
           @click="polishDraft"
         >
           <span v-if="polishing" class="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"></span>
-          <Icon v-else name="sparkles" size="md" />
+          <span v-else class="text-xs font-bold" aria-hidden="true">AI</span>
         </button>
         <button
           v-if="running"
@@ -135,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import ChatDrawToolbarSelect from './ChatDrawToolbarSelect.vue'
@@ -155,6 +188,9 @@ const { t } = useI18n()
 const inputEl = ref<HTMLTextAreaElement | null>(null)
 const fileEl = ref<HTMLInputElement | null>(null)
 const dragOver = ref(false)
+const settingsOpen = ref(false)
+const settingsAnchor = ref<HTMLElement | null>(null)
+const settingsButton = ref<HTMLButtonElement | null>(null)
 
 const running = computed(() => turns.value.some(x => x.status === 'running'))
 const canSend = computed(() => !busy.value && Boolean(draftText.value.trim()) && Boolean(model.value))
@@ -175,6 +211,28 @@ const qualityOptions = computed<ToolbarOption[]>(() => QUALITIES.map(q => ({ val
 const countOptions = computed<ToolbarOption[]>(() => CHAT_COUNTS.map(n => ({ value: n, label: t('canvasChat.countN', { n }) })))
 const keyOptions = computed<ToolbarOption[]>(() => aiKeys.value.map(k => ({ value: k.id, label: k.name })))
 const aiModelOptions = computed<ToolbarOption[]>(() => aiModels.value.map(m => ({ value: m, label: m })))
+const settingsSummary = computed(() => t('canvasChat.settingsSummary', {
+  model: model.value || t('imageStudio.noImageModels'),
+  ratio: ratio.value,
+  quality: quality.value,
+  count: t('canvasChat.countN', { n: count.value })
+}))
+
+function onSettingsPointer(e: PointerEvent) {
+  if (settingsAnchor.value && !settingsAnchor.value.contains(e.target as Node)) settingsOpen.value = false
+}
+function onSettingsEscape(e: KeyboardEvent) {
+  // 子下拉先处理 Escape，再次按下时关闭设置面板。
+  if (e.defaultPrevented || !settingsOpen.value) return
+  e.preventDefault()
+  settingsOpen.value = false
+  settingsButton.value?.focus()
+}
+watch(settingsOpen, open => {
+  if (open) document.addEventListener('pointerdown', onSettingsPointer)
+  else document.removeEventListener('pointerdown', onSettingsPointer)
+})
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onSettingsPointer))
 
 // 工具条选择回写引擎设置
 function setModel(v: ToolbarValue) { model.value = String(v); saveSettings() }
