@@ -16,6 +16,7 @@ import {
 describe("groups image pricing platform support", () => {
   it("includes Grok image groups", () => {
     expect(supportsImagePricingPlatform("grok")).toBe(true);
+  expect(supportsImagePricingPlatform("kling")).toBe(true);
     expect(imagePricingPlatforms.has("grok")).toBe(true);
   });
 
@@ -30,6 +31,7 @@ describe("groups image pricing platform support", () => {
 
   it("defaults image generation on for Grok and Gemini-family groups only", () => {
     expect(defaultAllowImageGenerationForPlatform("grok")).toBe(true);
+    expect(defaultAllowImageGenerationForPlatform("kling")).toBe(true);
     expect(defaultAllowImageGenerationForPlatform("gemini")).toBe(true);
     expect(defaultAllowImageGenerationForPlatform("antigravity")).toBe(true);
     expect(defaultAllowImageGenerationForPlatform("composite")).toBe(false);
