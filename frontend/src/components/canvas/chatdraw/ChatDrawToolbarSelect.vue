@@ -21,7 +21,8 @@
       ref="menu"
       role="listbox"
       :aria-label="label"
-      class="absolute bottom-[calc(100%+0.5rem)] left-0 z-40 max-h-72 min-w-[10rem] max-w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-dark-600 dark:bg-dark-800"
+      class="absolute left-0 z-40 max-h-72 min-w-[10rem] max-w-[min(22rem,calc(100vw-2rem))] overflow-y-auto rounded-2xl border border-gray-200 bg-white p-1.5 shadow-xl dark:border-dark-600 dark:bg-dark-800"
+      :class="openUp ? 'bottom-[calc(100%+0.5rem)]' : 'top-[calc(100%+0.5rem)]'"
       @keydown.esc.prevent="close(true)"
       @keydown.down.prevent="move(1)"
       @keydown.up.prevent="move(-1)"
@@ -62,6 +63,8 @@ const props = defineProps<{
 const emit = defineEmits<{ 'update:modelValue': [value: T]; change: [value: T] }>()
 
 const open = ref(false)
+/** 弹出方向:按钮上方空间放得下菜单则向上,否则向下(设置面板里向上弹会被视口顶边截断) */
+const openUp = ref(true)
 const root = ref<HTMLElement | null>(null)
 const menu = ref<HTMLElement | null>(null)
 const currentLabel = computed(() => props.options.find(o => o.value === props.modelValue)?.label ?? (props.emptyText || '—'))
@@ -69,6 +72,13 @@ const currentLabel = computed(() => props.options.find(o => o.value === props.mo
 function toggle() {
   if (open.value) close()
   else open.value = true
+}
+/** 菜单渲染后按实际高度选方向;打开前先用最大高度预估一次,避免先向上闪现再翻转 */
+function fitDirection() {
+  const rect = root.value?.getBoundingClientRect()
+  if (!rect) return
+  const menuH = Math.min(menu.value?.offsetHeight ?? 288, 288)
+  openUp.value = rect.top > menuH + 16
 }
 function close(refocus = false) {
   open.value = false
@@ -99,8 +109,14 @@ function onDocPointer(e: PointerEvent) {
   if (root.value && !root.value.contains(e.target as Node)) close()
 }
 watch(open, v => {
-  if (v) document.addEventListener('pointerdown', onDocPointer)
-  else document.removeEventListener('pointerdown', onDocPointer)
+  if (v) {
+    // 先按菜单上限预估方向,渲染完成后按实际高度再校准一次(选项少时菜单矮,向上更自然)
+    fitDirection()
+    void nextTick(() => fitDirection())
+    document.addEventListener('pointerdown', onDocPointer)
+  } else {
+    document.removeEventListener('pointerdown', onDocPointer)
+  }
 })
 onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointer))
 </script>
