@@ -69,47 +69,46 @@ describe('chat draw engine races', () => {
     vi.unstubAllGlobals()
   })
 
-  it('calculates every ratio at the selected resolution with pixel alignment', async () => {
+  it('calculates every ratio at 1k with pixel alignment; auto resolution omits size', async () => {
     const e = await import('../useChatDrawEngine')
     const expected = [
-      ['1:1', '1024x1024', '2048x2048', '3840x3840'],
-      ['3:2', '1024x688', '2048x1360', '3840x2560'],
-      ['2:3', '688x1024', '1360x2048', '2560x3840'],
-      ['4:3', '1024x768', '2048x1536', '3840x2880'],
-      ['3:4', '768x1024', '1536x2048', '2880x3840'],
-      ['16:9', '1024x576', '2048x1152', '3840x2160'],
-      ['9:16', '576x1024', '1152x2048', '2160x3840'],
-      ['21:9', '1024x432', '2048x880', '3840x1648']
+      ['1:1', '1024x1024'],
+      ['3:2', '1024x688'],
+      ['2:3', '688x1024'],
+      ['4:3', '1024x768'],
+      ['3:4', '768x1024'],
+      ['16:9', '1024x576'],
+      ['9:16', '576x1024'],
+      ['21:9', '1024x432']
     ]
-    for (const [ratio, ...sizes] of expected) {
-      e.CHAT_RESOLUTIONS.forEach((resolution, index) => {
-        expect(e.sizeForRatio(ratio, resolution)).toBe(sizes[index])
-      })
+    for (const [ratio, size] of expected) {
+      expect(e.sizeForRatio(ratio, '1k')).toBe(size)
     }
-    for (const resolution of e.CHAT_RESOLUTIONS) {
-      expect(e.sizeForRatio('auto', resolution)).toBe('auto')
-    }
+    expect(e.sizeForRatio('16:9', 'auto')).toBe('auto')
+    expect(e.sizeForRatio('auto', '1k')).toBe('auto')
+    expect(e.sizeForRatio('auto', 'auto')).toBe('auto')
   })
 
-  it('persists resolution per account and defaults missing or invalid settings to 1k', async () => {
+  it('persists resolution per account and defaults missing or invalid settings to auto', async () => {
     const e = await import('../useChatDrawEngine')
     await e.initChatDraw()
-    expect(e.resolution.value).toBe('1k')
-    e.ratio.value = 'auto'
-    e.resolution.value = '4k'
+    expect(e.resolution.value).toBe('auto')
+    e.ratio.value = '16:9'
+    e.resolution.value = '1k'
     e.saveSettings()
-    expect(JSON.parse(localStorage.getItem('chat_draw_settings:user-1')!)).toMatchObject({ ratio: 'auto', resolution: '4k' })
+    expect(JSON.parse(localStorage.getItem('chat_draw_settings:user-1')!)).toMatchObject({ ratio: '16:9', resolution: '1k' })
     switchAccount(2)
     await e.initChatDraw()
-    expect(e.resolution.value).toBe('1k')
-    localStorage.setItem('chat_draw_settings:user-3', JSON.stringify({ resolution: '8k' }))
+    expect(e.resolution.value).toBe('auto')
+    localStorage.setItem('chat_draw_settings:user-3', JSON.stringify({ resolution: '4k' }))
     switchAccount(3)
     await e.initChatDraw()
-    expect(e.resolution.value).toBe('1k')
+    // 旧存的 2k/4k 已不再支持,回落 auto
+    expect(e.resolution.value).toBe('auto')
     switchAccount(1)
     await e.initChatDraw()
-    expect(e.resolution.value).toBe('4k')
-    expect(e.ratio.value).toBe('auto')
+    expect(e.resolution.value).toBe('1k')
+    expect(e.ratio.value).toBe('16:9')
   })
 
   it('keeps the submitted size for requests and redraws after resolution changes', async () => {
@@ -118,25 +117,25 @@ describe('chat draw engine races', () => {
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
     e.ratio.value = '16:9'
-    e.resolution.value = '4k'
+    e.resolution.value = '1k'
     e.draftText.value = 'landscape'
     const sending = e.sendDraft()
-    e.resolution.value = '1k'
+    e.resolution.value = 'auto'
     await sending
-    expect(e.turns.value[0].size).toBe('3840x2160')
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).size).toBe('3840x2160')
+    expect(e.turns.value[0].size).toBe('1024x576')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string).size).toBe('1024x576')
     await e.redrawTurn(e.turns.value[0])
-    expect(e.turns.value[1].size).toBe('3840x2160')
-    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).size).toBe('3840x2160')
+    expect(e.turns.value[1].size).toBe('1024x576')
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).size).toBe('1024x576')
   })
 
-  it.each([false, true])('omits size for auto ratio (with references: %s)', async withRefs => {
+  it.each([false, true])('omits size for auto ratio or resolution (with references: %s)', async withRefs => {
     const e = await import('../useChatDrawEngine')
     await e.initChatDraw()
     const fetchMock = okFetch()
     vi.stubGlobal('fetch', fetchMock)
     e.ratio.value = 'auto'
-    e.resolution.value = '4k'
+    e.resolution.value = '1k'
     e.draftText.value = 'automatic framing'
     if (withRefs) await e.addDraftRefs([png()])
     await e.sendDraft()

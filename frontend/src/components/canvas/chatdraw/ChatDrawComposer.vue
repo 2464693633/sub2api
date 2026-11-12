@@ -38,7 +38,7 @@
             <div class="mt-3 space-y-3">
               <div>
                 <div class="mb-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">{{ t('canvasChat.resolution') }}</div>
-                <div class="grid grid-cols-3 gap-1.5">
+                <div class="grid grid-cols-2 gap-1.5">
                   <button
                     v-for="option in resolutionOptions"
                     :key="option.value"
@@ -335,7 +335,11 @@ const ratioOptions = computed<ToolbarOption[]>(() => [
   { value: 'auto', label: t('canvasChat.ratioAuto') },
   ...CHAT_RATIOS.map(r => ({ value: r.value, label: r.value }))
 ])
-const resolutionOptions = computed(() => CHAT_RESOLUTIONS.map(value => ({ value, label: t(`canvasChat.resolution${value.toUpperCase()}`) })))
+const RESOLUTION_LABELS: Record<ChatResolution, string> = {
+  auto: 'resolutionAuto',
+  '1k': 'resolution1K'
+}
+const resolutionOptions = computed(() => CHAT_RESOLUTIONS.map(value => ({ value, label: t(`canvasChat.${RESOLUTION_LABELS[value]}`) })))
 const qualityOptions = computed<{ value: string; label: string }[]>(() => QUALITIES.map(q => ({ value: q, label: qualityLabelOf(t, q) })))
 const formatOptions = computed(() => [
   { value: 'auto' as const, label: t('canvasChat.formatAuto') },

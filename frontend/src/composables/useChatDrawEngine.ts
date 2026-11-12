@@ -39,9 +39,10 @@ export const GIF_FRAMES_MIN = 2
 export const GIF_FRAMES_MAX = 16
 export const GIF_FRAME_MS_MIN = 80
 export const GIF_FRAME_MS_MAX = 2000
-export const CHAT_RESOLUTIONS = ['1k', '2k', '4k'] as const
+export const CHAT_RESOLUTIONS = ['auto', '1k'] as const
 export type ChatResolution = typeof CHAT_RESOLUTIONS[number]
-const RESOLUTION_BASES: Record<ChatResolution, number> = { '1k': 1024, '2k': 2048, '4k': 3840 }
+/** 分辨率基准:上游对 >1024 的尺寸会静默降档或间歇 502(2026-11-12 实测),只保留 auto/1K */
+const RESOLUTION_BASES: Record<Exclude<ChatResolution, 'auto'>, number> = { '1k': 1024 }
 /** 画幅预设:长边像素由分辨率档位决定 */
 export const CHAT_RATIOS = [
   { value: '1:1', w: 1, h: 1 },
@@ -64,7 +65,8 @@ export const TITLE_MAX = 18
 /** v2 之前的单会话数据迁移到这个会话 */
 export const LEGACY_SESSION_ID = 'legacy'
 
-export function sizeForRatio(ratio: string, resolution: ChatResolution = '1k'): string {
+export function sizeForRatio(ratio: string, resolution: ChatResolution = 'auto'): string {
+  if (resolution === 'auto') return 'auto'
   const r = CHAT_RATIOS.find(x => x.value === ratio)
   if (!r) return 'auto'
   const snap = (v: number) => Math.max(256, Math.min(4096, Math.round(v / 16) * 16))
@@ -248,7 +250,7 @@ function authHeaders(s: Session): Record<string, string> {
 const LS_SETTINGS = 'chat_draw_settings'
 const LS_ACTIVE = 'chat_draw_active'
 function loadSettings(owner: string) {
-  resolution.value = '1k'
+  resolution.value = 'auto'
   format.value = 'auto'
   count.value = 1
   gifFrames.value = 8
