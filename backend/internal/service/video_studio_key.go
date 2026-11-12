@@ -8,17 +8,17 @@ import (
 )
 
 // VideoStudioKeyName 视频工作台专用密钥的名称标记。
-// 每个视频分组(grok/composite)各一把,名字相同、按绑定分组区分。
+// 每个视频分组(grok/composite/kling)各一把,名字相同、按绑定分组区分。
 const VideoStudioKeyName = "视频工作台"
 
-// ErrVideoStudioNoVideoGroup 用户没有可用的视频分组(grok/composite 平台且开启生图开关),无法自动创建工作台密钥。
-var ErrVideoStudioNoVideoGroup = errors.New("没有可用的视频分组(需要 grok/composite 平台且开启图片生成权限的分组),请联系管理员")
+// ErrVideoStudioNoVideoGroup 用户没有可用的视频分组,无法自动创建工作台密钥。
+var ErrVideoStudioNoVideoGroup = errors.New("没有可用的视频分组(需要 grok/composite/kling 平台且开启图片生成权限的分组),请联系管理员")
 
 // ErrVideoStudioGroupNotFound 请求的分组不在用户可用视频分组内。
 var ErrVideoStudioGroupNotFound = errors.New("分组不存在或未开启视频权限")
 
-// VideoStudioGroups 返回用户可用的视频分组(开启生图权限且平台为 grok/composite,
-// 与网关 /v1/videos 的平台路由一致),每个分组将各有一把工作台密钥。
+// VideoStudioGroups 返回用户可用的视频分组(开启生图权限且平台为 grok/composite/kling),
+// 每个分组将各有一把工作台密钥。
 func (s *APIKeyService) VideoStudioGroups(ctx context.Context, userID int64) ([]Group, error) {
 	groups, err := s.GetAvailableGroups(ctx, userID)
 	if err != nil {
@@ -30,8 +30,7 @@ func (s *APIKeyService) VideoStudioGroups(ctx context.Context, userID int64) ([]
 		if !g.AllowImageGeneration {
 			continue
 		}
-		// 网关 /v1/videos 仅路由 grok/composite 平台
-		if g.Platform != PlatformGrok && g.Platform != PlatformComposite {
+		if g.Platform != PlatformGrok && g.Platform != PlatformComposite && g.Platform != PlatformKling {
 			continue
 		}
 		out = append(out, *g)

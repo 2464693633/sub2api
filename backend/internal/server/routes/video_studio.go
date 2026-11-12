@@ -16,7 +16,7 @@ import (
 // RegisterVideoStudioRoutes 注册视频工作台的会话直通接口(/api/v1/video-studio/*)。
 //
 // 与 image_studio.go 同一桥接模式:JWT 鉴权后确保用户名下存在「视频工作台」密钥,
-// 以该密钥身份重放网关中间件链,完整复用 /v1/videos 的 Grok 媒体转发
+// 以该密钥身份重放网关中间件链,复用 Grok/Kling 媒体转发
 // (提交/状态/内容),调度计费与外部直连密钥口径一致。
 func RegisterVideoStudioRoutes(
 	r *gin.Engine,
@@ -40,9 +40,12 @@ func RegisterVideoStudioRoutes(
 	requireGroup := middleware.RequireGroupAssignment(settingService, middleware.OpenAIErrorWriter)
 	billableUsageResponse := middleware.BillableUsageResponse()
 
-	// 网关侧 /v1/videos 只对 grok/composite 分组开放;状态与内容查询按
-	// videoStatusHandler 的平台判定路由(grok/composite 之外的分组 404)。
+	// 工作台单独按分组平台分发,不改变对外 /v1/videos 的平台约束。
 	videoTarget := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformKling {
+			h.OpenAIGateway.KlingStudioGeneration(c)
+			return
+		}
 		if platform := getGroupPlatform(c); platform == service.PlatformGrok || platform == service.PlatformComposite {
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
@@ -56,6 +59,10 @@ func RegisterVideoStudioRoutes(
 		})
 	}
 	videoStatusTarget := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformKling {
+			h.OpenAIGateway.KlingStudioStatus(c)
+			return
+		}
 		if platform := getGroupPlatform(c); platform == service.PlatformGrok || platform == service.PlatformComposite {
 			h.OpenAIGateway.GrokVideoStatus(c)
 			return
@@ -68,6 +75,10 @@ func RegisterVideoStudioRoutes(
 		})
 	}
 	videoContentTarget := func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformKling {
+			h.OpenAIGateway.KlingStudioContent(c)
+			return
+		}
 		if platform := getGroupPlatform(c); platform == service.PlatformGrok || platform == service.PlatformComposite {
 			h.OpenAIGateway.GrokVideoContent(c)
 			return

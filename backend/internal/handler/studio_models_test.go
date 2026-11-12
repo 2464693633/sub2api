@@ -56,6 +56,26 @@ var studioModelsEndpointsForTest = []studioModelsEndpointForTest{
 	{"image/grok", service.PlatformGrok, service.PlatformGrok, "grok-imagine-image", (*GatewayHandler).ImageStudioModels},
 	{"video/grok", service.PlatformGrok, service.PlatformGrok, "grok-imagine-video", (*GatewayHandler).VideoStudioModels},
 	{"video/composite", service.PlatformComposite, service.PlatformGrok, "grok-imagine-video", (*GatewayHandler).VideoStudioModels},
+	{"video/kling", service.PlatformKling, service.PlatformKling, "kling-v3", (*GatewayHandler).VideoStudioModels},
+}
+
+func TestStudioModels_KlingVideoCatalogExcludesImageModels(t *testing.T) {
+	endpoint := studioModelsEndpointsForTest[len(studioModelsEndpointsForTest)-1]
+	group := studioGroupForTest(10, "Kling", service.PlatformKling)
+	for _, mapping := range []map[string]any{nil, {"kling-v3": "kling-v3", "kling-image-v3": "image", "kolors": "kolors", "kling-4.0": "kling-4.0"}} {
+		got := listStudioModelsForTest(t, endpoint, []service.Group{group}, map[int64][]service.Account{
+			10: {{ID: 1, Platform: service.PlatformKling, Credentials: map[string]any{"model_mapping": mapping}}},
+		})
+		require.NotEmpty(t, got)
+		ids := make([]string, 0, len(got))
+		for _, model := range got {
+			require.True(t, service.IsKlingVideoModel(model.ID), model.ID)
+			require.Equal(t, int64(10), model.GroupID)
+			ids = append(ids, model.ID)
+		}
+		require.Contains(t, ids, "kling-v3")
+		require.Contains(t, ids, "kling-4.0")
+	}
 }
 
 func listStudioModelsForTest(t *testing.T, endpoint studioModelsEndpointForTest, groups []service.Group, accounts map[int64][]service.Account) []studioModelForTest {

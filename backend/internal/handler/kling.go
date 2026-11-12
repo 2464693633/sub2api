@@ -58,6 +58,10 @@ func (h *OpenAIGatewayHandler) KlingQuery(c *gin.Context, endpoint service.Kling
 }
 
 func (h *OpenAIGatewayHandler) handleKling(c *gin.Context, endpoint service.KlingEndpoint, taskID string, body []byte, model string) {
+	h.handleKlingResponse(c, endpoint, taskID, body, model, "")
+}
+
+func (h *OpenAIGatewayHandler) handleKlingResponse(c *gin.Context, endpoint service.KlingEndpoint, taskID string, body []byte, model, responseMode string) {
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"type": "authentication_error", "message": "Invalid API key"}})
@@ -106,8 +110,18 @@ func (h *OpenAIGatewayHandler) handleKling(c *gin.Context, endpoint service.Klin
 		defer selection.ReleaseFunc()
 	}
 	account := selection.Account
-	result, forwardErr := h.gatewayService.ForwardKling(ctx, c, account, endpoint, taskID, body)
+	responseContext := c
+	if responseMode != "" {
+		responseContext = nil
+	}
+	result, forwardErr := h.gatewayService.ForwardKling(ctx, responseContext, account, endpoint, taskID, body)
+	if forwardErr == nil && responseMode == "content" {
+		forwardErr = h.gatewayService.ForwardKlingStudioContent(ctx, c, result)
+	}
 	if forwardErr != nil {
+		if c.Writer.Written() {
+			return
+		}
 		var klingErr *service.KlingUpstreamError
 		if errors.As(forwardErr, &klingErr) {
 			c.JSON(klingErr.StatusCode, gin.H{"error": gin.H{"type": "kling_upstream_error", "code": klingErr.Code, "message": klingErr.Message}})
@@ -133,7 +147,16 @@ func (h *OpenAIGatewayHandler) handleKling(c *gin.Context, endpoint service.Klin
 		}
 	}
 	if !strings.HasPrefix(string(endpoint), "query") && (result.ImageCount > 0 || result.VideoCount > 0) {
+		if result.DurationSeconds <= 0 {
+			result.DurationSeconds = service.KlingRequestDurationSeconds(body)
+		}
 		h.recordKlingUsage(c, apiKey, subject, account, model, taskID, result)
+	}
+	if responseMode == "studio" {
+		if result.TaskID == "" {
+			result.TaskID = taskID
+		}
+		c.JSON(http.StatusOK, service.KlingStudioResponse(endpoint, result))
 	}
 }
 

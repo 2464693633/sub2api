@@ -20,5 +20,17 @@ func (h *GatewayHandler) studioAvailableModels(ctx context.Context, group *servi
 		return nil
 	}
 	ids := h.gatewayService.GetAvailableModels(ctx, &group.ID, group.Platform)
+	if group.Platform == service.PlatformKling {
+		if len(ids) == 0 {
+			ids = append(service.DefaultKlingModelIDs(), "kling-4.0")
+		}
+		videos := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if service.IsKlingVideoModel(id) {
+				videos = append(videos, id)
+			}
+		}
+		return videos
+	}
 	return modelListingSource(group.Platform, ids, defaultModelIDsForPlatform(group.Platform))
 }

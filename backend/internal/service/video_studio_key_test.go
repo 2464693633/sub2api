@@ -35,13 +35,15 @@ func TestVideoStudioGroups_FiltersVideoCapablePlatformGroups(t *testing.T) {
 		{ID: 2, Name: "grok视频", Platform: PlatformGrok, Status: StatusActive, AllowImageGeneration: true},
 		{ID: 3, Name: "composite视频", Platform: PlatformComposite, Status: StatusActive, AllowImageGeneration: true},
 		{ID: 4, Name: "grok无开关", Platform: PlatformGrok, Status: StatusActive},
+		{ID: 5, Name: "kling视频", Platform: PlatformKling, Status: StatusActive, AllowImageGeneration: true},
+		{ID: 6, Name: "kling无开关", Platform: PlatformKling, Status: StatusActive},
 	})
 
 	groups, err := svc.VideoStudioGroups(context.Background(), 7)
 	require.NoError(t, err)
-	require.Len(t, groups, 2, "只保留 grok/composite 平台且开启生图权限的分组")
-	ids := []int64{groups[0].ID, groups[1].ID}
-	require.ElementsMatch(t, []int64{2, 3}, ids)
+	require.Len(t, groups, 3, "只保留 grok/composite/kling 平台且开启生图权限的分组")
+	ids := []int64{groups[0].ID, groups[1].ID, groups[2].ID}
+	require.ElementsMatch(t, []int64{2, 3, 5}, ids)
 }
 
 func TestVideoStudioGroups_NoVideoGroup(t *testing.T) {
