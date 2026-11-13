@@ -37,7 +37,9 @@ const KlingEndpointImagesGenerations = KlingEndpointImagesGeneration
 // DefaultKlingModelIDs is the stable model catalog exposed to admin model
 // selectors when kling-multi does not provide a models endpoint.
 func DefaultKlingModelIDs() []string {
-	return []string{"kling-v1", "kling-v1-5", "kling-v1-6", "kling-v2", "kling-v2-1", "kling-v2-5", "kling-v2-6", "kling-v3", "kling-v4", "kolors"}
+	// Matches what kling-multi actually accepts: legacy 1.x-2.1 versions were
+	// dropped by the web upstream and kling-v2-5 was never a valid model_name.
+	return []string{"kling-v4", "kling-v4-flash", "kling-v3-omni", "kling-v3", "kling-v2-6", "kolors"}
 }
 
 // NormalizeKlingStatus keeps the upstream distinction between traditional

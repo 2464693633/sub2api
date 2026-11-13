@@ -14,7 +14,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var klingVideoModelPattern = regexp.MustCompile(`^kling-(v[1-4]([.-][0-9]+)*|4\.0)$`)
+var klingVideoModelPattern = regexp.MustCompile(`^kling-(v[1-4]([.-][0-9]+)*(-flash|-omni)?|4\.0)$`)
 
 func IsKlingVideoModel(model string) bool {
 	return klingVideoModelPattern.MatchString(strings.ToLower(strings.TrimSpace(model)))
