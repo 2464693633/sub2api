@@ -107,14 +107,10 @@ func (m *handlerInflightCache) ReserveInflightBalance(_ context.Context, _ int64
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	sum := 0.0
-	count := 0
-	for requestID, v := range m.res {
-		if requestID != id {
-			sum += v
-			count++
-		}
+	for _, v := range m.res {
+		sum += v
 	}
-	if count > 0 && balance-sum < amount {
+	if len(m.res) > 0 && balance-sum < amount {
 		return false, sum, nil
 	}
 	m.res[id] = amount

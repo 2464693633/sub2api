@@ -284,17 +284,6 @@ func quoteRechargeBonus(cfg *PaymentConfig, paymentAmount float64, currency stri
 	}
 	base := calculateCreditedBalance(paymentAmount, multiplier)
 	quote := rechargeBonusQuote{PayBase: paymentAmount, Credited: base}
-	// An exact amount/currency offer is already a final quote. It takes
-	// precedence over threshold promotions, which must not be stacked on top.
-	if cfg != nil {
-		for _, fixed := range cfg.BalanceRechargeTiers {
-			if fixed.Currency == currency && decimal.NewFromFloat(paymentAmount).Equal(decimal.NewFromFloat(fixed.Amount)) {
-				quote.Credited = fixed.CreditAmount
-				quote.Bonus = math.Max(0, decimal.NewFromFloat(fixed.CreditAmount).Sub(decimal.NewFromFloat(base)).Round(2).InexactFloat64())
-				return quote
-			}
-		}
-	}
 
 	tier, ok := matchRechargeBonusTier(tiers, paymentAmount)
 	if !ok || tier.BonusPercent <= 0 {

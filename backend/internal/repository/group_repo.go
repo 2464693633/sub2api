@@ -972,30 +972,12 @@ func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEm
 		return nil, err
 	}
 
-	// 4. Remove the group from API key routing chains and promote each next
-	// binding into the legacy api_keys.group_id mirror.
-	if _, err := exec.ExecContext(ctx, "DELETE FROM api_key_groups WHERE group_id = $1", id); err != nil {
-		return nil, err
-	}
-	if _, err := exec.ExecContext(ctx, `
-		UPDATE api_keys AS k
-		SET group_id = COALESCE((
-			SELECT akg.group_id
-			FROM api_key_groups AS akg
-			WHERE akg.api_key_id = k.id
-			ORDER BY akg.sort_order, akg.group_id
-			LIMIT 1
-		), k.group_id), updated_at = NOW()
-		WHERE k.group_id = $1 AND k.deleted_at IS NULL`, id); err != nil {
-		return nil, err
-	}
-
-	// 5. Soft-delete composite model routes owned by this group.
+	// 4. Soft-delete composite model routes owned by this group.
 	if _, err := exec.ExecContext(ctx, "UPDATE composite_model_routes SET deleted_at = NOW() WHERE group_id = $1 AND deleted_at IS NULL", id); err != nil {
 		return nil, err
 	}
 
-	// 6. Soft-delete group itself.
+	// 5. Soft-delete group itself.
 	if _, err := txClient.Group.Delete().Where(group.IDEQ(id)).Exec(ctx); err != nil {
 		return nil, err
 	}

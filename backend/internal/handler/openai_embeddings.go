@@ -98,21 +98,14 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
-		nextSubscription, recovered, finalErr := recoverInitialGroupBilling(c, apiKey, subscription, h.billingCacheService, billingErr, nil)
-		if recovered {
-			subscription = nextSubscription
-			channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-			forwardModel = openAIChannelForwardModel(channelMapping, reqModel)
-		} else {
-			reqLog.Info("openai_embeddings.billing_check_failed", zap.Error(finalErr))
-			status, code, message, retryAfter := billingErrorDetails(finalErr)
-			if retryAfter > 0 {
-				c.Header("Retry-After", strconv.Itoa(retryAfter))
-			}
-			h.errorResponse(c, status, code, message)
-			return
+	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+		reqLog.Info("openai_embeddings.billing_check_failed", zap.Error(err))
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
 		}
+		h.errorResponse(c, status, code, message)
+		return
 	}
 
 	// 余额模式在途预留（与计费同口径估算；计费任务扣减余额缓存后才释放）。
@@ -140,31 +133,6 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	// 分组利润控制：embeddings 文本入口请求级装门并固定 pricingAt。
 	embPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
 	c.Request = c.Request.WithContext(embPricingCtx)
-	groupFailover := newAPIKeyGroupFailoverState(c, apiKey)
-	advanceGroup := func(lastErr *service.UpstreamFailoverError) bool {
-		if lastErr != nil && !shouldTryNextAPIKeyGroup(c, lastErr) {
-			return false
-		}
-		nextSubscription, billingErr, advanced := groupFailover.advance(c.Request.Context(), c, apiKey, h.billingCacheService)
-		if billingErr != nil {
-			status, code, message, _ := billingErrorDetails(billingErr)
-			h.errorResponse(c, status, code, message)
-			return false
-		}
-		if !advanced {
-			return false
-		}
-		subscription = nextSubscription
-		channelMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-		forwardModel = openAIChannelForwardModel(channelMapping, reqModel)
-		c.Request = c.Request.WithContext(h.gatewayService.RebindOpenAIRequestPricingGroup(c.Request.Context(), apiKey.GroupID))
-		profitVetoCount = 0
-		failedAccountIDs = make(map[int64]struct{})
-		lastFailoverErr = nil
-		switchCount = 0
-		reqLog.Info("openai_embeddings.failover_switch_group", zap.Int64("group_id", apiKey.Group.ID))
-		return true
-	}
 
 	for {
 		selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
@@ -190,23 +158,11 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
-				if advanceGroup(nil) {
-					continue
-				}
-				if c.Writer.Written() {
-					return
-				}
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
 				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
-				return
-			}
-			if advanceGroup(lastFailoverErr) {
-				continue
-			}
-			if c.Writer.Written() {
 				return
 			}
 			if lastFailoverErr != nil {
@@ -217,12 +173,6 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			if advanceGroup(lastFailoverErr) {
-				continue
-			}
-			if c.Writer.Written() {
-				return
-			}
 			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformOpenAI)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
@@ -237,12 +187,6 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
-				if advanceGroup(nil) {
-					continue
-				}
-				if c.Writer.Written() {
-					return
-				}
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -296,12 +240,6 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				failedAccountIDs[account.ID] = struct{}{}
 				lastFailoverErr = failoverErr
 				if switchCount >= maxAccountSwitches {
-					if advanceGroup(failoverErr) {
-						continue
-					}
-					if c.Writer.Written() {
-						return
-					}
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}

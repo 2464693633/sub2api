@@ -21,7 +21,6 @@ type InflightBalanceReservationCache interface {
 	// ReserveInflightBalance 原子地：清理过期预留；若用户已有在途预留且
 	// balance - sum(在途) < amount 则拒绝；否则登记 requestID 的预留（ttl 后自动失效）。
 	// 返回是否放行以及登记前的在途合计。
-	// 已存在的 requestID 原子替换金额，准入判断排除它自己的旧预留。
 	ReserveInflightBalance(ctx context.Context, userID int64, requestID string, amount, balance float64, ttl time.Duration) (bool, float64, error)
 	// ReleaseInflightBalance 释放 requestID 的预留（幂等）。
 	ReleaseInflightBalance(ctx context.Context, userID int64, requestID string) error
@@ -193,8 +192,10 @@ func (r *InflightReservation) startRenewal(renewer InflightBalanceReservationRen
 type inflightReservationCtxKey struct{}
 
 // WithInflightReservation 把预留句柄挂到 context 上，供计费任务提交时交接。
-// nil 显式覆盖旧句柄，避免切换到订阅分组后继续交接已释放的余额预留。
 func WithInflightReservation(ctx context.Context, r *InflightReservation) context.Context {
+	if r == nil {
+		return ctx
+	}
 	return context.WithValue(ctx, inflightReservationCtxKey{}, r)
 }
 
@@ -254,39 +255,6 @@ func (s *BillingCacheService) ReserveInflightBalance(ctx context.Context, user *
 // 仅当 Redis 明确判定 缓存余额 - 在途合计 < estimate（且已有在途请求）时返回 ErrInsufficientBalance。
 func (s *BillingCacheService) ReserveInflight(ctx context.Context, user *User, group *Group, subscription *UserSubscription, estimate float64) (*InflightReservation, error) {
 	return s.reserveInflight(ctx, user, group, subscription, estimate, true, true)
-}
-
-// RefreshInflight re-prices an uncommitted request after group failover. Reusing
-// the reservation ID replaces the amount atomically, without double-counting
-// this request or opening a release/reacquire window. A rejected replacement
-// leaves the previous reservation intact so another candidate can be tried.
-func (s *BillingCacheService) RefreshInflight(ctx context.Context, current *InflightReservation, user *User, group *Group, subscription *UserSubscription, estimate float64) (*InflightReservation, error) {
-	if current == nil {
-		return s.ReserveInflight(ctx, user, group, subscription, estimate)
-	}
-	cfg, enabled := s.inflightReservationConfig()
-	if !enabled || user == nil || (group != nil && group.IsSubscriptionType() && subscription != nil) || !validCost(estimate) {
-		current.HandlerDone()
-		return nil, nil
-	}
-	if cfg.MaxReservationUSD > 0 && estimate > cfg.MaxReservationUSD {
-		estimate = cfg.MaxReservationUSD
-	}
-	balance, err := s.GetUserBalance(ctx, user.ID)
-	if err != nil {
-		return current, nil // Keep the existing guard during a fail-open cache outage.
-	}
-	reserveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), inflightReservationReserveTimeout)
-	allowed, _, err := current.cache.ReserveInflightBalance(reserveCtx, user.ID, current.requestID, estimate, balance, current.ttl)
-	cancel()
-	if err != nil {
-		return current, nil
-	}
-	if !allowed {
-		return current, ErrInsufficientBalance
-	}
-	current.amount = estimate
-	return current, nil
 }
 
 // inflightSubscriptionScope / inflightAPIKeyScope 是订阅 / API Key 维度在途预留的 scope 名。

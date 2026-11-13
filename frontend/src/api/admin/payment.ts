@@ -9,8 +9,7 @@ import type {
   PaymentOrder,
   PaymentChannel,
   SubscriptionPlan,
-  ProviderInstance,
-  RechargeTier
+  ProviderInstance
 } from '@/types/payment'
 import type { BasePaginationResponse } from '@/types'
 
@@ -25,7 +24,6 @@ export interface AdminPaymentConfig {
   enabled_payment_types: string[]
   balance_disabled: boolean
   balance_recharge_multiplier: number
-  balance_recharge_tiers?: RechargeTier[]
   subscription_usd_to_cny_rate: number
   recharge_fee_rate: number
   load_balance_strategy: string
@@ -46,7 +44,6 @@ export interface UpdatePaymentConfigRequest {
   enabled_payment_types?: string[]
   balance_disabled?: boolean
   balance_recharge_multiplier?: number
-  balance_recharge_tiers?: RechargeTier[]
   subscription_usd_to_cny_rate?: number
   recharge_fee_rate?: number
   load_balance_strategy?: string

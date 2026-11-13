@@ -31,15 +31,11 @@ import (
 func GroupModelAllowlist() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		apiKey, ok := GetAPIKeyFromContext(c)
-		if !ok || apiKey == nil || apiKey.Group == nil {
+		if !ok || apiKey == nil || apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
 			c.Next()
 			return
 		}
-		groupCandidates := GetAPIKeyGroupCandidates(c)
-		if len(groupCandidates) <= 1 && !apiKey.Group.ModelAllowlistEnabled() {
-			c.Next()
-			return
-		}
+		allowlist := apiKey.Group.ModelAllowlist
 		if c.Request == nil {
 			c.Next()
 			return
@@ -74,37 +70,15 @@ func GroupModelAllowlist() gin.HandlerFunc {
 		}
 
 		blocked := ""
-		allowsAll := func(group *service.Group) bool {
-			if group == nil || !group.ModelAllowlistEnabled() {
-				return true
+		for _, candidate := range models {
+			if !allowlist.Allows(candidate) {
+				blocked = candidate
+				break
 			}
-			for _, candidate := range models {
-				if !group.ModelAllowlist.Allows(candidate) {
-					blocked = candidate
-					return false
-				}
-			}
-			return true
 		}
-		if len(groupCandidates) > 1 {
-			allowedCandidates := make([]APIKeyGroupCandidate, 0, len(groupCandidates))
-			for _, candidate := range groupCandidates {
-				if allowsAll(candidate.Group) {
-					allowedCandidates = append(allowedCandidates, candidate)
-				}
-			}
-			if len(allowedCandidates) > 0 {
-				SetAPIKeyGroupCandidates(c, allowedCandidates)
-				ActivateAPIKeyGroup(c, apiKey, allowedCandidates[0])
-				c.Next()
-				return
-			}
-		} else if allowsAll(apiKey.Group) {
+		if blocked == "" {
 			c.Next()
 			return
-		}
-		if blocked == "" && len(models) > 0 {
-			blocked = models[0]
 		}
 
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)

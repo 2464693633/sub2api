@@ -4,7 +4,6 @@
  */
 
 import { apiClient } from "../client";
-import type { RechargeTier } from "@/types/payment";
 import { listPlatformIds } from "@/constants/platformCatalog";
 import type {
   AccountPlatform,
@@ -674,7 +673,6 @@ export interface SystemSettings {
   payment_enabled_types: string[];
   payment_balance_disabled: boolean;
   payment_balance_recharge_multiplier: number;
-  payment_balance_recharge_tiers?: RechargeTier[];
   payment_subscription_usd_to_cny_rate: number;
   payment_recharge_fee_rate: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];
@@ -1011,7 +1009,6 @@ export interface UpdateSettingsRequest {
   payment_enabled_types?: string[];
   payment_balance_disabled?: boolean;
   payment_balance_recharge_multiplier?: number;
-  payment_balance_recharge_tiers?: RechargeTier[];
   payment_subscription_usd_to_cny_rate?: number;
   payment_recharge_fee_rate?: number;
   payment_recharge_bonus_tiers?: RechargeBonusTier[];

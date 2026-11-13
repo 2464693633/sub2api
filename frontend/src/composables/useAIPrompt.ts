@@ -42,11 +42,11 @@ function authHeader(): Record<string, string> {
 export async function listStudioKeys(): Promise<StudioKeyOption[]> {
   const res = await fetch(`${window.location.origin}/api/v1/keys?page=1&page_size=100`, { headers: authHeader() })
   const body = await res.json().catch(() => null) as {
-    data?: { items?: Array<{ id: number; name: string; key: string; status: string; group_id?: number | null; group_ids?: number[] }> }
+    data?: { items?: Array<{ id: number; name: string; key: string; status: string; group_id?: number | null }> }
   } | null
   const items = body?.data?.items || []
   return items
-    .filter(k => k.status === 'active' && (k.group_id || (k.group_ids && k.group_ids.length)) && k.key)
+    .filter(k => k.status === 'active' && k.group_id && k.key)
     .filter(k => !SYSTEM_KEY_NAMES.has(k.name || ''))
     .map(k => ({ id: k.id, name: k.name || `Key #${k.id}`, key: k.key }))
 }

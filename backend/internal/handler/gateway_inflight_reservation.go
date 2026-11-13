@@ -35,52 +35,6 @@ func tokenInflightEstimate(model string, body []byte) service.InflightEstimateRe
 
 func inflightNoop() {}
 
-type inflightAttemptReservationKey struct{}
-
-// Keep the final handler reference in one mutable owner while individual group
-// attempts replace the reservation attached to their request context.
-type inflightAttemptReservation struct {
-	billing   *service.BillingCacheService
-	estimator inflightReservationEstimator
-	request   service.InflightEstimateRequest
-	current   *service.InflightReservation
-}
-
-func (s *inflightAttemptReservation) refresh(ctx context.Context, apiKey *service.APIKey, subscription *service.UserSubscription) (context.Context, error) {
-	var estimate float64
-	if apiKey.Group == nil || !apiKey.Group.IsSubscriptionType() || subscription == nil {
-		var priced bool
-		estimate, priced = s.estimator.EstimateInflightReservation(ctx, apiKey, s.request)
-		if !priced && s.billing.InflightReservationFailClosedOnUnpriced() {
-			return ctx, service.ErrInsufficientBalance
-		}
-	}
-	res, err := s.billing.RefreshInflight(ctx, s.current, apiKey.User, apiKey.Group, subscription, estimate)
-	if err != nil {
-		return ctx, err
-	}
-	s.current = res
-	return service.WithInflightReservation(ctx, res), nil
-}
-
-func (s *inflightAttemptReservation) done() { s.current.HandlerDone() }
-
-func refreshGroupInflightReservation(c *gin.Context, apiKey *service.APIKey, subscription *service.UserSubscription) error {
-	if c == nil || c.Request == nil {
-		return nil
-	}
-	ctx := c.Request.Context()
-	state, _ := ctx.Value(inflightAttemptReservationKey{}).(*inflightAttemptReservation)
-	if state == nil {
-		return nil
-	}
-	ctx, err := state.refresh(ctx, apiKey, subscription)
-	if err == nil {
-		c.Request = c.Request.WithContext(ctx)
-	}
-	return err
-}
-
 // reserveInflightBalance 在 CheckBillingEligibility 之后为余额模式请求登记在途预留。
 //
 // 成功时把预留句柄挂到 c.Request 的 context 上：之后通过 submit*UsageRecordTask 提交的
@@ -120,13 +74,24 @@ func reserveInflightBalanceCtx(
 	if billing == nil || estimator == nil || apiKey == nil || apiKey.User == nil || !billing.InflightReservationEnabled() {
 		return ctx, inflightNoop, nil
 	}
-	state := &inflightAttemptReservation{billing: billing, estimator: estimator, request: req}
-	ctx = context.WithValue(ctx, inflightAttemptReservationKey{}, state)
-	ctx, err := state.refresh(ctx, apiKey, subscription)
+	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() && subscription != nil {
+		return ctx, inflightNoop, nil
+	}
+	estimate, priced := estimator.EstimateInflightReservation(ctx, apiKey, req)
+	if !priced && billing.InflightReservationFailClosedOnUnpriced() {
+		return ctx, inflightNoop, service.ErrInsufficientBalance
+	}
+	if estimate <= 0 {
+		return ctx, inflightNoop, nil
+	}
+	res, err := billing.ReserveInflight(ctx, apiKey.User, apiKey.Group, subscription, estimate)
 	if err != nil {
 		return ctx, inflightNoop, err
 	}
-	return ctx, state.done, nil
+	if res == nil {
+		return ctx, inflightNoop, nil
+	}
+	return service.WithInflightReservation(ctx, res), res.HandlerDone, nil
 }
 
 // grokMediaInflightEstimate 媒体生成请求的估算输入；状态/内容查询返回空模型（不预留：

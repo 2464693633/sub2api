@@ -1,4 +1,4 @@
-import type { RechargeBonusTier, RechargeTier } from '@/types/payment'
+import type { RechargeBonusTier } from '@/types/payment'
 
 export type { RechargeBonusTier }
 
@@ -149,8 +149,6 @@ export interface RechargeBonusQuoteOptions {
   mode?: RechargeBonusMode
   /** 支付币种小数位，折扣模式实付基数按此精度四舍五入 */
   currencyDigits?: number
-  currency?: string
-  fixedTiers?: RechargeTier[]
 }
 
 // 充值页报价：阈值按支付金额比较；赠金模式按到账基数加赠送，折扣模式按百分比减实付。
@@ -167,13 +165,6 @@ export function quoteRechargeBonus(
   const digits = typeof opts.currencyDigits === 'number' && Number.isInteger(opts.currencyDigits) && opts.currencyDigits >= 0 ? opts.currencyDigits : 2
   const base = roundRechargeAmount(amount * rate)
   const quote: RechargeBonusQuote = { mode, percent: 0, payBase: amount, base, bonus: 0, credited: base, tier: null }
-  // Exact offers specify final credit and never stack with threshold discounts.
-  const fixed = opts.fixedTiers?.find(tier => tier.currency === opts.currency && tier.amount === amount)
-  if (fixed) {
-    quote.credited = fixed.credit_amount
-    quote.bonus = Math.max(0, roundRechargeAmount(fixed.credit_amount - base))
-    return quote
-  }
   const tier = matchRechargeBonusTier(tiers, amount)
   if (!tier || tier.bonus_percent <= 0) return quote
   quote.tier = tier

@@ -55,7 +55,7 @@
       </label>
       <div class="relative">
         <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500">
-          {{ currencySymbol(currency) }}
+          $
         </span>
         <input
           type="text"
@@ -73,9 +73,9 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import type { RechargeBonusTier, RechargeTier } from '@/types/payment'
+import type { RechargeBonusTier } from '@/types/payment'
 import { formatRechargeBonusNumber, quoteRechargeBonus, type RechargeBonusMode } from '@/utils/rechargeBonus'
-import { currencySymbol, formatPaymentAmount } from './currency'
+import { formatPaymentAmount } from './currency'
 
 const props = withDefaults(defineProps<{
   amounts?: number[]
@@ -84,7 +84,6 @@ const props = withDefaults(defineProps<{
   max?: number
   /** 充值优惠阶梯（按 min_amount 升序）；为空时不显示价签与第二行 */
   bonusTiers?: RechargeBonusTier[]
-  fixedTiers?: RechargeTier[]
   /** 阶梯模式：bonus 赠金 / discount 折扣 */
   bonusMode?: RechargeBonusMode
   /** 充值倍率（1 支付币种 = multiplier USD），用于计算到账金额 */
@@ -96,7 +95,6 @@ const props = withDefaults(defineProps<{
   min: 0,
   max: 0,
   bonusTiers: () => [],
-  fixedTiers: () => [],
   bonusMode: 'bonus',
   multiplier: 1,
   currency: undefined,
@@ -115,7 +113,7 @@ const filteredAmounts = computed(() =>
   props.amounts.filter((a) => (props.min <= 0 || a >= props.min) && (props.max <= 0 || a <= props.max))
 )
 
-const showSecondLine = computed(() => props.bonusTiers.length > 0 || props.fixedTiers.length > 0)
+const showSecondLine = computed(() => props.bonusTiers.length > 0)
 
 function currencyDigits(): number {
   if (!props.currency) return 2
@@ -131,8 +129,6 @@ function quoteFor(amt: number) {
     multiplier: props.multiplier,
     mode: props.bonusMode,
     currencyDigits: currencyDigits(),
-    currency: props.currency,
-    fixedTiers: props.fixedTiers,
   })
 }
 
@@ -144,7 +140,7 @@ function badgeText(amt: number): string {
 
 function secondLine(amt: number): string {
   const quote = quoteFor(amt)
-  if (props.bonusMode === 'discount' && !props.fixedTiers.some(tier => tier.currency === props.currency && tier.amount === amt)) {
+  if (props.bonusMode === 'discount') {
     return t('payment.rechargeBonus.payShort', { amount: formatPaymentAmount(quote.payBase, props.currency) })
   }
   return t('payment.rechargeBonus.creditedShort', { amount: '$' + quote.credited.toFixed(2) })

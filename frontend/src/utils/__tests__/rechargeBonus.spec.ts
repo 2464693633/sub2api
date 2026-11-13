@@ -21,19 +21,6 @@ const tiers = [
 ]
 
 describe('rechargeBonus helpers', () => {
-  it.each(['bonus', 'discount'] as const)('preserves exact offers without stacking %s promotions', mode => {
-    const fixedTiers = [{ amount: 100, credit_amount: 1100, currency: 'CNY' }]
-    const options = { mode, multiplier: 10, currency: 'CNY', fixedTiers }
-    expect(quoteRechargeBonus(tiers, 100, options)).toMatchObject({
-      payBase: 100, credited: 1100, bonus: 100, percent: 0,
-    })
-    expect(quoteRechargeBonus(tiers, 100, { ...options, currency: 'EUR' })).toMatchObject(mode === 'bonus'
-      ? { payBase: 100, credited: 1200, bonus: 200, percent: 20 }
-      : { payBase: 80, credited: 1000, bonus: 200, percent: 20 })
-    expect(quoteRechargeBonus(tiers, 101, options)).toMatchObject(mode === 'bonus'
-      ? { payBase: 101, credited: 1212, bonus: 202 }
-      : { payBase: 80.8, credited: 1010, bonus: 202 })
-  })
   it('normalizes settings payload: drops invalid, dedupes, sorts ascending', () => {
     expect(
       normalizeRechargeBonusTiers([

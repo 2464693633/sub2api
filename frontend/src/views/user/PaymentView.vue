@@ -50,21 +50,6 @@
             </div>
             <template v-else>
             <div class="card p-6">
-              <div v-if="rechargeTiers.length" class="mb-5 space-y-2">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ t('payment.rechargeTiers') }}</h3>
-                <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('payment.rechargeTiersHint') }}</p>
-                <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
-                  <button v-for="tier in rechargeTiers" :key="`${tier.currency}:${tier.amount}`" type="button" data-testid="recharge-tier"
-                    :disabled="!amountFitsMethod(tier.amount, selectedMethod) || selectedLimit?.available === false"
-                    :aria-pressed="validAmount === tier.amount"
-                    class="rounded-xl border-2 p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40"
-                    :class="validAmount === tier.amount ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30' : 'border-gray-200 hover:border-primary-300 dark:border-dark-600'"
-                    @click="amount = tier.amount">
-                    <span class="block text-base font-semibold text-gray-900 dark:text-white">{{ formatSelectedPaymentAmount(tier.amount) }}</span>
-                    <span class="mt-1 block text-sm text-primary-600 dark:text-primary-400">{{ t('payment.tierCredit', { credit: tier.credit_amount.toFixed(2) }) }}</span>
-                  </button>
-                </div>
-              </div>
               <!-- 充值赠送活动文案（后台 Markdown 配置，空则不渲染） -->
               <div
                 v-if="renderedBonusNotice"
@@ -78,7 +63,6 @@
                 :min="globalMinAmount"
                 :max="globalMaxAmount"
                 :bonus-tiers="rechargeBonusTiers"
-                :fixed-tiers="rechargeTiers"
                 :bonus-mode="rechargeBonusMode"
                 :multiplier="balanceRechargeMultiplier"
                 :currency="selectedCurrency"
@@ -118,8 +102,7 @@
                   <span class="text-gray-500 dark:text-gray-400">{{ t('payment.creditedBalance') }}</span>
                   <span :class="bonusQuote.percent > 0 ? 'font-semibold text-gray-900 dark:text-white' : 'text-gray-900 dark:text-white'">${{ creditedAmount.toFixed(2) }}</span>
                 </div>
-                <p v-if="activeRechargeTier" class="border-t border-gray-200 pt-2 text-xs text-primary-600 dark:border-dark-600 dark:text-primary-400">{{ t('payment.rechargeTierApplied') }}</p>
-                <p v-else-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                <p v-if="balanceRechargeMultiplier !== 1" class="border-t border-gray-200 pt-2 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
                   {{ t('payment.rechargeRatePreview', { currency: selectedCurrency, usd: formatBalanceRechargeMultiplier(balanceRechargeMultiplier) }) }}
                 </p>
               </div>
@@ -594,10 +577,6 @@ const subscriptionUsdToCnyRate = computed(() => {
   const rate = checkout.value.subscription_usd_to_cny_rate
   return Number.isFinite(rate) && rate > 0 ? rate : 0
 })
-const rechargeTiers = computed(() => (checkout.value.balance_recharge_tiers || [])
-  .filter(tier => tier.currency === selectedCurrency.value)
-  .slice().sort((a, b) => a.amount - b.amount))
-const activeRechargeTier = computed(() => rechargeTiers.value.find(tier => tier.amount === validAmount.value))
 const rechargeBonusTiers = computed(() => normalizeRechargeBonusTiers(checkout.value.recharge_bonus_tiers))
 const rechargeBonusMode = computed(() => normalizeRechargeBonusMode(checkout.value.recharge_bonus_mode))
 
@@ -683,23 +662,16 @@ function formatSelectedSubscriptionPaymentAmount(value: number): string {
 
 // 充值优惠：阈值按输入金额命中；赠金模式按到账基数（输入 × 倍率）加赠送，折扣模式按百分比减实付。
 // 与后端 quoteRechargeBonus 一致；渠道限额、手续费、实付都按折后基数（payBaseAmount）计算，提交仍发送输入金额。
-function rechargeQuoteForMethod(methodType: string) {
-  const currency = normalizePaymentCurrency(visibleMethods.value[methodType]?.currency)
-  return quoteRechargeBonus(rechargeBonusTiers.value, validAmount.value, {
-    multiplier: balanceRechargeMultiplier.value,
-    mode: rechargeBonusMode.value,
-    currencyDigits: currencyFractionDigits(currency),
-    currency,
-    fixedTiers: checkout.value.balance_recharge_tiers,
-  })
-}
-
-const bonusQuote = computed(() => rechargeQuoteForMethod(selectedMethod.value))
+const bonusQuote = computed(() => quoteRechargeBonus(rechargeBonusTiers.value, validAmount.value, {
+  multiplier: balanceRechargeMultiplier.value,
+  mode: rechargeBonusMode.value,
+  currencyDigits: currencyFractionDigits(selectedCurrency.value),
+}))
 const payBaseAmount = computed(() => bonusQuote.value.payBase)
 const discountAmount = computed(() => roundPaymentAmount(validAmount.value - payBaseAmount.value, selectedCurrency.value))
 const creditedAmount = computed(() => bonusQuote.value.credited)
-const showBonusRow = computed(() => !activeRechargeTier.value && bonusQuote.value.mode !== 'discount' && bonusQuote.value.bonus > 0)
-const showCreditedBalance = computed(() => !!activeRechargeTier.value || balanceRechargeMultiplier.value !== 1 || bonusQuote.value.percent > 0)
+const showBonusRow = computed(() => bonusQuote.value.mode !== 'discount' && bonusQuote.value.bonus > 0)
+const showCreditedBalance = computed(() => balanceRechargeMultiplier.value !== 1 || bonusQuote.value.percent > 0)
 
 const methodOptions = computed<PaymentMethodOption[]>(() =>
   enabledMethods.value.map((type) => {
@@ -708,7 +680,7 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
       type,
       display_name: ml?.display_name,
       fee_rate: ml?.fee_rate ?? 0,
-      available: ml?.available !== false && amountFitsMethod(rechargeQuoteForMethod(type).payBase, type),
+      available: ml?.available !== false && amountFitsMethod(payBaseAmount.value, type),
     }
   })
 )
@@ -716,12 +688,12 @@ const methodOptions = computed<PaymentMethodOption[]>(() =>
 const feeRate = computed(() => checkout.value?.recharge_fee_rate ?? 0)
 const feeAmount = computed(() =>
   feeRate.value > 0 && payBaseAmount.value > 0
-    ? ceilPaymentAmount((payBaseAmount.value * feeRate.value) / 100, selectedCurrency.value)
+    ? Math.ceil(((payBaseAmount.value * feeRate.value) / 100) * 100) / 100
     : 0
 )
 const totalAmount = computed(() =>
   feeRate.value > 0 && payBaseAmount.value > 0
-    ? roundPaymentAmount(payBaseAmount.value + feeAmount.value, selectedCurrency.value)
+    ? Math.round((payBaseAmount.value + feeAmount.value) * 100) / 100
     : payBaseAmount.value
 )
 const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value > 0)
@@ -729,7 +701,7 @@ const showActualPay = computed(() => feeRate.value > 0 || discountAmount.value >
 const amountError = computed(() => {
   if (validAmount.value <= 0) return ''
   // No method can handle this amount
-  if (!methodOptions.value.some(method => method.available)) {
+  if (!enabledMethods.value.some((m) => amountFitsMethod(payBaseAmount.value, m))) {
     return t('payment.amountNoMethod')
   }
   // Selected method can't handle this amount (but others can)
@@ -743,7 +715,8 @@ const amountError = computed(() => {
 
 const canSubmit = computed(() =>
   validAmount.value > 0
-    && methodOptions.value.some(method => method.type === selectedMethod.value && method.available)
+    && amountFitsMethod(payBaseAmount.value, selectedMethod.value)
+    && selectedLimit.value?.available !== false
 )
 
 const subPaymentAmount = computed(() => {
@@ -790,10 +763,10 @@ const canSubmitSubscription = computed(() =>
 )
 
 // Auto-switch to first available method when current selection can't handle the amount
-watch(() => [validAmount.value, methodOptions.value, selectedMethod.value] as const, ([amt, options, method]) => {
-  if (amt <= 0 || options.some(option => option.type === method && option.available)) return
-  const available = options.find(option => option.available)
-  if (available) selectedMethod.value = available.type
+watch(() => [payBaseAmount.value, selectedMethod.value] as const, ([amt, method]) => {
+  if (amt <= 0 || amountFitsMethod(amt, method)) return
+  const available = enabledMethods.value.find((m) => amountFitsMethod(amt, m))
+  if (available) selectedMethod.value = available
 })
 
 // Payment button class: follows selected payment method color

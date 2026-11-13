@@ -105,44 +105,6 @@ func TestInflightReservation_FirstRequestAlwaysAdmitted(t *testing.T) {
 	release2()
 }
 
-func TestInflightReservation_RefreshReplacesOnlyItsOwnAmount(t *testing.T) {
-	_, cache, svc := newInflightTestEnv(t, true, 60)
-	ctx := context.Background()
-	user := &service.User{ID: 700}
-	require.NoError(t, cache.SetUserBalance(ctx, user.ID, 1))
-	current, err := svc.ReserveInflight(ctx, user, nil, nil, 0.2)
-	require.NoError(t, err)
-	defer current.HandlerDone()
-
-	refreshed, err := svc.RefreshInflight(ctx, current, user, nil, nil, 0.8)
-	require.NoError(t, err, "replacement must not double-count its old amount")
-	require.Same(t, current, refreshed)
-	require.Equal(t, int64(1), inflightCount(t, cache, user.ID))
-	_, err = svc.ReserveInflight(ctx, user, nil, nil, 0.3)
-	require.ErrorIs(t, err, service.ErrInsufficientBalance, "the replacement amount must protect the whole balance")
-
-	_, err = svc.RefreshInflight(ctx, current, user, nil, nil, 0.2)
-	require.NoError(t, err)
-	other, err := svc.ReserveInflight(ctx, user, nil, nil, 0.4)
-	require.NoError(t, err)
-	defer other.HandlerDone()
-	_, err = svc.RefreshInflight(ctx, current, user, nil, nil, 0.8)
-	require.ErrorIs(t, err, service.ErrInsufficientBalance)
-	require.InDelta(t, 0.2, current.Amount(), 1e-9)
-
-	_, err = svc.RefreshInflight(ctx, current, user, nil, nil, 0.5)
-	require.NoError(t, err)
-	require.InDelta(t, 0.5, current.Amount(), 1e-9)
-	require.Equal(t, int64(2), inflightCount(t, cache, user.ID))
-	_, err = svc.ReserveInflight(ctx, user, nil, nil, 0.2)
-	require.ErrorIs(t, err, service.ErrInsufficientBalance)
-	usageDone := current.Acquire()
-	current.HandlerDone()
-	require.Equal(t, int64(2), inflightCount(t, cache, user.ID))
-	usageDone()
-	require.Equal(t, int64(1), inflightCount(t, cache, user.ID))
-}
-
 func TestInflightReservation_TTLExpiryFreesLeakedReservation(t *testing.T) {
 	_, cache, svc := newInflightTestEnv(t, true, 1)
 	ctx := context.Background()

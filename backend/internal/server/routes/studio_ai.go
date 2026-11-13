@@ -87,7 +87,7 @@ func RegisterStudioAIRoutes(
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "密钥不存在或不可用"})
 				return
 			}
-			hasGroup := key.GroupID != nil && *key.GroupID > 0 || len(key.GroupIDs) > 0
+			hasGroup := key.GroupID != nil && *key.GroupID > 0
 			if !hasGroup {
 				c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"message": "该密钥未绑定分组,无法路由"})
 				return

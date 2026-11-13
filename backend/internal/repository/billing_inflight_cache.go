@@ -58,11 +58,6 @@ var (
 			sum = sum + (tonumber(vals[i]) or 0)
 		end
 		local count = redis.call('ZCARD', KEYS[1])
-		local previous = redis.call('HGET', KEYS[2], ARGV[3])
-		if previous then
-			sum = sum - (tonumber(previous) or 0)
-			count = count - 1
-		end
 		local amount = tonumber(ARGV[4])
 		local balance = tonumber(ARGV[5])
 		if count > 0 and (balance - sum) < amount then
