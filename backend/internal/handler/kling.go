@@ -87,7 +87,8 @@ func (h *OpenAIGatewayHandler) handleKlingResponse(c *gin.Context, endpoint serv
 			units = 1
 		}
 		inflightDone, err = reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, service.InflightEstimateRequest{
-			Model: model, BodyBytes: len(body), Kind: kind, Units: units,
+			Model: service.KlingBillingModel(model, body), BodyBytes: len(body), Kind: kind, Units: units,
+			VideoResolution:      service.KlingRequestResolution(body),
 			VideoDurationSeconds: service.KlingRequestDurationSeconds(body),
 		})
 		if err != nil {
@@ -150,7 +151,7 @@ func (h *OpenAIGatewayHandler) handleKlingResponse(c *gin.Context, endpoint serv
 		if result.DurationSeconds <= 0 {
 			result.DurationSeconds = service.KlingRequestDurationSeconds(body)
 		}
-		h.recordKlingUsage(c, apiKey, subject, account, model, taskID, result)
+		h.recordKlingUsage(c, apiKey, subject, account, model, taskID, body, result)
 	}
 	if responseMode == "studio" {
 		if result.TaskID == "" {
@@ -178,7 +179,7 @@ func (h *OpenAIGatewayHandler) selectKlingAccount(ctx context.Context, apiKey *s
 	return selection, err
 }
 
-func (h *OpenAIGatewayHandler) recordKlingUsage(c *gin.Context, apiKey *service.APIKey, subject middleware.AuthSubject, account *service.Account, model, taskID string, result *service.KlingTaskResult) {
+func (h *OpenAIGatewayHandler) recordKlingUsage(c *gin.Context, apiKey *service.APIKey, subject middleware.AuthSubject, account *service.Account, model, taskID string, body []byte, result *service.KlingTaskResult) {
 	if h == nil || h.gatewayService == nil || apiKey == nil || apiKey.User == nil || result == nil {
 		return
 	}
@@ -186,7 +187,7 @@ func (h *OpenAIGatewayHandler) recordKlingUsage(c *gin.Context, apiKey *service.
 	if duration <= 0 {
 		duration = 5
 	}
-	forward := &service.OpenAIForwardResult{ResponseID: result.TaskID, RequestID: result.TaskID, Model: model, BillingModel: model, ImageCount: result.ImageCount, VideoCount: result.VideoCount, VideoDurationSeconds: duration, ImageEndpoint: result.ImageCount > 0}
+	forward := &service.OpenAIForwardResult{ResponseID: result.TaskID, RequestID: result.TaskID, Model: model, BillingModel: service.KlingBillingModel(model, body), ImageCount: result.ImageCount, VideoCount: result.VideoCount, VideoResolution: service.KlingRequestResolution(body), VideoDurationSeconds: duration, ImageEndpoint: result.ImageCount > 0}
 	if taskID != "" {
 		forward.RequestID = taskID
 	}

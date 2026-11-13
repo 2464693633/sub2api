@@ -90,3 +90,32 @@ func TestKlingErrorHTTPStatus(t *testing.T) {
 		}
 	}
 }
+
+func TestKlingRequestResolutionAndBillingModel(t *testing.T) {
+	traditional := []byte(`{"model_name":"kling-v4","mode":"pro","duration":10,"resolution":"1080p"}`)
+	if got := KlingRequestResolution(traditional); got != "1080p" {
+		t.Fatalf("traditional resolution = %q", got)
+	}
+	if got := KlingRequestMode(traditional); got != "pro" {
+		t.Fatalf("mode = %q", got)
+	}
+	if got := KlingBillingModel("kling-v4", traditional); got != "kling-v4-pro" {
+		t.Fatalf("billing model = %q", got)
+	}
+
+	kling4 := []byte(`{"prompt":"cat","settings":{"duration":5,"resolution":"4k"}}`)
+	if got := KlingRequestResolution(kling4); got != "4k" {
+		t.Fatalf("kling4 resolution = %q", got)
+	}
+	if got := KlingBillingModel("kling-v4", kling4); got != "kling-v4" {
+		t.Fatalf("kling4 has no mode, billing model = %q", got)
+	}
+
+	unknown := []byte(`{"model_name":"kling-v4-flash","resolution":"8k","mode":"std"}`)
+	if got := KlingRequestResolution(unknown); got != "" {
+		t.Fatalf("unknown resolution should be empty, got %q", got)
+	}
+	if got := KlingBillingModel("kling-v4-flash", nil); got != "kling-v4-flash" {
+		t.Fatalf("nil body billing model = %q", got)
+	}
+}

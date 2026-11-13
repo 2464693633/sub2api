@@ -314,6 +314,43 @@ func KlingRequestDurationSeconds(body []byte) int {
 	return 5
 }
 
+// KlingRequestResolution returns the requested video resolution tier
+// ("480p"/"720p"/"1080p"/"4k"), or "" when the request leaves it to defaults.
+// Unknown values are reported as "" so runtime billing falls back to the
+// documented default tier instead of guessing.
+func KlingRequestResolution(body []byte) string {
+	for _, path := range []string{"resolution", "settings.resolution"} {
+		value := strings.TrimSpace(gjson.GetBytes(body, path).String())
+		if value == "" {
+			continue
+		}
+		if tier, ok := LookupVideoBillingResolution(value); ok {
+			return tier
+		}
+	}
+	return ""
+}
+
+// KlingRequestMode reports the traditional std/pro quality switch; the Kling
+// 4.0 protocol has no mode field and bills as std.
+func KlingRequestMode(body []byte) string {
+	if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, "mode").String()), "pro") {
+		return "pro"
+	}
+	return "std"
+}
+
+// KlingBillingModel folds the pro quality switch into the billing model id so
+// group VideoModelPrices can price std and pro separately (pro costs ~1.5x on
+// Kling). Flash/omni variants are already distinct model ids.
+func KlingBillingModel(model string, body []byte) string {
+	model = strings.TrimSpace(model)
+	if body != nil && KlingRequestMode(body) == "pro" {
+		return model + "-pro"
+	}
+	return model
+}
+
 // KlingRequestJSON validates that a request body is JSON and non-empty.
 func KlingRequestJSON(body []byte) bool {
 	var v any
