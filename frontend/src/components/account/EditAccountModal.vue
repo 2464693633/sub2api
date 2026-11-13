@@ -258,6 +258,17 @@
         >
           <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
 
+          <button
+            v-if="account.platform === 'kling'"
+            type="button"
+            data-testid="kling-sync-upstream-models"
+            class="btn btn-secondary mb-3"
+            :disabled="isSyncingKlingUpstream || !account.id"
+            @click="syncKlingUpstreamModels"
+          >
+            {{ isSyncingKlingUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
+          </button>
+
           <div
             v-if="isOpenAIModelRestrictionDisabled"
             class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
@@ -364,7 +375,8 @@
               :model-mappings="modelMappings"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
-              :show-sync-button="account.platform !== 'grok' || !account.id"
+              :show-sync-button="account.platform !== 'kling' && (account.platform !== 'grok' || !account.id)"
+              :available-models="account.platform === 'kling' ? klingUpstreamModels : undefined"
               @upstream-sync-finished="refreshGrokDiagnostics"
             />
 
@@ -4110,6 +4122,9 @@ const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist'
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
 const isSyncingAntigravityUpstream = ref(false)
+const isSyncingKlingUpstream = ref(false)
+const klingUpstreamModels = ref<string[]>()
+let klingSyncVersion = 0
 const tempUnschedEnabled = ref(false)
 const accountSchedulingThresholdOverrideEnabled = ref(false)
 const accountSchedulingThresholdOverrideValue = ref(100)
@@ -4597,6 +4612,9 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
+  klingSyncVersion += 1
+  isSyncingKlingUpstream.value = false
+  klingUpstreamModels.value = undefined
   if (!newAccount) {
     return
   }
@@ -5038,6 +5056,16 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     customErrorCodesEnabled.value = false
     selectedErrorCodes.value = []
   }
+  if (newAccount.platform === 'kling') {
+    // Recover the saved catalog when reopening the form instead of restoring
+    // the static fallback after a successful sync and Save.
+    const mapping = credentials?.model_mapping as Record<string, unknown> | undefined
+    const models = Object.values(mapping ?? {})
+      .filter((model): model is string => typeof model === 'string')
+      .map(model => model.trim())
+      .filter(model => model && !model.includes('*'))
+    if (models.length > 0) klingUpstreamModels.value = [...new Set(models)]
+  }
   editApiKey.value = ''
 }
 
@@ -5105,6 +5133,34 @@ const addAntigravityPresetMapping = (from: string, to: string) => {
     return
   }
   antigravityModelMappings.value.push({ from, to })
+}
+
+const syncKlingUpstreamModels = async () => {
+  const accountId = props.account?.id
+  if (!accountId || props.account?.platform !== 'kling' || isSyncingKlingUpstream.value) return
+  const version = klingSyncVersion
+  const isCurrent = () => version === klingSyncVersion && props.show && props.account?.id === accountId
+  isSyncingKlingUpstream.value = true
+  try {
+    const result = await adminAPI.accounts.syncUpstreamModels(accountId)
+    if (!isCurrent()) return
+    const models = [...new Set(result.models.map(model => model.trim()).filter(Boolean))]
+    if (models.length === 0) {
+      appStore.showError(t('admin.accounts.syncUpstreamModelsEmpty'))
+      return
+    }
+    klingUpstreamModels.value = models
+    allowedModels.value = models
+    modelMappings.value = []
+    modelRestrictionMode.value = 'whitelist'
+    appStore.showSuccess(t('admin.accounts.syncUpstreamModelsSuccess', { count: models.length, total: models.length }))
+  } catch (error) {
+    if (!isCurrent()) return
+    const message = extractApiErrorMessage(error, t('admin.accounts.syncUpstreamModelsFailed'))
+    appStore.showError(t('admin.accounts.syncUpstreamModelsError', { message }))
+  } finally {
+    if (isCurrent()) isSyncingKlingUpstream.value = false
+  }
 }
 
 const syncAntigravityUpstreamModels = async () => {

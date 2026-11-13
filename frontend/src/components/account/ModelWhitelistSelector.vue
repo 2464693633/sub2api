@@ -173,6 +173,7 @@ const props = withDefaults(defineProps<{
     api_key: string
   }
   showSyncButton?: boolean
+  availableModels?: string[]
 }>(), { showSyncButton: true })
 
 const emit = defineEmits<{
@@ -232,6 +233,9 @@ const canSyncUpstream = computed(() => {
 })
 
 const availableOptions = computed(() => {
+  if (props.availableModels) {
+    return props.availableModels.map(model => ({ value: model, label: model }))
+  }
   if (normalizedPlatforms.value.length === 0) {
     return allModels
   }
@@ -296,6 +300,10 @@ const handleEnter = () => {
 }
 
 const fillRelated = () => {
+  if (props.availableModels) {
+    emit('update:modelValue', [...new Set([...props.modelValue, ...props.availableModels])])
+    return
+  }
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {

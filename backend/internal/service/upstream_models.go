@@ -224,6 +224,14 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 // untouched.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
 	fetched, err := s.fetchUpstreamModelListWithObservation(ctx, account)
+	// Kling exposes media model IDs, without Codex capability metadata. Never
+	// turn a failed discovery into a successful static/configured fallback.
+	if account.IsKling() {
+		if err != nil {
+			return nil, err
+		}
+		return &UpstreamModelCatalog{Models: fetched.Models, DiscoverySource: "upstream"}, nil
+	}
 	var (
 		models          []string
 		body            []byte
@@ -830,8 +838,14 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 	if account.IsGrok() {
 		extractModels = extractGrokUpstreamModelIDs
 	}
+	if account.IsKling() {
+		extractModels = extractKlingUpstreamModelIDs
+	}
 	models, err := extractModels(body)
 	if err != nil {
+		if account.IsKling() {
+			return nil, nil, req, newUpstreamModelSyncUpstreamError("Invalid Kling upstream model list response", err)
+		}
 		if account.IsGrok() && errors.Is(err, errGrokCatalogEmpty) {
 			return nil, nil, req, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", err)
 		}
@@ -994,6 +1008,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
+	case account.IsKling():
+		return s.buildKlingUpstreamModelsRequest(ctx, account)
 	case account.IsOpenAI() || account.IsMultiProtocolAPIKey():
 		// 多协议 API Key 供应商（国产厂商与聚合平台）复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1006,6 +1022,51 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 			fmt.Sprintf("Unsupported platform for upstream model sync: %s", account.Platform), nil,
 		)
 	}
+}
+
+func (s *AccountTestService) buildKlingUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if account.Type != AccountTypeAPIKey {
+		return nil, newUpstreamModelSyncUnsupportedError("Kling model sync requires an API key account", nil)
+	}
+	accessKey, secretKey := account.GetKlingAccessSecret()
+	token, err := BuildKlingJWT(accessKey, secretKey, time.Now())
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Kling access key or secret key", err)
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetKlingBaseURL())
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Kling base URL", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildV1ModelsURL(baseURL), nil)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid Kling model list URL", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "application/json")
+	account.ApplyHeaderOverrides(req.Header)
+	return req, nil
+}
+
+func extractKlingUpstreamModelIDs(body []byte) ([]string, error) {
+	var envelope struct {
+		Code *int `json:"code"`
+		Data struct {
+			Models []struct {
+				ID string `json:"id"`
+			} `json:"models"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+	if envelope.Code == nil || *envelope.Code != 0 {
+		return nil, errors.New("Kling model list returned an unsuccessful envelope")
+	}
+	models := make([]string, 0, len(envelope.Data.Models))
+	for _, model := range envelope.Data.Models {
+		models = append(models, model.ID)
+	}
+	return dedupeAndSortModelIDs(models), nil
 }
 
 func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
